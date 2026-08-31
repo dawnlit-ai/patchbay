@@ -5,6 +5,7 @@ import { type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { AboutInfo, EngineStatus, Settings, SkillSummary } from '@shared/settings';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
+import { NameDialog } from './components/NameDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SkillLibrary } from './components/SkillLibrary';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -49,6 +50,8 @@ export function App(): JSX.Element {
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const [tab, setTab] = useState<'inspector' | 'skills' | 'settings'>('inspector');
     const [testing, setTesting] = useState(false);
+    /** Which name the dialog is asking for, if it is open. */
+    const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
     const [runsCollapsed, setRunsCollapsed] = useState(false);
     const [error, setError] = useState<string | null>(null);
     /** Edits made since the last write. Only visible when auto-save is off. */
@@ -245,14 +248,18 @@ export function App(): JSX.Element {
         setSelectedNodeId(null);
     };
 
-    const newFlow = async (): Promise<void> => {
-        const name = window.prompt('Name this flow:', 'New flow');
-        if (!name) return;
+    const newFlow = async (name: string): Promise<void> => {
         if (!(await leaveFlow())) return;
         const created = await window.api.flows.create(name);
         setFlows((prev) => [...prev, created]);
         setFlow(created);
         setSelectedNodeId(null);
+    };
+
+    /** The name is part of the flow, so a rename follows the auto-save setting. */
+    const renameFlow = (name: string): void => {
+        if (!flow || name === flow.name) return;
+        updateFlow({ ...flow, name });
     };
 
     const loadFlow = async (): Promise<void> => {
@@ -306,7 +313,10 @@ export function App(): JSX.Element {
                         </option>
                     ))}
                 </select>
-                <button onClick={() => void newFlow()}>New flow</button>
+                <button className="ghost" title="Rename this flow" onClick={() => setNaming('rename')}>
+                    ✎ Rename
+                </button>
+                <button onClick={() => setNaming('new')}>New flow</button>
                 <button title="Open a flow file and add it to the library" onClick={() => void loadFlow()}>
                     Load…
                 </button>
@@ -441,6 +451,21 @@ export function App(): JSX.Element {
                     </div>
                 </div>
             </div>
+
+            {naming && (
+                <NameDialog
+                    title={naming === 'new' ? 'New flow' : 'Rename flow'}
+                    label="Flow name"
+                    initial={naming === 'new' ? 'New flow' : flow.name}
+                    confirmLabel={naming === 'new' ? 'Create' : 'Rename'}
+                    onCancel={() => setNaming(null)}
+                    onConfirm={(name) => {
+                        setNaming(null);
+                        if (naming === 'new') void newFlow(name);
+                        else renameFlow(name);
+                    }}
+                />
+            )}
 
             {testing && (
                 <TestRunDialog

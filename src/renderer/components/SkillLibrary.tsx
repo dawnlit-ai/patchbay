@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
+import { NameDialog } from './NameDialog';
 import type { SkillSummary } from '@shared/settings';
 
 const TEMPLATE = (name: string): string => `---
@@ -35,6 +36,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
     const [content, setContent] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [naming, setNaming] = useState(false);
 
     useEffect(() => {
         if (!editing) return;
@@ -58,10 +60,9 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
         }
     };
 
-    const create = (): void => {
-        const name = window.prompt('Skill name (lowercase, hyphens):', 'my-skill');
-        if (!name) return;
-        const clean = name.trim().toLowerCase();
+    const create = (name: string): void => {
+        const clean = name.toLowerCase();
+        setNaming(false);
         setEditing(clean);
         setContent(TEMPLATE(clean));
     };
@@ -115,10 +116,22 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                 <strong>Skill library</strong>
                 <span className="spacer"/>
                 <button onClick={() => void importSkills()}>Import…</button>
-                <button className="primary" onClick={create}>
+                <button className="primary" onClick={() => setNaming(true)}>
                     New
                 </button>
             </div>
+
+            {naming && (
+                <NameDialog
+                    title="New skill"
+                    label="Skill name"
+                    initial="my-skill"
+                    confirmLabel="Create"
+                    hint="Lowercase and hyphens — it becomes the folder name Claude discovers."
+                    onCancel={() => setNaming(false)}
+                    onConfirm={create}
+                />
+            )}
 
             {error && <div className="err-banner">{error}</div>}
 

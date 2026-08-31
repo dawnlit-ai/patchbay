@@ -903,6 +903,11 @@ code {
     box-shadow: var(--shadow-lg);
 }
 
+/* Asking for one line of text needs nothing like the width of a list. */
+.modal.narrow {
+    width: min(420px, 92vw);
+}
+
 .modal header {
     padding: 12px 14px;
     border-bottom: 1px solid var(--line);
