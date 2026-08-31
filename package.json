@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Blueprint-style visual email processing flows: Outlook in, Claude skills out, every pass traced.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-or-later",
   "main": ".vite/build/main.js",
   "engines": {
     "node": ">=24"
@@ -43,5 +43,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^4.5.4"
-  }
+  },
+  "author": "Wynter Lin"
 }

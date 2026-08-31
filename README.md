@@ -5,7 +5,7 @@ onto a canvas, connect them port to port, and watch a real email travel the path
 you drew. Outlook supplies the mail, Claude does the thinking, and every pass is
 written down so you can work out afterwards why an email went where it did.
 
-![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
+![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
 
 ## What it does
 
@@ -124,7 +124,8 @@ On first run the library seeds itself from the first of these that exists —
 `skillSeedPath` in Settings, `~/Documents/GitHub/smart-logistics-assistant/skills`,
 then `./skills` — falling back to one starter skill if none do. These are the
 app's **own copies**: edit them in the Skills tab without touching the originals.
-Seeding happens only while the library is empty, so it never fights your edits.
+Seeding runs only while the library is empty — or holds nothing but that starter
+skill, which the app wrote itself — so it never fights an edit you made here.
 
 The **Skills** tab edits them in place, and **Import…** pulls in a folder of
 existing skills at any time. The Agent SDK discovers them from the workspace, so
@@ -188,3 +189,28 @@ Every Categorizer pass is one Claude call; every Processor pass is an agent loop
 Both record `total_cost_usd` on the pass, and the Processor honours a per-node USD
 budget. Classification runs about a cent on Opus; a processing run depends
 entirely on the skill.
+
+## Licence
+
+Copyright (C) 2026 Wynter Lin.
+
+Email Flow Studio is free software: you can redistribute it and/or modify it
+under the terms of the **GNU Affero General Public License** as published by the
+Free Software Foundation, either version 3 of the Licence, or (at your option)
+any later version. It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text, or
+<https://www.gnu.org/licenses/>.
+
+The AGPL's network clause (section 13) is the point of choosing it here: anyone
+who runs a modified version of this app as a service has to offer its users the
+modified source.
+
+**On dependencies.** The licence above covers this repository's own code. It does
+not relicense what it talks to: `@anthropic-ai/claude-agent-sdk` is proprietary
+("© Anthropic PBC. All rights reserved", subject to Anthropic's
+[legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
+`@dawnlit/outlook-bridge` is Apache-2.0. Both are installed from npm by whoever
+builds the app rather than redistributed here — worth understanding before you
+ship binaries, since bundling a proprietary SDK into an AGPL distribution is a
+question for a lawyer rather than a README.
