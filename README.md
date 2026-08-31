@@ -1,10 +1,11 @@
-# Email Flow Studio
+# Patchbay
 
 *A [Dawnlit](https://github.com/dawnlit-ai) project.*
 
-Build email-processing pipelines the way you'd wire a Blueprint graph: drag nodes
-onto a canvas, connect them port to port, and watch a real email travel the path
-you drew. Outlook supplies the mail, Claude does the thinking, and every pass is
+A patchbay is a board where you run a cable from one jack to another and the
+signal follows the wire you can see. This is that, for email: drag nodes onto a
+canvas, connect them port to port, and watch a real email travel the path you
+drew. Outlook supplies the mail, Claude does the thinking, and every pass is
 written down so you can work out afterwards why an email went where it did.
 
 ![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![by](https://img.shields.io/badge/by-Dawnlit-0f9d58) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
@@ -196,7 +197,7 @@ entirely on the skill.
 
 Copyright (C) 2026 Dawnlit.
 
-Email Flow Studio is free software: you can redistribute it and/or modify it
+Patchbay is free software: you can redistribute it and/or modify it
 under the terms of the **GNU Affero General Public License** as published by the
 Free Software Foundation, either version 3 of the Licence, or (at your option)
 any later version. It is distributed in the hope that it will be useful, but

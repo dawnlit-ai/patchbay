@@ -54,7 +54,7 @@ export function registerIpc(): void {
   handle(
     IPC.about,
     (): AboutInfo => ({
-      name: 'Email Flow Studio',
+      name: 'Patchbay',
       version: app.getVersion(),
       developer: 'Dawnlit',
       developerUrl: DEVELOPER_URL,

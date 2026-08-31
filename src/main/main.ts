@@ -15,8 +15,10 @@ function createWindow(): void {
     height: 980,
     minWidth: 1100,
     minHeight: 700,
-    backgroundColor: '#0b1020',
-    title: 'Email Flow Studio',
+    // Matches the light theme's --bg, so launching does not flash a dark frame
+    // before the renderer paints.
+    backgroundColor: '#f4f6f9',
+    title: 'Patchbay',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

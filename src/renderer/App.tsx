@@ -12,12 +12,15 @@ import { TestRunDialog } from './components/TestRunDialog';
 
 const PALETTE: NodeKind[] = ['categorizer', 'processor', 'terminal'];
 
-const THEME_KEY = 'efs.theme';
+const THEME_KEY = 'patchbay.theme';
+/** The key used before the product was renamed; read once so the choice survives. */
+const LEGACY_THEME_KEY = 'efs.theme';
 
 /** Light unless the user has chosen otherwise; the choice is per machine. */
 function readTheme(): Theme {
   try {
-    return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
+    const stored = localStorage.getItem(THEME_KEY) ?? localStorage.getItem(LEGACY_THEME_KEY);
+    return stored === 'dark' ? 'dark' : 'light';
   } catch {
     return 'light';
   }
@@ -192,7 +195,7 @@ export function App(): JSX.Element {
     <div className="app">
       <div className="topbar">
         <span className="brand">
-          <span className="name">Email Flow Studio</span>
+          <span className="name">Patchbay</span>
           <span className="by">
             by <b>Dawnlit</b>
           </span>
