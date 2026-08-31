@@ -15,8 +15,8 @@ import type { SkillSummary } from '@shared/settings';
 
 /**
  * Configures the selected node. Each kind gets its own section, handed the
- * narrowed config it understands — so no section has to cast, and none can read
- * a field belonging to another kind.
+ * narrowed config it understands, so no section casts or reads a field belonging
+ * to another kind.
  */
 
 const MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
@@ -64,7 +64,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
     const [error, setError] = useState<string | null>(null);
 
     // Reading the mailbox drives Outlook over COM and takes a moment, so it only
-    // happens while a trigger node is actually open in the inspector.
+    // happens while a trigger node is open in the inspector.
     useEffect(() => {
         let cancelled = false;
         window.api.outlook

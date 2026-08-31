@@ -10,18 +10,16 @@ export interface McpServerSetting {
 
 export interface Settings {
     /**
-     * Path to the `claude` executable the Agent SDK drives. Empty lets the SDK
-     * resolve its own bundled platform binary; on a machine with Claude Code
-     * already installed, pointing at that binary avoids a second ~200MB download.
+     * The `claude` executable the Agent SDK drives. Empty resolves the SDK's own
+     * bundled binary; pointing at an existing Claude Code install avoids a second
+     * ~200MB download.
      */
     claudeExecutablePath: string;
     /** Extra MCP servers handed to every Processor node. */
     mcpServers: McpServerSetting[];
     /**
-     * Folder of `<name>/SKILL.md` directories the library is seeded from on first
-     * run. Empty means "look in the usual places" (see seedSkillLibrary). Only ever
-     * read when the library is empty, so editing skills here never fights an
-     * upstream copy.
+     * Folder of `<name>/SKILL.md` directories to seed the library from, read only
+     * while the library is empty so edits here never fight an upstream copy.
      */
     skillSeedPath: string;
     /** Default model for new nodes. */

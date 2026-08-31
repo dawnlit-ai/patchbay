@@ -5,9 +5,9 @@ import { findTrigger } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 
 /**
- * Push one real email through the flow on demand. This is how a flow gets built:
- * wire it up, run a message you already understand through it, read the trace,
- * adjust. It ignores the watermark, so the same email can be run repeatedly.
+ * Push one real email through the flow on demand — wire it up, run a message you
+ * already understand, read the trace, adjust. Ignores the watermark, so the same
+ * email can be run repeatedly.
  */
 
 interface Props {

@@ -28,10 +28,9 @@ import {
 import type { Pass } from '@shared/trace';
 
 /**
- * The canvas. The Flow object is the single source of truth — React Flow's own
- * node array is derived on every render and every interaction is translated
- * straight back into a Flow edit, so there is no second copy of the graph to
- * drift out of sync.
+ * The canvas. The Flow object is the single source of truth: React Flow's node
+ * array is derived on every render and every interaction translates straight back
+ * into a Flow edit, so no second copy of the graph can drift.
  */
 
 export interface CanvasHighlight {
@@ -114,8 +113,8 @@ const nodeTypes = { card: NodeCard };
 
 /**
  * React Flow takes plain colour strings rather than CSS variables, so read the
- * token off the document. Every call happens during render, and the theme
- * attribute is set before React re-renders, so these follow a theme switch.
+ * token off the document. Called during render, after the theme attribute is
+ * set, so these follow a theme switch.
  */
 function cssVar(name: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -177,8 +176,8 @@ export function FlowCanvas({
                     nodes = nodes.map((n) => (n.id === change.id ? { ...n, position } : n));
                     touched = true;
                 } else if (change.type === 'remove') {
-                    // The trigger is the run's entry point; removing it would leave a flow
-                    // that can never start, so it stays put.
+                    // The trigger is the entry point: removing it would leave a flow that
+                    // can never start, so it stays put.
                     const target = nodes.find((n) => n.id === change.id);
                     if (target?.kind === 'trigger.outlook') continue;
                     nodes = nodes.filter((n) => n.id !== change.id);
@@ -208,8 +207,8 @@ export function FlowCanvas({
             if (!connection.source || !connection.target || !connection.sourceHandle) return;
             if (connection.source === connection.target) return;
             const id = `${connection.source}:${connection.sourceHandle}->${connection.target}`;
-            // One edge per output port: a port is a decision, and a decision that led
-            // two places would make the recorded path ambiguous.
+            // One edge per output port: a decision leading two places would make the
+            // recorded path ambiguous.
             const edges = flow.edges.filter(
                 (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
             );
@@ -232,8 +231,8 @@ export function FlowCanvas({
             const bounds = wrapper.current?.getBoundingClientRect();
             if (!bounds) return;
 
-            // Approximate placement is fine — the node is immediately draggable, and
-            // avoiding the viewport transform keeps this free of a provider wrapper.
+            // Approximate placement: the node is immediately draggable, and skipping
+            // the viewport transform keeps this free of a provider wrapper.
             const id = `${kind.split('.')[0]}-${Math.random().toString(36).slice(2, 8)}`;
             const node: FlowNode = {
                 id,

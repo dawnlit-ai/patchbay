@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
-import type { AboutInfo, Settings } from '@shared/settings';
+import type { AboutInfo, McpServerSetting, Settings } from '@shared/settings';
 
 interface Props {
     settings: Settings;
@@ -14,6 +14,9 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
     const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
     const patch = (partial: Partial<Settings>): void => setDraft({ ...draft, ...partial });
+
+    const patchServer = (index: number, partial: Partial<McpServerSetting>): void =>
+        patch({ mcpServers: draft.mcpServers.map((s, j) => (j === index ? { ...s, ...partial } : s)) });
 
     return (
         <div>
@@ -67,19 +70,12 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
             </div>
 
             {draft.mcpServers.map((server, i) => (
-                <div
-                    key={i}
-                    className="card"
-                >
+                <div key={i} className="card">
                     <div className="row" style={{ marginBottom: 6 }}>
                         <input
                             placeholder="name"
                             value={server.name}
-                            onChange={(e) => {
-                                const mcpServers = [...draft.mcpServers];
-                                mcpServers[i] = { ...server, name: e.target.value };
-                                patch({ mcpServers });
-                            }}
+                            onChange={(e) => patchServer(i, { name: e.target.value })}
                         />
                         <button
                             className="danger fixed"
@@ -92,30 +88,18 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                         placeholder="command, e.g. node"
                         style={{ marginBottom: 6 }}
                         value={server.command}
-                        onChange={(e) => {
-                            const mcpServers = [...draft.mcpServers];
-                            mcpServers[i] = { ...server, command: e.target.value };
-                            patch({ mcpServers });
-                        }}
+                        onChange={(e) => patchServer(i, { command: e.target.value })}
                     />
                     <input
                         placeholder="arguments, space separated"
                         value={server.args.join(' ')}
-                        onChange={(e) => {
-                            const mcpServers = [...draft.mcpServers];
-                            mcpServers[i] = { ...server, args: e.target.value.split(' ').filter(Boolean) };
-                            patch({ mcpServers });
-                        }}
+                        onChange={(e) => patchServer(i, { args: e.target.value.split(' ').filter(Boolean) })}
                     />
                     <label className="check" style={{ marginTop: 6, marginBottom: 0 }}>
                         <input
                             type="checkbox"
                             checked={server.enabled}
-                            onChange={(e) => {
-                                const mcpServers = [...draft.mcpServers];
-                                mcpServers[i] = { ...server, enabled: e.target.checked };
-                                patch({ mcpServers });
-                            }}
+                            onChange={(e) => patchServer(i, { enabled: e.target.checked })}
                         />
                         Enabled
                     </label>

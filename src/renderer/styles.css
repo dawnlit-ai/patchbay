@@ -1,8 +1,7 @@
 /*
  * Two themes from one set of tokens. Light is the default; `data-theme="dark"`
- * on <html> swaps the values and nothing else. Every colour below is a token —
- * no component hard-codes a hex, so a theme is a palette change rather than a
- * sweep through the stylesheet.
+ * on <html> swaps the values and nothing else. No component hard-codes a hex, so
+ * a theme is a palette change rather than a sweep through the stylesheet.
  */
 
 :root {
@@ -399,7 +398,7 @@ code {
     flex: 1;
 }
 
-/* Opts a control out of the row's equal-width sharing — a Remove button, say. */
+/* Opts a control out of the row's equal-width sharing. */
 .row > .fixed {
     flex: none;
 }
@@ -453,7 +452,7 @@ code {
     position: relative;
 }
 
-/* React Flow's attribution stays (its licence asks for it); just tone it down. */
+/* The attribution stays — React Flow's licence asks for it. Just tone it down. */
 .react-flow__attribution {
     background: transparent;
 }
@@ -1003,7 +1002,7 @@ code {
     font-size: 12px;
 }
 
-/* The app-level banner, which sits between the topbar and the panels. */
+/* The app-level banner, between the topbar and the panels. */
 .err-banner.inset {
     margin: 8px 12px 0;
 }

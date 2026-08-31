@@ -3,9 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Everything the app owns lives under one workspace directory, because the
- * Agent SDK needs a real `cwd` with a `.claude/skills` tree beneath it — the
- * skill library is a directory of files, not a database table.
+ * Everything the app owns lives under one workspace directory: the Agent SDK
+ * needs a real `cwd` with a `.claude/skills` tree beneath it.
  */
 let root: string | null = null;
 

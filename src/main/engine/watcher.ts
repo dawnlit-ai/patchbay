@@ -10,13 +10,10 @@ import * as outlook from '../outlook/bridge';
 import { executeRun } from './engine';
 
 /**
- * Turns "an email arrived" into "a run happened".
- *
- * Outlook offers no push notification through this bridge, so arrival is
- * detected by polling and remembering which message ids have already been seen.
- * Runs execute one at a time: an agent run can take minutes and drives the same
- * Outlook client the user is reading mail in, so overlapping them would make
- * both slower and the traces harder to read.
+ * Turns "an email arrived" into "a run happened". The bridge offers no push
+ * notification, so arrival means polling and remembering the message ids already
+ * seen. Runs execute one at a time — an agent run takes minutes and drives the
+ * same Outlook client the user is reading mail in.
  */
 
 interface Watermark {
@@ -62,10 +59,8 @@ export class Watcher {
             return this.status();
         }
         this.lastError = undefined;
-        // Poll on the shortest interval any watched flow asks for, and let each
-        // flow's own pollSeconds decide whether its turn has come.
-        const tick = (): void => void this.poll();
-        this.timer = setInterval(tick, 15_000);
+        // A fixed tick; each flow's own pollSeconds decides whether its turn has come.
+        this.timer = setInterval(() => void this.poll(), 15_000);
         void this.poll();
         this.onStatus();
         return this.status();
@@ -153,9 +148,8 @@ export class Watcher {
                 const mark: Watermark = marks[flow.id] ?? { seen: [], primed: false };
                 const seen = new Set(mark.seen);
 
-                // The first poll after a flow starts watching establishes a baseline.
-                // Without it, switching a flow on would fire a run for every email
-                // already sitting in the folder.
+                // The first poll establishes a baseline; without it, switching a flow
+                // on would fire a run for every email already in the folder.
                 if (!mark.primed && !config.processBacklogOnStart) {
                     mark.seen = emails.map((e) => e.ref.entryId).slice(-SEEN_LIMIT);
                     mark.primed = true;
@@ -179,8 +173,8 @@ export class Watcher {
                 marks[flow.id] = mark;
             }
 
-            // Persisted before the runs execute: a crash mid-run must not cause the
-            // same email to be processed again on the next launch.
+            // Persisted before the runs execute: a crash mid-run must not reprocess
+            // the same email on the next launch.
             if (changed) writeJson(watermarkFile(), marks);
             this.lastPollAt = new Date().toISOString();
             this.onStatus();
@@ -199,8 +193,8 @@ export class Watcher {
             while (this.queue.length > 0) {
                 const item = this.queue.shift();
                 if (!item) break;
-                // The id is minted here rather than inside the run so the controller is
-                // findable by `cancel` from the moment the run starts.
+                // Minted here, not inside the run, so `cancel` can find the controller
+                // from the moment the run starts.
                 const runId = randomUUID();
                 const controller = new AbortController();
                 this.active.set(runId, controller);

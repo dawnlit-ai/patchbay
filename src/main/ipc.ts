@@ -30,9 +30,8 @@ export function getWatcher(): Watcher {
 }
 
 /**
- * Every handler is wrapped so a thrown error crosses the IPC boundary as a
- * readable message. Electron would otherwise prefix it with a stack trace from
- * the internal invoke plumbing, which tells the user nothing.
+ * Wraps a handler so a thrown error crosses the IPC boundary as a readable
+ * message rather than Electron's internal invoke stack trace.
  */
 function handle<T extends unknown[], R>(
     channel: string,

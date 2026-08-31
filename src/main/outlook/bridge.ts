@@ -10,12 +10,10 @@ import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption } from '@shared/ipc';
 
 /**
- * A thin seam over @dawnlit/outlook-bridge.
- *
- * The bridge drives the real Outlook client over COM, so every call spawns
- * PowerShell and can take seconds. It is imported lazily so that launching the
- * app on a machine without Outlook still opens a window — the failure belongs
- * on the node that needed a mailbox, not on startup.
+ * A thin seam over @dawnlit/outlook-bridge, which drives the real Outlook client
+ * over COM: every call spawns PowerShell and can take seconds. Imported lazily,
+ * so a machine without Outlook still opens a window — the failure belongs on the
+ * node that needed a mailbox, not on startup.
  */
 
 type BridgeModule = typeof import('@dawnlit/outlook-bridge');
@@ -28,17 +26,16 @@ async function bridge(): Promise<BridgeModule> {
 }
 
 /**
- * Outlook's COM automation is single-threaded: a second script asking for the
- * same client while one is mid-call blocks until the first finishes, and if that
- * one is slow the second simply burns its whole timeout waiting. The poller, the
- * inspector's folder lookup and a skill's `read_email` all want the mailbox, so
- * every call is funnelled through one queue and they take turns.
+ * Outlook's COM automation is single-threaded: a second script blocks until the
+ * first finishes, and against a slow call simply burns its timeout waiting. The
+ * poller, the folder lookup and a skill's `read_email` all want the mailbox, so
+ * every call queues here and they take turns.
  */
 let chain: Promise<unknown> = Promise.resolve();
 
 function serialize<T>(work: () => Promise<T>): Promise<T> {
-    // Each link swallows its predecessor's rejection so one failed call does not
-    // poison the queue for everything behind it.
+    // Each link swallows its predecessor's rejection, so one failed call does not
+    // poison the queue behind it.
     const next = chain.then(work, work);
     chain = next.catch(() => undefined);
     return next;
@@ -55,8 +52,8 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
         { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
     ];
     for (const f of folders) {
-        // The trigger stores a path relative to the Inbox, which is what
-        // readInboxEmails' `folder` argument takes.
+        // A trigger stores the path relative to the Inbox — what readInboxEmails
+        // takes as its `folder` argument.
         const idx = f.folderPath.toLowerCase().lastIndexOf('\\inbox\\');
         const relative = idx >= 0 ? f.folderPath.slice(idx + '\\inbox\\'.length) : f.name;
         options.push({
@@ -121,8 +118,8 @@ export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmai
 }
 
 /**
- * Always a draft: `sendImmediately` is hard-wired false and no code path in this
- * app sets it true. A flow can propose a reply; a person sends it.
+ * Always a draft: `sendImmediately` is hard-wired false, and no code path sets it
+ * true. A flow can propose a reply; a person sends it.
  */
 export async function draftReply(
     ref: EmailRef,

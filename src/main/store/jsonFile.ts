@@ -1,9 +1,8 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 /**
- * Read-or-default and write-atomically. Every store in the app goes through
- * these two, so a crash mid-write can never leave a half-written flow or a
- * truncated settings file behind.
+ * Read-or-default and write-atomically. Every store goes through these two, so a
+ * crash mid-write cannot leave a truncated file behind.
  */
 
 export function readJson<T>(path: string, fallback: T): T {

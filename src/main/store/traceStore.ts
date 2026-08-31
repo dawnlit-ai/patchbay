@@ -5,12 +5,9 @@ import { readJson, writeJson } from './jsonFile';
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
 
 /**
- * Runs are stored one JSON file each, with a JSONL index for the list view.
- *
- * A database would be the reflex here, but the whole point of these records is
- * that they stay readable when something has gone wrong months later — a run is
- * a file you can open, diff, and paste into a bug report. The index exists only
- * so the runs list does not have to parse every run to draw a row.
+ * One JSON file per run, plus a JSONL index for the list view. Files rather than
+ * a database because a run should stay openable, diffable and pasteable into a
+ * bug report months later; the index only spares the list from parsing them all.
  */
 
 const runFile = (id: string): string => join(runsDir(), `${id}.json`);
@@ -25,8 +22,7 @@ export function indexRun(run: Run): void {
 }
 
 export function getRun(id: string): Run | null {
-    // Ids come from the renderer, so refuse anything that could climb out of the
-    // runs directory rather than trusting the caller.
+    // Ids come from the renderer: refuse anything that could climb out of runsDir.
     if (!/^[a-zA-Z0-9-]+$/.test(id)) return null;
     return readJson<Run | null>(runFile(id), null);
 }

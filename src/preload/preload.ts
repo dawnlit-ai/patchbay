@@ -3,9 +3,8 @@ import type { Api } from '@shared/ipc';
 import { IPC } from '@shared/ipc';
 
 /**
- * The renderer gets exactly this object and nothing else — no `require`, no
- * direct ipcRenderer. Every method is a thin pass-through, so the shape in
- * shared/ipc.ts is the whole contract.
+ * The renderer gets exactly this object and nothing else. Every method is a thin
+ * pass-through, so the shape in shared/ipc.ts is the whole contract.
  */
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {

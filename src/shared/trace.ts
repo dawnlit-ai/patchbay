@@ -1,8 +1,7 @@
 /**
- * The run record — the reason this app exists. One Run per email, one Pass per
- * node the email visited, and inside a pass every event that explains why it
- * left by the port it did. Written to disk as plain JSON so a run can be read
- * with a text editor months later.
+ * The run record: one Run per email, one Pass per node it visited, and inside a
+ * pass the events explaining why it left by the port it did. Plain JSON on disk,
+ * so a run is still readable in a text editor months later.
  */
 
 import type { NodeKind } from './flow';

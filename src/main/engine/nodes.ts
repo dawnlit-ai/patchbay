@@ -42,8 +42,8 @@ function emailContext(email: EmailEnvelope, body: string | undefined): string {
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
-// The email is already in hand by the time a run exists; this pass exists so the
-// trace starts where the canvas does.
+// The email is already in hand by the time a run exists; this pass only makes
+// the trace start where the canvas does.
 
 function runTrigger(config: TriggerConfig): NodeOutcome {
     return {
@@ -71,8 +71,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
                 label: `Read body (${result.bodyLength} characters)`,
             });
         } catch (e) {
-            // A body we could not read is a reason to classify on the preview, not a
-            // reason to fail the email.
+            // An unreadable body means classifying on the preview, not failing.
             ctx.onEvent({
                 at: now(),
                 type: 'error',
@@ -103,9 +102,8 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         model: config.model,
         maxTurns: 4,
         cwd: workspaceRoot(),
-        // Classification is one judgement on text already in the prompt. Disabling
-        // the built-in tools keeps it to a single turn instead of letting the model
-        // reach for a file search it has no use for.
+        // One judgement on text already in the prompt: with the built-in tools
+        // disabled it stays a single turn.
         tools: [],
         allowedTools: [],
         signal: ctx.signal,
@@ -158,8 +156,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     for (const extra of getSettings().mcpServers) {
         if (!extra.enabled || !extra.name.trim()) continue;
         mcpServers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
-        // Extra MCP servers are enabled wholesale — the user added them deliberately,
-        // and naming every tool would mean re-listing them on each upgrade.
+        // Enabled wholesale: the user added the server deliberately, and naming each
+        // tool would mean re-listing them on every upgrade.
         allowedTools.push(`mcp__${extra.name}`);
     }
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
@@ -219,9 +217,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         summary?: string;
         actions?: string[];
     };
-    // Two sources of truth for what happened: what Claude says it did, and what
-    // the tools actually recorded. Both go in the summary; the tool record wins
-    // any argument, because it is the one that touched Outlook.
+    // Both what the tools recorded and what Claude says it did go in the summary.
+    // The tool record wins any argument: it is the one that touched Outlook.
     const performed = actions.length > 0 ? ` [${actions.join('; ')}]` : '';
     const stated = (answer.actions ?? []).join('; ');
 
@@ -257,7 +254,7 @@ async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<No
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    // Narrowed once here, so no runner has to re-check the kind it was chosen for.
+    // Narrowed once here, so no runner re-checks the kind it was chosen for.
     const config = ctx.node.config;
     switch (config.kind) {
         case 'trigger.outlook':

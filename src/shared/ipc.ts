@@ -65,13 +65,12 @@ export interface Api {
         engineStatus(cb: (status: EngineStatus) => void): () => void;
     };
 
-    /**
-     * Product identity. `openDeveloperSite` deliberately takes no URL — the main
-     * process owns the destination, so the renderer cannot ask the OS to open an
-     * arbitrary address.
-     */
     about(): Promise<AboutInfo>;
 
+    /**
+     * Deliberately takes no URL: main owns the destination, so the renderer
+     * cannot ask the OS to open an arbitrary address.
+     */
     openDeveloperSite(): Promise<void>;
 }
 

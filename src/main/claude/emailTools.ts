@@ -6,12 +6,10 @@ import * as outlook from '../outlook/bridge';
 
 /**
  * The mailbox surface a Processor gets: an in-process MCP server whose tools are
- * bound to the one email this run is about.
- *
- * The binding is the point. There is no tool here that takes an entryId, so a
+ * bound to the one email this run is about. No tool here takes an entryId, so a
  * skill cannot wander into another message however it is prompted, and every
- * call lands in the pass trace with its arguments. Capabilities beyond reading
- * are opt-in per node, and none of them sends mail.
+ * call lands in the pass trace. Anything beyond reading is opt-in per node, and
+ * none of it sends mail.
  */
 
 export const EMAIL_SERVER_NAME = 'email';
@@ -44,7 +42,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         ctx.onEvent({ at: now(), type: 'outlook', label, detail });
     };
 
-    // Each tool carries its own schema type, so the array is annotated rather than
+    // Each tool has its own schema type, so the array is annotated rather than
     // inferred from its first element.
     const tools: SdkMcpToolDefinition<any>[] = [
         tool(

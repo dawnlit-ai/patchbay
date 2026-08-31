@@ -3,9 +3,8 @@ import { useState } from 'react';
 import type { Pass, Run, RunSummary, TraceEvent } from '@shared/trace';
 
 /**
- * The run log. The list is the audit trail; the detail is the "why" — every pass
- * in order, the port it left by, and inside each pass the events that produced
- * that decision.
+ * The run log. The list is the audit trail; the detail is the "why" — each pass
+ * in order, the port it left by, and the events behind that decision.
  */
 
 function statusBadge(status: string): JSX.Element {

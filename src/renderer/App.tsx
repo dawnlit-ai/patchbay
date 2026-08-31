@@ -27,9 +27,9 @@ function readTheme(): Theme {
 
 /**
  * The stylesheet keys every colour off this attribute, so setting it is the whole
- * of what switching themes does. It happens before React renders rather than in an
- * effect afterwards, because the canvas reads those same tokens as it draws and an
- * effect would leave it a frame behind.
+ * of switching themes. Done before React renders rather than in an effect: the
+ * canvas reads the same tokens as it draws, and an effect would leave it a frame
+ * behind.
  */
 function applyTheme(theme: Theme): void {
     document.documentElement.dataset.theme = theme;
@@ -92,9 +92,8 @@ export function App(): JSX.Element {
         })();
     }, [refreshRuns, refreshSkills]);
 
-    // Live updates. A run that is already open stays open and keeps filling in;
-    // otherwise the newest run becomes the one on screen, so starting a flow shows
-    // its work without anyone having to click.
+    // Live updates. An open run stays open and keeps filling in; otherwise the
+    // newest becomes the one on screen, so a flow shows its work without a click.
     useEffect(() => {
         const offRun = window.api.on.runUpdated((run) => {
             setRuns((prev) => [toSummary(run), ...prev.filter((r) => r.id !== run.id)]);
@@ -114,8 +113,7 @@ export function App(): JSX.Element {
     const updateFlow = useCallback((next: Flow) => {
         setFlow(next);
         setFlows((prev) => prev.map((f) => (f.id === next.id ? next : f)));
-        // Debounced: dragging a node fires a change per animation frame, and each
-        // save is a file write.
+        // Debounced: dragging fires a change per frame, and each save is a file write.
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
             void window.api.flows.save(next).catch((e: Error) => setError(e.message));

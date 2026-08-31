@@ -34,10 +34,8 @@ function createWindow(): void {
 }
 
 /**
- * Where to look for skills to seed the library from, in order, and only while it
- * is empty: the folder named in Settings, then a `skills` directory beside the
- * app. A machine with neither gets the starter skill instead, and Skills →
- * Import… covers anywhere else.
+ * Seed folders to try in order: the one named in Settings, then a `skills`
+ * directory beside the app. With neither, the library gets the starter skill.
  */
 function skillSeedCandidates(): string[] {
     return [getSettings().skillSeedPath, join(process.cwd(), 'skills')];
@@ -56,8 +54,7 @@ void app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-    // Watching a mailbox is a foreground activity here: closing the window stops
-    // the poller rather than leaving runs firing with nothing to show them in.
+    // Watching is a foreground activity here: no window, no poller.
     getWatcher().stop();
     if (process.platform !== 'darwin') app.quit();
 });

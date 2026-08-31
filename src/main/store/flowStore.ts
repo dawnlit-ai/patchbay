@@ -14,8 +14,8 @@ export function listFlows(): Flow[] {
         .map((f) => readJson<Flow | null>(join(dir, f), null))
         .filter((f): f is Flow => f !== null);
 
-    // A fresh install has nowhere to start, so hand back one flow with a trigger
-    // already on the canvas rather than an empty list and an empty grid.
+    // A fresh install starts with a trigger already on the canvas, rather than an
+    // empty list and an empty grid.
     if (flows.length === 0) {
         const seeded = emptyFlow(randomUUID(), 'My first flow');
         writeJson(filePath(seeded.id), seeded);

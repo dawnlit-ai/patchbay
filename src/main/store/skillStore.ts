@@ -4,10 +4,9 @@ import { skillsDir } from '../paths';
 import type { SkillDetail, SkillSummary } from '@shared/settings';
 
 /**
- * The skill library is a directory of `<name>/SKILL.md` files — the exact layout
- * the Agent SDK discovers from `cwd/.claude/skills`. Keeping it as files rather
- * than rows means a skill can be edited here, in an editor, or synced from
- * another project, and all three agree.
+ * The skill library is a directory of `<name>/SKILL.md` files — the layout the
+ * Agent SDK discovers from `cwd/.claude/skills`. Files rather than rows, so a
+ * skill edited here, in an editor, or synced from another project all agree.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -23,10 +22,9 @@ interface Frontmatter {
 }
 
 /**
- * Pull `name` and `description` out of the leading `---` block. Deliberately
- * minimal: enough to list and match a skill, without dragging in a YAML parser
- * for two scalar fields. Anything else in the frontmatter is preserved on disk
- * because the file is only ever written back whole.
+ * Pull `name` and `description` out of the leading `---` block — enough to list
+ * and match a skill without a YAML parser for two scalar fields. Everything else
+ * survives on disk, because the file is only ever written back whole.
  */
 export function parseFrontmatter(content: string): Frontmatter {
     const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
@@ -52,6 +50,16 @@ function skillFile(name: string): string {
     return join(skillsDir(), name, 'SKILL.md');
 }
 
+function summarize(name: string, content: string, file: string): SkillSummary {
+    const stat = statSync(file);
+    return {
+        name,
+        description: parseFrontmatter(content).description ?? '',
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+    };
+}
+
 export function listSkills(): SkillSummary[] {
     const dir = skillsDir();
     const out: SkillSummary[] = [];
@@ -59,15 +67,7 @@ export function listSkills(): SkillSummary[] {
         if (!entry.isDirectory()) continue;
         const file = join(dir, entry.name, 'SKILL.md');
         if (!existsSync(file)) continue;
-        const content = readFileSync(file, 'utf8');
-        const fm = parseFrontmatter(content);
-        const stat = statSync(file);
-        out.push({
-            name: entry.name,
-            description: fm.description ?? '',
-            size: stat.size,
-            updatedAt: stat.mtime.toISOString(),
-        });
+        out.push(summarize(entry.name, readFileSync(file, 'utf8'), file));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -77,14 +77,7 @@ export function getSkill(name: string): SkillDetail | null {
     const file = skillFile(name);
     if (!existsSync(file)) return null;
     const content = readFileSync(file, 'utf8');
-    const stat = statSync(file);
-    return {
-        name,
-        description: parseFrontmatter(content).description ?? '',
-        size: stat.size,
-        updatedAt: stat.mtime.toISOString(),
-        content,
-    };
+    return { ...summarize(name, content, file), content };
 }
 
 export function saveSkill(name: string, content: string): SkillSummary {
@@ -95,13 +88,7 @@ export function saveSkill(name: string, content: string): SkillSummary {
     }
     mkdirSync(join(skillsDir(), name), { recursive: true });
     writeFileSync(skillFile(name), content, 'utf8');
-    const stat = statSync(skillFile(name));
-    return {
-        name,
-        description: parseFrontmatter(content).description ?? '',
-        size: stat.size,
-        updatedAt: stat.mtime.toISOString(),
-    };
+    return summarize(name, content, skillFile(name));
 }
 
 export function removeSkill(name: string): void {
@@ -110,9 +97,8 @@ export function removeSkill(name: string): void {
 }
 
 /**
- * Copy `<dir>/<skill>/SKILL.md` trees into the library. Used to seed the app
- * from an existing Claude Code `skills/` folder; a skill already in the library
- * is overwritten, so re-importing picks up upstream edits.
+ * Copy `<dir>/<skill>/SKILL.md` trees into the library, overwriting a skill of
+ * the same name, so re-importing picks up upstream edits.
  */
 export function importSkillsFrom(dir: string): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
@@ -162,21 +148,14 @@ that email — you cannot reach any other message.
 `;
 
 /**
- * Fill the library on first run, and only on first run.
- *
- * Skills here are the app's own copies — editable in the Skills tab without
- * touching whatever they came from — so seeding is a one-time import rather than
- * a link. If none of the candidate folders has anything, a starter skill goes in
- * so a Processor node always has something to select.
- *
- * Returns the names imported, for the log.
+ * Fill the library on first run, and only on first run. Skills here are the
+ * app's own copies — editable without touching whatever they came from — so
+ * seeding is a one-time import rather than a link. Returns the names imported.
  */
 export function seedSkillLibrary(candidates: string[]): string[] {
     const existing = listSkills();
-    // The starter skill is a placeholder this app wrote itself, not something the
-    // user put here, so a library holding only that still counts as unseeded —
-    // otherwise launching once before pointing at a real skills folder would lock
-    // the library to the placeholder forever.
+    // A library holding only the placeholder still counts as unseeded; otherwise
+    // one launch before pointing at a real skills folder would lock it in forever.
     const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
     if (existing.length > 0 && !onlyStarter) return [];
 
@@ -190,8 +169,8 @@ export function seedSkillLibrary(candidates: string[]): string[] {
                 return imported;
             }
         } catch {
-            // A seed folder that cannot be read is not a reason to fail startup;
-            // the starter skill below still gives the app something to work with.
+            // An unreadable seed folder is not a reason to fail startup — the
+            // starter skill below still gives a Processor something to select.
         }
     }
 

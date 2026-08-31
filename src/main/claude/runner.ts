@@ -7,12 +7,10 @@ import type { PassCost, TraceEvent } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
 
 /**
- * One place where this app talks to Claude.
- *
- * Both AI node kinds come through here — the Categorizer asks for a single
- * structured answer with no tools, the Processor runs a full agent loop with
- * skills and email tools — so there is exactly one mapping from the SDK's
- * message stream onto the trace events a pass records.
+ * The one place this app talks to Claude. Both AI node kinds come through here —
+ * the Categorizer for a single structured answer with no tools, the Processor
+ * for a full agent loop — so there is exactly one mapping from the SDK's message
+ * stream onto the trace events a pass records.
  */
 
 export interface ClaudeRunRequest {
@@ -51,9 +49,9 @@ function truncate(value: string, max = 4000): string {
 }
 
 /**
- * Where the `claude` binary lives. An explicit setting wins; otherwise prefer a
- * Claude Code install already on the machine, which saves re-downloading the
- * ~200MB platform binary. Returning undefined lets the SDK resolve its own.
+ * Where the `claude` binary lives. An explicit setting wins; otherwise prefer an
+ * existing Claude Code install, which saves re-downloading the ~200MB platform
+ * binary. Undefined lets the SDK resolve its own.
  */
 export function resolveClaudePath(): string | undefined {
     const configured = getSettings().claudeExecutablePath.trim();
@@ -98,8 +96,8 @@ function renderToolResult(block: LooseBlock): string {
 }
 
 export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
-    // Imported here rather than at module scope: the SDK pulls in a large
-    // dependency graph, and a flow with no AI node should not pay for it.
+    // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
+    // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     const startedAt = Date.now();
@@ -115,13 +113,12 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         cwd: request.cwd,
         maxTurns: request.maxTurns,
         allowedTools: request.allowedTools,
-        // Only the servers this app passes in. Without this the run would inherit
-        // whatever MCP servers the machine's Claude Code config happens to define,
-        // which would make a flow behave differently on another desktop.
+        // Only the servers this app passes in. Otherwise the run would inherit the
+        // machine's Claude Code config and behave differently on another desktop.
         strictMcpConfig: true,
         mcpServers: request.mcpServers ?? {},
-        // No prompting surface exists in a background run, so anything not
-        // pre-approved is denied rather than left hanging.
+        // A background run has no prompting surface, so anything not pre-approved
+        // is denied rather than left hanging.
         permissionMode: 'dontAsk',
         settingSources: request.settingSources ?? [],
         persistSession: false,
@@ -182,8 +179,8 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
                         request.onEvent({ at: now(), type: 'thinking', label: 'thinking', detail: block.thinking });
                     } else if (block.type === 'tool_use') {
                         const name = block.name ?? 'tool';
-                        // The result that answers this call quotes the call's own id, so
-                        // remember the name against it to label the pair in the trace.
+                        // The answering result quotes this call's id, so the pair can be
+                        // labelled in the trace.
                         if (block.id) toolNames.set(block.id, name);
                         request.onEvent({
                             at: now(),
@@ -223,15 +220,15 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
             }
         }
     } catch (e) {
-        // query() throws after yielding a non-success result, so anything already
-        // captured above stays — this only fills in the message.
+        // query() throws after yielding a non-success result, so the cost and events
+        // captured above stay — this only fills in the message.
         error = e instanceof Error ? e.message : String(e);
     }
 
     cost.durationMs = cost.durationMs || Date.now() - startedAt;
 
-    // A json_schema run that produced no structured output has not answered the
-    // question, whatever text came back with it.
+    // No structured output means the question went unanswered, whatever text came
+    // back with it.
     if (!error && request.jsonSchema && structured === undefined) {
         error = 'Claude returned no structured output for the requested schema.';
     }

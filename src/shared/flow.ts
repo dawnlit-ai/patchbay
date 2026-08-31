@@ -1,7 +1,6 @@
 /**
- * The flow graph: what the canvas draws, what the engine walks, and what gets
- * written to disk. Renderer and main both import this, so it stays free of any
- * Node or DOM dependency.
+ * The flow graph — drawn by the canvas, walked by the engine, written to disk.
+ * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
 export type NodeKind = 'trigger.outlook' | 'categorizer' | 'processor' | 'terminal';
@@ -25,9 +24,8 @@ export interface TriggerConfig {
     lookbackDays: number;
     maxPerPoll: number;
     /**
-     * On the first poll after Start, whether mail already sitting in the folder
-     * counts as new. Off by default: switching a flow on should not fire a run
-     * for every email received last week.
+     * Whether mail already in the folder counts as new on the first poll. Off by
+     * default: switching a flow on should not replay last week's mail.
      */
     processBacklogOnStart: boolean;
 }
@@ -94,9 +92,8 @@ export interface Flow {
 }
 
 // ── Ports ────────────────────────────────────────────────────────────────
-// A node's outputs are derived from its config rather than stored, so editing a
-// categorizer's categories moves its ports with it and no edge can outlive the
-// port it left from (the engine treats a missing port as a dead end).
+// Derived from config rather than stored, so a categorizer's ports follow its
+// categories and no edge can outlive the port it left from.
 
 export type PortTone = 'flow' | 'match' | 'fallback' | 'error';
 
@@ -193,10 +190,9 @@ export function defaultNodeName(kind: NodeKind): string {
 }
 
 /**
- * Presentation per node kind. `token` names the kind in CSS: the class
- * `kind-<token>` carries the kind's accent as `--k`, and `--k-<token>` is that
- * accent, so a colour is defined once per theme in the stylesheet and read from
- * there even where it has to be handed to a canvas as a literal.
+ * Presentation per node kind. `token` names the kind in CSS: `.kind-<token>`
+ * exposes the accent as `--k` and `--k-<token>` is the accent itself, so every
+ * colour stays defined once per theme in the stylesheet.
  */
 export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; token: string }> = {
     'trigger.outlook': {

@@ -5,12 +5,9 @@ import { runScratchDir } from '../paths';
 import { indexRun, saveRun } from '../store/traceStore';
 
 /**
- * Walks one email through one flow.
- *
- * The walk is deliberately linear: a node returns the single port it leaves by,
- * and the engine follows the one edge attached to that port. No fan-out, no
- * merge nodes, no partial state — which is what makes the path a list of node
- * ids that the canvas can highlight and a person can read.
+ * Walks one email through one flow. Deliberately linear: a node returns the one
+ * port it leaves by and the engine follows the single edge attached to it, which
+ * is what makes a run's path a list of node ids anyone can read.
  */
 
 /** A run that visits more nodes than this is looping; stop and say so. */
@@ -21,7 +18,6 @@ export interface RunRequest {
     runId: string;
     flow: Flow;
     email: EmailEnvelope;
-    /** How the run was started, so a manual test is never mistaken for a poll. */
     trigger: 'poll' | 'manual';
     signal: AbortSignal;
 
@@ -99,11 +95,9 @@ export async function executeRun(request: RunRequest): Promise<Run> {
                 email,
                 scratchDir,
                 signal,
-                onEvent: (event) => {
-                    events.push(event);
-                    // Publishing per event would redraw the UI hundreds of times for one
-                    // agent run; the pass boundary is frequent enough to follow live.
-                },
+                // Collected, not published: publishing per event would redraw the UI
+                // hundreds of times for one agent run. The pass boundary is enough.
+                onEvent: (event) => events.push(event),
             });
 
             pass = record({
@@ -137,8 +131,8 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             return finish('completed');
         }
 
-        // A port that no longer exists means the node's config changed under an old
-        // edge — worth saying out loud rather than silently ending the run.
+        // A port that no longer exists means the config changed under an old edge —
+        // worth saying out loud rather than silently ending the run.
         const ports = outputPorts(node);
         if (!ports.some((p) => p.id === pass.outPort)) {
             return finish(
