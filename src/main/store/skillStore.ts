@@ -168,8 +168,28 @@ that email — you cannot reach any other message.
   enables it, and even then a draft is left in Outlook for a human to send.
 `;
 
-/** Give a new install one working skill, so a Processor node has something to select. */
-export function ensureStarterSkill(): void {
-  if (listSkills().length > 0) return;
+/**
+ * Fill the library on first run, and only on first run.
+ *
+ * Skills here are the app's own copies — editable in the Skills tab without
+ * touching whatever they came from — so seeding is a one-time import rather than
+ * a link. If none of the candidate folders has anything, a starter skill goes in
+ * so a Processor node always has something to select.
+ *
+ * Returns the names imported, for the log.
+ */
+export function seedSkillLibrary(candidates: string[]): string[] {
+  if (listSkills().length > 0) return [];
+  for (const dir of candidates) {
+    if (!dir.trim() || !existsSync(dir)) continue;
+    try {
+      const imported = importSkillsFrom(dir);
+      if (imported.length > 0) return imported;
+    } catch {
+      // A seed folder that cannot be read is not a reason to fail startup;
+      // the starter skill below still gives the app something to work with.
+    }
+  }
   saveSkill('summarize-and-file', STARTER_SKILL);
+  return ['summarize-and-file'];
 }

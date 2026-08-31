@@ -120,10 +120,19 @@ A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines th
 <userData>/workspace/.claude/skills/<name>/SKILL.md
 ```
 
-The **Skills** tab edits them in place, and **Import…** copies in a folder of
-existing skills (for example a `skills/` directory from another project). The
-Agent SDK discovers them from the workspace, so what you see in the tab is what
-Claude sees at runtime.
+On first run the library seeds itself from the first of these that exists —
+`skillSeedPath` in Settings, `~/Documents/GitHub/smart-logistics-assistant/skills`,
+then `./skills` — falling back to one starter skill if none do. These are the
+app's **own copies**: edit them in the Skills tab without touching the originals.
+Seeding happens only while the library is empty, so it never fights your edits.
+
+The **Skills** tab edits them in place, and **Import…** pulls in a folder of
+existing skills at any time. The Agent SDK discovers them from the workspace, so
+what you see in the tab is what Claude sees at runtime.
+
+> A seeded skill that calls another app's MCP tools (`mcp__smart-logistics__*`,
+> say) needs that server added under **Settings → MCP servers** before a
+> Processor can run it.
 
 Inside a Processor run, a skill gets an MCP server whose tools are bound to the
 one email being handled:

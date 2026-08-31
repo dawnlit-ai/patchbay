@@ -36,6 +36,19 @@ export function SettingsPanel({ settings, onSave }: Props): JSX.Element {
         </div>
       </label>
 
+      <label className="field">
+        <span>Seed skills from</span>
+        <input
+          value={draft.skillSeedPath}
+          placeholder="(auto-detect)"
+          onChange={(e) => patch({ skillSeedPath: e.target.value })}
+        />
+        <div className="hint">
+          A folder of <code>&lt;name&gt;/SKILL.md</code> directories, imported once when the library
+          is empty. Use Skills → Import… to pull more in at any time.
+        </div>
+      </label>
+
       <label className="check">
         <input
           type="checkbox"

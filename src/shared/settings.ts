@@ -17,6 +17,13 @@ export interface Settings {
   claudeExecutablePath: string;
   /** Extra MCP servers handed to every Processor node. */
   mcpServers: McpServerSetting[];
+  /**
+   * Folder of `<name>/SKILL.md` directories the library is seeded from on first
+   * run. Empty means "look in the usual places" (see seedSkillLibrary). Only ever
+   * read when the library is empty, so editing skills here never fights an
+   * upstream copy.
+   */
+  skillSeedPath: string;
   /** Default model for new nodes. */
   defaultModel: string;
   /** Master switch: when false the poller never starts, whatever a flow says. */
@@ -26,6 +33,7 @@ export interface Settings {
 export function defaultSettings(): Settings {
   return {
     claudeExecutablePath: '',
+    skillSeedPath: '',
     mcpServers: [],
     defaultModel: 'claude-opus-5',
     pollingEnabled: true,
