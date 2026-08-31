@@ -16,7 +16,6 @@ import {
     ReactFlow,
 } from '@xyflow/react';
 import {
-    accentFor,
     defaultConfig,
     defaultNodeName,
     type Flow,
@@ -25,7 +24,6 @@ import {
     NODE_KIND_META,
     type NodeKind,
     outputPorts,
-    type Theme,
 } from '@shared/flow';
 import type { Pass } from '@shared/trace';
 
@@ -52,7 +50,7 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
 
-    const classes = ['node', meta.slug];
+    const classes = ['node', `kind-${meta.token}`];
     if (selected) classes.push('selected');
     if (pass) classes.push(pass.status === 'error' ? 'failed' : 'visited');
 
@@ -82,7 +80,6 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                                 position={Position.Right}
                                 id={port.id}
                                 className={pass?.outPort === port.id ? 'taken-handle' : undefined}
-                                style={{ top: '50%' }}
                             />
                         </div>
                     ))}
@@ -115,7 +112,11 @@ function describe(node: FlowNode): string {
 
 const nodeTypes = { card: NodeCard };
 
-/** React Flow takes plain colour strings, so read the token off the document. */
+/**
+ * React Flow takes plain colour strings rather than CSS variables, so read the
+ * token off the document. Every call happens during render, and the theme
+ * attribute is set before React re-renders, so these follow a theme switch.
+ */
 function cssVar(name: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -124,7 +125,6 @@ export interface FlowCanvasProps {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
-    theme: Theme;
 
     onChange(flow: Flow): void;
 
@@ -135,7 +135,6 @@ export function FlowCanvas({
                                flow,
                                selectedNodeId,
                                highlight,
-                               theme,
                                onChange,
                                onSelect,
                            }: FlowCanvasProps): JSX.Element {
@@ -275,7 +274,7 @@ export function FlowCanvas({
                     zoomable
                     maskColor={cssVar('--scrim')}
                     style={{ background: cssVar('--input-bg'), border: `1px solid ${cssVar('--line')}` }}
-                    nodeColor={(n) => accentFor((n.data as NodeData).flowNode.kind, theme)}
+                    nodeColor={(n) => cssVar(`--k-${NODE_KIND_META[(n.data as NodeData).flowNode.kind].token}`)}
                 />
             </ReactFlow>
         </div>

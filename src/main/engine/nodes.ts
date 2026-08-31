@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-import type { FlowNode } from '@shared/flow';
+import type { CategorizerConfig, FlowNode, ProcessorConfig, TerminalConfig, TriggerConfig, } from '@shared/flow';
 import { UNMATCHED_PORT } from '@shared/flow';
 import type { EmailEnvelope, PassCost, TraceEvent } from '@shared/trace';
 import { runClaude } from '../claude/runner';
@@ -46,9 +45,7 @@ function emailContext(email: EmailEnvelope, body: string | undefined): string {
 // The email is already in hand by the time a run exists; this pass exists so the
 // trace starts where the canvas does.
 
-function runTrigger(ctx: NodeContext): NodeOutcome {
-    const config = ctx.node.config;
-    if (config.kind !== 'trigger.outlook') throw new Error('not a trigger');
+function runTrigger(config: TriggerConfig): NodeOutcome {
     return {
         outPort: 'out',
         summary: `Received in ${config.account}${config.folder ? `\\${config.folder}` : ' Inbox'}`,
@@ -57,10 +54,7 @@ function runTrigger(ctx: NodeContext): NodeOutcome {
 
 // ── Categorizer ──────────────────────────────────────────────────────────
 
-async function runCategorizer(ctx: NodeContext): Promise<NodeOutcome> {
-    const config = ctx.node.config;
-    if (config.kind !== 'categorizer') throw new Error('not a categorizer');
-
+async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Promise<NodeOutcome> {
     if (config.categories.length === 0) {
         return { outPort: UNMATCHED_PORT, summary: 'No categories defined — sent to Unmatched.' };
     }
@@ -139,22 +133,17 @@ async function runCategorizer(ctx: NodeContext): Promise<NodeOutcome> {
 
     const answer = result.structured as { category: string; confidence: number; reason: string };
     const chosen = config.categories.find((c) => c.id === answer.category);
-    const label = chosen?.label ?? 'Unmatched';
-    const port = chosen ? `cat:${chosen.id}` : UNMATCHED_PORT;
 
     return {
-        outPort: port,
-        summary: `${label} · ${Math.round((answer.confidence ?? 0) * 100)}% — ${answer.reason}`,
+        outPort: chosen ? `cat:${chosen.id}` : UNMATCHED_PORT,
+        summary: `${chosen?.label ?? 'Unmatched'} · ${Math.round((answer.confidence ?? 0) * 100)}% — ${answer.reason}`,
         cost: result.cost,
     };
 }
 
 // ── Processor ────────────────────────────────────────────────────────────
 
-async function runProcessor(ctx: NodeContext): Promise<NodeOutcome> {
-    const config = ctx.node.config;
-    if (config.kind !== 'processor') throw new Error('not a processor');
-
+async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
     const actions: string[] = [];
     const server = createEmailToolServer({
         email: ctx.email,
@@ -165,16 +154,13 @@ async function runProcessor(ctx: NodeContext): Promise<NodeOutcome> {
     });
 
     const mcpServers: Record<string, McpServerConfig> = { [EMAIL_SERVER_NAME]: server };
+    const allowedTools = emailToolNames(config);
     for (const extra of getSettings().mcpServers) {
         if (!extra.enabled || !extra.name.trim()) continue;
         mcpServers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
-    }
-
-    const allowedTools = [...emailToolNames(config)];
-    // Extra MCP servers are enabled wholesale — the user added them deliberately,
-    // and naming every tool would mean re-listing them on each upgrade.
-    for (const extra of getSettings().mcpServers) {
-        if (extra.enabled && extra.name.trim()) allowedTools.push(`mcp__${extra.name}`);
+        // Extra MCP servers are enabled wholesale — the user added them deliberately,
+        // and naming every tool would mean re-listing them on each upgrade.
+        allowedTools.push(`mcp__${extra.name}`);
     }
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 
@@ -248,10 +234,7 @@ async function runProcessor(ctx: NodeContext): Promise<NodeOutcome> {
 
 // ── Terminal ─────────────────────────────────────────────────────────────
 
-async function runTerminal(ctx: NodeContext): Promise<NodeOutcome> {
-    const config = ctx.node.config;
-    if (config.kind !== 'terminal') throw new Error('not a terminal');
-
+async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<NodeOutcome> {
     let moved = '';
     if (config.moveToFolder.trim()) {
         try {
@@ -274,16 +257,16 @@ async function runTerminal(ctx: NodeContext): Promise<NodeOutcome> {
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    switch (ctx.node.kind) {
+    // Narrowed once here, so no runner has to re-check the kind it was chosen for.
+    const config = ctx.node.config;
+    switch (config.kind) {
         case 'trigger.outlook':
-            return runTrigger(ctx);
+            return runTrigger(config);
         case 'categorizer':
-            return runCategorizer(ctx);
+            return runCategorizer(ctx, config);
         case 'processor':
-            return runProcessor(ctx);
+            return runProcessor(ctx, config);
         case 'terminal':
-            return runTerminal(ctx);
+            return runTerminal(ctx, config);
     }
 }
-
-export const scratchFor = (runsRoot: string, runId: string): string => join(runsRoot, `${runId}.files`);

@@ -192,46 +192,34 @@ export function defaultNodeName(kind: NodeKind): string {
     }
 }
 
-export type Theme = 'light' | 'dark';
-
 /**
- * Presentation per node kind. `slug` names the CSS class that carries the
- * kind's accent (`--k`), so a colour is defined once per theme in the
- * stylesheet rather than inline. `accent` is the literal, needed only where a
- * colour must be handed to a canvas that cannot read a CSS variable.
+ * Presentation per node kind. `token` names the kind in CSS: the class
+ * `kind-<token>` carries the kind's accent as `--k`, and `--k-<token>` is that
+ * accent, so a colour is defined once per theme in the stylesheet and read from
+ * there even where it has to be handed to a canvas as a literal.
  */
-export const NODE_KIND_META: Record<
-    NodeKind,
-    { label: string; blurb: string; slug: string; accent: Record<Theme, string> }
-> = {
+export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; token: string }> = {
     'trigger.outlook': {
         label: 'Outlook Trigger',
         blurb: 'Watches a mailbox folder and starts a run for each new email.',
-        slug: 'kind-trigger',
-        accent: { light: '#0f9d58', dark: '#4ade80' },
+        token: 'trigger',
     },
     categorizer: {
         label: 'Categorizer',
         blurb: 'Sorts the email down one branch by matching your descriptions.',
-        slug: 'kind-categorizer',
-        accent: { light: '#2563eb', dark: '#60a5fa' },
+        token: 'categorizer',
     },
     processor: {
         label: 'Processor',
         blurb: 'Runs Claude with the skills you assign, scoped to this email.',
-        slug: 'kind-processor',
-        accent: { light: '#7c3aed', dark: '#c084fc' },
+        token: 'processor',
     },
     terminal: {
         label: 'Terminal',
         blurb: 'Ends the path and records how the email came out.',
-        slug: 'kind-terminal',
-        accent: { light: '#64748b', dark: '#94a3b8' },
+        token: 'terminal',
     },
 };
-
-export const accentFor = (kind: NodeKind, theme: Theme): string =>
-    NODE_KIND_META[kind].accent[theme];
 
 /** A flow needs exactly one trigger; the engine starts every run there. */
 export function findTrigger(flow: Flow): FlowNode | undefined {

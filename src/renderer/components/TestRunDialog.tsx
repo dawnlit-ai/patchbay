@@ -57,7 +57,7 @@ export function TestRunDialog({ flow, onClose, onRun }: Props): JSX.Element {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <header>
                     Test run — pick an email
-                    <span style={{ flex: 1 }}/>
+                    <span className="spacer"/>
                     <span className="badge">{flow.name}</span>
                 </header>
                 <div className="content">

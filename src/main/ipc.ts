@@ -50,6 +50,9 @@ function handle<T extends unknown[], R>(
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
+/** How far back the "Test run…" picker looks for a message to choose from. */
+const RECENT_LOOKBACK_DAYS = 7;
+
 export function registerIpc(): void {
     handle(
         IPC.about,
@@ -77,7 +80,7 @@ export function registerIpc(): void {
         outlook.listFolders(account),
     );
     handle(IPC.outlookRecent, (account: string, folder: string, limit: number) =>
-        outlook.readInbox(account, folder, 7, limit),
+        outlook.readInbox(account, folder, RECENT_LOOKBACK_DAYS, limit),
     );
 
     handle(IPC.skillsList, () => skillStore.listSkills());

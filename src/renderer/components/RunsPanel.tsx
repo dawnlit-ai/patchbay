@@ -23,9 +23,9 @@ function EventRow({ event }: { event: TraceEvent }): JSX.Element {
             <div className="head" onClick={() => expandable && setOpen(!open)}>
                 <span className="type">{event.type}</span>
                 <span className="label">
-          {expandable && <span style={{ color: 'var(--dim)' }}>{open ? '▾ ' : '▸ '}</span>}
+                    {expandable && <span className="dim">{open ? '▾ ' : '▸ '}</span>}
                     {event.label}
-        </span>
+                </span>
             </div>
             {open && event.detail && <pre>{event.detail}</pre>}
         </div>
@@ -45,16 +45,16 @@ function PassCard({ pass }: { pass: Pass }): JSX.Element {
                         <span className="port">{pass.outPort.replace(/^cat:/, '')}</span>
                     </>
                 )}
-                <span style={{ flex: 1 }}/>
+                <span className="spacer"/>
                 {pass.cost && pass.cost.usd > 0 && (
                     <span className="badge">
-            ${pass.cost.usd.toFixed(3)} · {pass.cost.turns} turns
-          </span>
+                        ${pass.cost.usd.toFixed(3)} · {pass.cost.turns} turns
+                    </span>
                 )}
                 <span className={`badge ${pass.status === 'ok' ? 'ok' : 'err'}`}>{pass.status}</span>
-                <span style={{ color: 'var(--dim)', fontSize: 11 }}>
-          {open ? '▾' : '▸'} {pass.events.length}
-        </span>
+                <span className="count">
+                    {open ? '▾' : '▸'} {pass.events.length}
+                </span>
             </div>
             <div className="pass-summary">{pass.summary}</div>
             {open && (
@@ -171,8 +171,8 @@ export function RunsPanel({
                         <div className="kv">
                             <b>From</b>
                             <span>
-                {selected.email.senderName} &lt;{selected.email.senderEmail}&gt;
-              </span>
+                                {selected.email.senderName} &lt;{selected.email.senderEmail}&gt;
+                            </span>
                         </div>
                         <div className="kv">
                             <b>Received</b>

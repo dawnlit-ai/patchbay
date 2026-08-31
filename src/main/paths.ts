@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -9,30 +9,9 @@ import { join } from 'node:path';
  */
 let root: string | null = null;
 
-/**
- * userData is derived from the app's productName, so renaming the product moves
- * it and would strand every flow, skill and run behind the old name. Each former
- * name stays listed here and its workspace is copied forward once.
- */
-const FORMER_PRODUCT_NAMES = ['Email Flow Studio'];
-
-function adoptLegacyWorkspace(target: string): void {
-    for (const name of FORMER_PRODUCT_NAMES) {
-        const legacy = join(app.getPath('appData'), name, 'workspace');
-        if (!existsSync(legacy)) continue;
-        // Copied rather than moved: if anything about this goes wrong, the original
-        // is still sitting there under the old name.
-        cpSync(legacy, target, { recursive: true });
-        console.log(`Adopted workspace from "${name}": ${legacy} → ${target}`);
-        return;
-    }
-}
-
 export function workspaceRoot(): string {
     if (!root) {
-        const next = join(app.getPath('userData'), 'workspace');
-        if (!existsSync(next)) adoptLegacyWorkspace(next);
-        root = next;
+        root = join(app.getPath('userData'), 'workspace');
         mkdirSync(root, { recursive: true });
     }
     return root;
@@ -50,6 +29,6 @@ export const flowsDir = (): string => ensure('flows');
 export const runsDir = (): string => ensure('runs');
 /** Per-run scratch space — saved attachments, files a skill writes. */
 export const runScratchDir = (runId: string): string => ensure('runs', runId + '.files');
-export const settingsFile = (): string => join(ensure('.'), 'settings.json');
-export const watermarkFile = (): string => join(ensure('.'), 'watermarks.json');
+export const settingsFile = (): string => join(workspaceRoot(), 'settings.json');
+export const watermarkFile = (): string => join(workspaceRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');

@@ -1,6 +1,5 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { getWatcher, registerIpc } from './ipc';
 import { seedSkillLibrary } from './store/skillStore';
 import { getSettings } from './store/settingsStore';
@@ -35,17 +34,13 @@ function createWindow(): void {
 }
 
 /**
- * Where an existing Claude Code skill folder is likely to be. Checked in order,
- * and only while the library is empty. A machine that has none of these gets the
- * starter skill instead, and Skills → Import… covers anywhere else.
+ * Where to look for skills to seed the library from, in order, and only while it
+ * is empty: the folder named in Settings, then a `skills` directory beside the
+ * app. A machine with neither gets the starter skill instead, and Skills →
+ * Import… covers anywhere else.
  */
 function skillSeedCandidates(): string[] {
-    const github = join(homedir(), 'Documents', 'GitHub');
-    return [
-        getSettings().skillSeedPath,
-        join(github, 'smart-logistics-assistant', 'skills'),
-        join(process.cwd(), 'skills'),
-    ];
+    return [getSettings().skillSeedPath, join(process.cwd(), 'skills')];
 }
 
 void app.whenReady().then(() => {

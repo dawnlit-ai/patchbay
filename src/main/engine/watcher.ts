@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
@@ -198,27 +199,25 @@ export class Watcher {
             while (this.queue.length > 0) {
                 const item = this.queue.shift();
                 if (!item) break;
+                // The id is minted here rather than inside the run so the controller is
+                // findable by `cancel` from the moment the run starts.
+                const runId = randomUUID();
                 const controller = new AbortController();
-                // The run id is only known once executeRun creates it, so track by a
-                // placeholder key that the onUpdate callback promotes to the real id.
-                let key = `pending-${Date.now()}`;
-                this.active.set(key, controller);
+                this.active.set(runId, controller);
                 this.onStatus();
                 try {
-                    await executeRun(item.flow, item.email, item.trigger, controller.signal, {
-                        onUpdate: (run) => {
-                            if (key !== run.id) {
-                                this.active.delete(key);
-                                key = run.id;
-                                this.active.set(key, controller);
-                            }
-                            this.onRun(run);
-                        },
+                    await executeRun({
+                        runId,
+                        flow: item.flow,
+                        email: item.email,
+                        trigger: item.trigger,
+                        signal: controller.signal,
+                        onUpdate: (run) => this.onRun(run),
                     });
                 } catch (e) {
                     this.lastError = e instanceof Error ? e.message : String(e);
                 } finally {
-                    this.active.delete(key);
+                    this.active.delete(runId);
                     this.onStatus();
                 }
             }

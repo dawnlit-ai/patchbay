@@ -1,7 +1,7 @@
 /** App-level settings, stored once per install rather than per flow. */
 
 export interface McpServerSetting {
-    /** Name Claude sees the tools under, e.g. "smart-logistics". */
+    /** Name Claude sees the tools under: they arrive as `mcp__<name>__*`. */
     name: string;
     command: string;
     args: string[];

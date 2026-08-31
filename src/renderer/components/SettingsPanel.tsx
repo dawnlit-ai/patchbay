@@ -61,7 +61,7 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
             </label>
 
             <div className="section-title">MCP servers</div>
-            <div className="hint" style={{ color: 'var(--dim)', marginBottom: 8 }}>
+            <div className="hint" style={{ marginBottom: 8 }}>
                 Extra tool servers handed to every Processor node — for example the MCP server of another
                 app whose tools your skills call.
             </div>
@@ -82,8 +82,7 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                             }}
                         />
                         <button
-                            className="danger"
-                            style={{ flex: 'none' }}
+                            className="danger fixed"
                             onClick={() => patch({ mcpServers: draft.mcpServers.filter((_, j) => j !== i) })}
                         >
                             Remove

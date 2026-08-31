@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { findTrigger, type Flow, type FlowNode, outputPorts } from '@shared/flow';
 import type { EmailEnvelope, Pass, Run, TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
@@ -17,19 +16,21 @@ import { indexRun, saveRun } from '../store/traceStore';
 /** A run that visits more nodes than this is looping; stop and say so. */
 const MAX_PASSES = 64;
 
-export interface RunHooks {
+export interface RunRequest {
+    /** Minted by the caller, so a run is cancellable before its first pass lands. */
+    runId: string;
+    flow: Flow;
+    email: EmailEnvelope;
+    /** How the run was started, so a manual test is never mistaken for a poll. */
+    trigger: 'poll' | 'manual';
+    signal: AbortSignal;
+
     /** Called after every pass, and once at the start, so the UI can follow live. */
     onUpdate(run: Run): void;
 }
 
-export async function executeRun(
-    flow: Flow,
-    email: EmailEnvelope,
-    trigger: 'poll' | 'manual',
-    signal: AbortSignal,
-    hooks: RunHooks,
-): Promise<Run> {
-    const runId = randomUUID();
+export async function executeRun(request: RunRequest): Promise<Run> {
+    const { runId, flow, email, trigger, signal } = request;
     const run: Run = {
         id: runId,
         flowId: flow.id,
@@ -46,7 +47,7 @@ export async function executeRun(
 
     const publish = (): void => {
         saveRun(run);
-        hooks.onUpdate(run);
+        request.onUpdate(run);
     };
 
     const finish = (status: Run['status'], error?: string): Run => {
@@ -55,7 +56,7 @@ export async function executeRun(
         if (error) run.error = error;
         saveRun(run);
         indexRun(run);
-        hooks.onUpdate(run);
+        request.onUpdate(run);
         return run;
     };
 
@@ -79,6 +80,18 @@ export async function executeRun(
         const startedAt = new Date().toISOString();
         seq += 1;
 
+        /** The half of a pass that is the same however the node ended. */
+        const record = (outcome: Pick<Pass, 'status' | 'outPort' | 'summary' | 'cost' | 'error'>): Pass => ({
+            seq,
+            nodeId: node.id,
+            nodeKind: node.kind,
+            nodeName: node.name,
+            startedAt,
+            endedAt: new Date().toISOString(),
+            events,
+            ...outcome,
+        });
+
         let pass: Pass;
         try {
             const outcome = await executeNode({
@@ -93,36 +106,22 @@ export async function executeRun(
                 },
             });
 
-            pass = {
-                seq,
-                nodeId: node.id,
-                nodeKind: node.kind,
-                nodeName: node.name,
-                startedAt,
-                endedAt: new Date().toISOString(),
+            pass = record({
                 status: outcome.error ? 'error' : 'ok',
                 outPort: outcome.outPort,
                 summary: outcome.summary,
-                events,
                 cost: outcome.cost,
                 error: outcome.error,
-            };
+            });
             if (outcome.disposition) run.disposition = outcome.disposition;
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
-            pass = {
-                seq,
-                nodeId: node.id,
-                nodeKind: node.kind,
-                nodeName: node.name,
-                startedAt,
-                endedAt: new Date().toISOString(),
+            pass = record({
                 status: 'error',
                 outPort: null,
                 summary: `${node.name} threw: ${message}`,
-                events,
                 error: message,
-            };
+            });
         }
 
         run.passes.push(pass);
@@ -140,8 +139,8 @@ export async function executeRun(
 
         // A port that no longer exists means the node's config changed under an old
         // edge — worth saying out loud rather than silently ending the run.
-        const ports = outputPorts(node).map((p) => p.id);
-        if (!ports.includes(pass.outPort)) {
+        const ports = outputPorts(node);
+        if (!ports.some((p) => p.id === pass.outPort)) {
             return finish(
                 'failed',
                 `${node.name} chose port "${pass.outPort}", which it no longer has. Re-check the node's configuration.`,
@@ -150,7 +149,7 @@ export async function executeRun(
 
         const edge = flow.edges.find((e) => e.source === node.id && e.sourceHandle === pass.outPort);
         if (!edge) {
-            const label = outputPorts(node).find((p) => p.id === pass.outPort)?.label ?? pass.outPort;
+            const label = ports.find((p) => p.id === pass.outPort)?.label ?? pass.outPort;
             run.disposition ??= 'unhandled';
             return finish('completed', `Path ends at ${node.name}: "${label}" is not connected to anything.`);
         }

@@ -10,6 +10,7 @@
  *   npm run selftest
  */
 import { app } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type { Flow } from '../src/shared/flow';
 import { defaultConfig } from '../src/shared/flow';
 import { executeRun } from '../src/main/engine/engine';
@@ -87,7 +88,12 @@ async function main(): Promise<void> {
     if (!email) throw new Error('No email in the last 7 days to test with.');
     console.log(`\nemail: "${email.subject}" from ${email.senderEmail}\n`);
 
-    const run = await executeRun(buildFlow(account), email, 'manual', new AbortController().signal, {
+    const run = await executeRun({
+        runId: randomUUID(),
+        flow: buildFlow(account),
+        email,
+        trigger: 'manual',
+        signal: new AbortController().signal,
         onUpdate: () => {
         },
     });

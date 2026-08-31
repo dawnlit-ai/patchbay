@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind, type Theme } from '@shared/flow';
-import type { Run, RunSummary } from '@shared/trace';
+import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
+import { type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { AboutInfo, EngineStatus, Settings, SkillSummary } from '@shared/settings';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
@@ -12,19 +12,31 @@ import { TestRunDialog } from './components/TestRunDialog';
 
 const PALETTE: NodeKind[] = ['categorizer', 'processor', 'terminal'];
 
+type Theme = 'light' | 'dark';
+
 const THEME_KEY = 'patchbay.theme';
-/** The key used before the product was renamed; read once so the choice survives. */
-const LEGACY_THEME_KEY = 'efs.theme';
 
 /** Light unless the user has chosen otherwise; the choice is per machine. */
 function readTheme(): Theme {
     try {
-        const stored = localStorage.getItem(THEME_KEY) ?? localStorage.getItem(LEGACY_THEME_KEY);
-        return stored === 'dark' ? 'dark' : 'light';
+        return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
     } catch {
         return 'light';
     }
 }
+
+/**
+ * The stylesheet keys every colour off this attribute, so setting it is the whole
+ * of what switching themes does. It happens before React renders rather than in an
+ * effect afterwards, because the canvas reads those same tokens as it draws and an
+ * effect would leave it a frame behind.
+ */
+function applyTheme(theme: Theme): void {
+    document.documentElement.dataset.theme = theme;
+}
+
+const initialTheme = readTheme();
+applyTheme(initialTheme);
 
 export function App(): JSX.Element {
     const [flows, setFlows] = useState<Flow[]>([]);
@@ -39,19 +51,18 @@ export function App(): JSX.Element {
     const [testing, setTesting] = useState(false);
     const [runsCollapsed, setRunsCollapsed] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [theme, setTheme] = useState<Theme>(readTheme);
+    const [theme, setThemeState] = useState<Theme>(initialTheme);
     const [about, setAbout] = useState<AboutInfo | null>(null);
 
-    // The stylesheet keys every colour off this attribute, so setting it here is
-    // the whole of what switching themes does.
-    useEffect(() => {
-        document.documentElement.dataset.theme = theme;
+    const setTheme = useCallback((next: Theme) => {
+        applyTheme(next);
+        setThemeState(next);
         try {
-            localStorage.setItem(THEME_KEY, theme);
+            localStorage.setItem(THEME_KEY, next);
         } catch {
             // A machine that refuses storage still themes correctly for this session.
         }
-    }, [theme]);
+    }, []);
 
     const refreshSkills = useCallback(() => {
         void window.api.skills.list().then(setSkills);
@@ -86,24 +97,7 @@ export function App(): JSX.Element {
     // its work without anyone having to click.
     useEffect(() => {
         const offRun = window.api.on.runUpdated((run) => {
-            setRuns((prev) => {
-                const summary: RunSummary = {
-                    id: run.id,
-                    flowId: run.flowId,
-                    flowName: run.flowName,
-                    startedAt: run.startedAt,
-                    endedAt: run.endedAt,
-                    status: run.status,
-                    trigger: run.trigger,
-                    subject: run.email.subject,
-                    senderEmail: run.email.senderEmail,
-                    disposition: run.disposition,
-                    totalCostUsd: run.totalCostUsd,
-                    passCount: run.passes.length,
-                };
-                const rest = prev.filter((r) => r.id !== run.id);
-                return [summary, ...rest];
-            });
+            setRuns((prev) => [toSummary(run), ...prev.filter((r) => r.id !== run.id)]);
             setSelectedRun((current) => (!current || current.id === run.id ? run : current));
         });
         const offStatus = window.api.on.engineStatus((next) => setStatus(next));
@@ -186,7 +180,7 @@ export function App(): JSX.Element {
     };
 
     if (!flow || !settings) {
-        return <div className="empty" style={{ paddingTop: 80 }}>Loading…</div>;
+        return <div className="empty loading">Loading…</div>;
     }
 
     const watching = status?.running === true;
@@ -194,12 +188,12 @@ export function App(): JSX.Element {
     return (
         <div className="app">
             <div className="topbar">
-        <span className="brand">
-          <span className="name">Patchbay</span>
-          <span className="by">
-            by <b>Dawnlit</b>
-          </span>
-        </span>
+                <span className="brand">
+                    <span className="name">Patchbay</span>
+                    <span className="by">
+                        by <b>Dawnlit</b>
+                    </span>
+                </span>
 
                 <select
                     value={flow.id}
@@ -231,21 +225,15 @@ export function App(): JSX.Element {
 
                 {status?.lastError && <span className="badge err">{status.lastError}</span>}
                 <span className="status-pill">
-          <span className={`dot ${watching ? 'live' : ''}`}/>
-                    {watching
-                        ? `Watching ${status?.watching.length ?? 0} flow(s)`
-                        : 'Not watching'}
-        </span>
+                    <span className={`dot ${watching ? 'live' : ''}`}/>
+                    {watching ? `Watching ${status?.watching.length ?? 0} flow(s)` : 'Not watching'}
+                </span>
                 <button className={watching ? '' : 'primary'} onClick={() => void toggleWatching()}>
                     {watching ? 'Stop' : 'Start watching'}
                 </button>
             </div>
 
-            {error && (
-                <div className="err-banner" style={{ margin: '8px 12px 0' }}>
-                    {error}
-                </div>
-            )}
+            {error && <div className="err-banner inset">{error}</div>}
 
             <div className="body">
                 <div className="side">
@@ -255,7 +243,7 @@ export function App(): JSX.Element {
                         return (
                             <div
                                 key={kind}
-                                className={`palette-item ${meta.slug}`}
+                                className={`palette-item kind-${meta.token}`}
                                 draggable
                                 onDragStart={(e) => {
                                     e.dataTransfer.setData('application/flow-node', kind);
@@ -269,7 +257,7 @@ export function App(): JSX.Element {
                     })}
 
                     <div className="section-title">How a run works</div>
-                    <div style={{ color: 'var(--muted)', fontSize: 11.5, lineHeight: 1.6 }}>
+                    <div className="side-note">
                         The trigger starts one run per email. Each node hands the email out of
                         exactly one port, and the engine follows the edge attached to it. That
                         sequence is the run’s path — select a run below to light it up here.
@@ -281,7 +269,6 @@ export function App(): JSX.Element {
                         flow={flow}
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
-                        theme={theme}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
                     />
@@ -303,7 +290,7 @@ export function App(): JSX.Element {
                     />
                 </div>
 
-                <div className="side right" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div className="side right">
                     <div className="tabs">
                         <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>
                             Node

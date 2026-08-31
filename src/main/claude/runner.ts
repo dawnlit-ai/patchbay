@@ -68,6 +68,7 @@ export function resolveClaudePath(): string | undefined {
 /** Content blocks arrive as a loose union; read them structurally. */
 interface LooseBlock {
     type: string;
+    id?: string;
     text?: string;
     thinking?: string;
     name?: string;
@@ -181,9 +182,9 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
                         request.onEvent({ at: now(), type: 'thinking', label: 'thinking', detail: block.thinking });
                     } else if (block.type === 'tool_use') {
                         const name = block.name ?? 'tool';
-                        if (block.tool_use_id) toolNames.set(block.tool_use_id, name);
-                        const id = (block as { id?: string }).id;
-                        if (id) toolNames.set(id, name);
+                        // The result that answers this call quotes the call's own id, so
+                        // remember the name against it to label the pair in the trace.
+                        if (block.id) toolNames.set(block.id, name);
                         request.onEvent({
                             at: now(),
                             type: 'tool-call',
