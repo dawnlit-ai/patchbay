@@ -24,6 +24,12 @@ export interface Api {
         save(flow: Flow): Promise<Flow>;
         create(name: string): Promise<Flow>;
         remove(id: string): Promise<void>;
+        /** Ask for a flow file, then add what it holds to the library as a new flow. */
+        pickAndImport(): Promise<Flow | null>;
+        /** Ask where to put it, then write the flow there. Resolves to the path. */
+        pickAndExport(flow: Flow): Promise<string | null>;
+        /** Whether closing the window right now would throw canvas edits away. */
+        setUnsaved(unsaved: boolean): Promise<void>;
     };
     settings: {
         get(): Promise<Settings>;
@@ -83,6 +89,9 @@ export const IPC = {
     flowsSave: 'flows:save',
     flowsCreate: 'flows:create',
     flowsRemove: 'flows:remove',
+    flowsPickAndImport: 'flows:pickAndImport',
+    flowsPickAndExport: 'flows:pickAndExport',
+    flowsSetUnsaved: 'flows:setUnsaved',
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',

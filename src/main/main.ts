@@ -1,6 +1,6 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { join } from 'node:path';
-import { getWatcher, registerIpc } from './ipc';
+import { getWatcher, hasUnsavedFlow, registerIpc } from './ipc';
 import { seedSkillLibrary } from './store/skillStore';
 import { getSettings } from './store/settingsStore';
 import { workspaceRoot } from './paths';
@@ -24,6 +24,21 @@ function createWindow(): void {
             nodeIntegration: false,
             sandbox: false,
         },
+    });
+
+    // With auto-save off the canvas can hold edits no file has yet, and closing
+    // would drop them without a word.
+    win.on('close', (event) => {
+        if (!hasUnsavedFlow()) return;
+        const choice = dialog.showMessageBoxSync(win, {
+            type: 'warning',
+            buttons: ['Cancel', 'Discard changes'],
+            defaultId: 0,
+            cancelId: 0,
+            message: 'This flow has unsaved changes.',
+            detail: 'Cancel and press Save (Ctrl+S), or close and lose the edits made since the last save.',
+        });
+        if (choice === 0) event.preventDefault();
     });
 
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

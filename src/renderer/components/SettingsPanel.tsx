@@ -63,6 +63,20 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                 Allow flows to watch mailboxes
             </label>
 
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={draft.autoSaveFlows}
+                    onChange={(e) => patch({ autoSaveFlows: e.target.checked })}
+                />
+                Save flow edits automatically
+            </label>
+            <div className="hint" style={{ marginBottom: 12 }}>
+                On, every change to the canvas is written straight away. Off, the topbar keeps a Save
+                button and edits stay a draft until you press it — a running flow goes on using the last
+                saved version.
+            </div>
+
             <div className="section-title">MCP servers</div>
             <div className="hint" style={{ marginBottom: 8 }}>
                 Extra tool servers handed to every Processor node — for example the MCP server of another

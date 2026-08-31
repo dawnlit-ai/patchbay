@@ -7,6 +7,14 @@ export type NodeKind = 'trigger.outlook' | 'categorizer' | 'processor' | 'termin
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
+
+// Listed as values as well as types: the inspector offers them and the importer
+// checks against them, and neither should carry its own copy.
+export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
+export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
+
 /** One branch of a categorizer — the description is what the model matches on. */
 export interface Category {
     id: string;
@@ -56,7 +64,7 @@ export interface ProcessorConfig {
 }
 
 export interface TerminalConfig {
-    disposition: 'done' | 'needs-review' | 'ignored' | 'failed';
+    disposition: Disposition;
     /** Inbox subfolder to file the email into on arrival. Empty means leave it. */
     moveToFolder: string;
 }
@@ -222,13 +230,160 @@ export function findTrigger(flow: Flow): FlowNode | undefined {
     return flow.nodes.find((n) => n.kind === 'trigger.outlook');
 }
 
+/** A node of `kind` with its defaults — dropped on the canvas, seeded, or repaired. */
+export function makeNode(kind: NodeKind, id: string, position: { x: number; y: number }): FlowNode {
+    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
+}
+
 export function emptyFlow(id: string, name: string): Flow {
-    const trigger: FlowNode = {
-        id: 'trigger',
-        kind: 'trigger.outlook',
-        name: defaultNodeName('trigger.outlook'),
-        position: { x: 80, y: 220 },
-        config: defaultConfig('trigger.outlook'),
-    };
+    const trigger = makeNode('trigger.outlook', 'trigger', { x: 80, y: 220 });
     return { id, name, nodes: [trigger], edges: [], updatedAt: new Date().toISOString() };
+}
+
+// ── Reading a flow the app did not write ─────────────────────────────────
+
+type Json = Record<string, unknown>;
+
+function isObject(value: unknown): value is Json {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const str = (value: unknown, fallback: string): string =>
+    typeof value === 'string' ? value : fallback;
+
+const num = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const bool = (value: unknown, fallback: boolean): boolean =>
+    typeof value === 'boolean' ? value : fallback;
+
+const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
+    allowed.includes(value as T) ? (value as T) : fallback;
+
+/** Every field replaced by its default unless the file supplies the right type. */
+function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
+    const base = defaultConfig(kind);
+    const from = isObject(raw) ? raw : {};
+    switch (base.kind) {
+        case 'trigger.outlook':
+            return {
+                ...base,
+                account: str(from.account, base.account),
+                folder: str(from.folder, base.folder),
+                pollSeconds: num(from.pollSeconds, base.pollSeconds),
+                lookbackDays: num(from.lookbackDays, base.lookbackDays),
+                maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),
+                processBacklogOnStart: bool(from.processBacklogOnStart, base.processBacklogOnStart),
+            };
+        case 'categorizer': {
+            // Ids name the ports edges leave from, so they have to stay distinct.
+            const taken = new Set<string>();
+            const categories = (Array.isArray(from.categories) ? from.categories : [])
+                .filter(isObject)
+                .map((c, i): Category => {
+                    const wanted = str(c.id, '') || `c${i + 1}`;
+                    let id = wanted;
+                    for (let n = 2; taken.has(id); n++) id = `${wanted}-${n}`;
+                    taken.add(id);
+                    return { id, label: str(c.label, ''), description: str(c.description, '') };
+                });
+            return {
+                ...base,
+                categories: categories.length > 0 ? categories : base.categories,
+                model: str(from.model, base.model),
+                includeBody: bool(from.includeBody, base.includeBody),
+                bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
+            };
+        }
+        case 'processor':
+            return {
+                ...base,
+                skills: (Array.isArray(from.skills) ? from.skills : base.skills).filter(
+                    (s): s is string => typeof s === 'string',
+                ),
+                instruction: str(from.instruction, base.instruction),
+                model: str(from.model, base.model),
+                effort: oneOf(from.effort, EFFORT_LEVELS, base.effort),
+                maxTurns: num(from.maxTurns, base.maxTurns),
+                maxBudgetUsd: num(from.maxBudgetUsd, base.maxBudgetUsd),
+                allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
+                allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
+                allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
+                allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
+            };
+        case 'terminal':
+            return {
+                ...base,
+                disposition: oneOf(from.disposition, DISPOSITIONS, base.disposition),
+                moveToFolder: str(from.moveToFolder, base.moveToFolder),
+            };
+    }
+}
+
+/**
+ * Rebuild a flow from unknown JSON — a file exported from another install, or
+ * one edited by hand. Anything the engine or canvas would trip over is repaired
+ * here rather than mid-run: unknown node kinds and repeated ids are dropped, the
+ * flow keeps exactly one trigger, and an edge survives only if it still joins a
+ * real output port to a node that accepts input.
+ */
+export function parseFlow(value: unknown, id: string, fallbackName: string): Flow {
+    const raw = isObject(value) ? value : {};
+
+    const takenIds = new Set<string>();
+    let nodes = (Array.isArray(raw.nodes) ? raw.nodes : []).filter(isObject).flatMap(
+        (n, i): FlowNode[] => {
+            const kind = NODE_KINDS.find((k) => k === n.kind);
+            const nodeId = str(n.id, '') || `node-${i + 1}`;
+            if (!kind || takenIds.has(nodeId)) return [];
+            takenIds.add(nodeId);
+            const position = isObject(n.position) ? n.position : {};
+            return [
+                {
+                    id: nodeId,
+                    kind,
+                    name: str(n.name, '') || defaultNodeName(kind),
+                    // Laid out in a row when the file carries no coordinates, so a
+                    // flow written by hand still opens as something readable.
+                    position: { x: num(position.x, 80 + i * 260), y: num(position.y, 200) },
+                    config: parseConfig(kind, n.config),
+                },
+            ];
+        },
+    );
+
+    // Exactly one trigger, because that is where the engine starts every run.
+    const triggers = nodes.filter((n) => n.kind === 'trigger.outlook');
+    nodes = nodes.filter((n) => n.kind !== 'trigger.outlook' || n === triggers[0]);
+    if (triggers.length === 0) {
+        let triggerId = 'trigger';
+        for (let n = 2; takenIds.has(triggerId); n++) triggerId = `trigger-${n}`;
+        nodes = [makeNode('trigger.outlook', triggerId, { x: 80, y: 220 }), ...nodes];
+    }
+
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const portsOf = new Map(nodes.map((n) => [n.id, new Set(outputPorts(n).map((p) => p.id))]));
+    const takenEdges = new Set<string>();
+    const edges = (Array.isArray(raw.edges) ? raw.edges : []).filter(isObject).flatMap(
+        (e): FlowEdge[] => {
+            const source = str(e.source, '');
+            const sourceHandle = str(e.sourceHandle, '');
+            const target = str(e.target, '');
+            const targetNode = byId.get(target);
+            if (!portsOf.get(source)?.has(sourceHandle)) return [];
+            if (!targetNode || !hasInput(targetNode.kind)) return [];
+            const edgeId = str(e.id, '') || `${source}:${sourceHandle}->${target}`;
+            if (takenEdges.has(edgeId)) return [];
+            takenEdges.add(edgeId);
+            return [{ id: edgeId, source, sourceHandle, target }];
+        },
+    );
+
+    return {
+        id,
+        name: str(raw.name, '').trim() || fallbackName,
+        nodes,
+        edges,
+        updatedAt: new Date().toISOString(),
+    };
 }

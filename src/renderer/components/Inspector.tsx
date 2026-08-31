@@ -2,6 +2,9 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import {
     type CategorizerConfig,
+    type Disposition,
+    DISPOSITIONS,
+    EFFORT_LEVELS,
     type EffortLevel,
     type FlowNode,
     NODE_KIND_META,
@@ -20,7 +23,6 @@ import type { SkillSummary } from '@shared/settings';
  */
 
 const MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
-const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** A labelled control. */
 function Field({
@@ -306,7 +308,7 @@ function ProcessorFields({
                 </Field>
                 <Field label="Effort">
                     <select value={config.effort} onChange={(e) => patch({ effort: e.target.value as EffortLevel })}>
-                        {EFFORTS.map((v) => (
+                        {EFFORT_LEVELS.map((v) => (
                             <option key={v}>{v}</option>
                         ))}
                     </select>
@@ -379,12 +381,11 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
             <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
                 <select
                     value={config.disposition}
-                    onChange={(e) => patch({ disposition: e.target.value as TerminalConfig['disposition'] })}
+                    onChange={(e) => patch({ disposition: e.target.value as Disposition })}
                 >
-                    <option value="done">done</option>
-                    <option value="needs-review">needs-review</option>
-                    <option value="ignored">ignored</option>
-                    <option value="failed">failed</option>
+                    {DISPOSITIONS.map((v) => (
+                        <option key={v}>{v}</option>
+                    ))}
                 </select>
             </Field>
             <Field

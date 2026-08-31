@@ -26,6 +26,11 @@ export interface Settings {
     defaultModel: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
+    /**
+     * Write canvas edits back as they happen. Off means the flow on screen is a
+     * draft until Save, and the engine keeps running the last saved version.
+     */
+    autoSaveFlows: boolean;
 }
 
 export function defaultSettings(): Settings {
@@ -35,6 +40,7 @@ export function defaultSettings(): Settings {
         mcpServers: [],
         defaultModel: 'claude-opus-5',
         pollingEnabled: true,
+        autoSaveFlows: true,
     };
 }
 

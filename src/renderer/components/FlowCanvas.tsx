@@ -16,11 +16,10 @@ import {
     ReactFlow,
 } from '@xyflow/react';
 import {
-    defaultConfig,
-    defaultNodeName,
     type Flow,
     type FlowNode,
     hasInput,
+    makeNode,
     NODE_KIND_META,
     type NodeKind,
     outputPorts,
@@ -234,13 +233,10 @@ export function FlowCanvas({
             // Approximate placement: the node is immediately draggable, and skipping
             // the viewport transform keeps this free of a provider wrapper.
             const id = `${kind.split('.')[0]}-${Math.random().toString(36).slice(2, 8)}`;
-            const node: FlowNode = {
-                id,
-                kind,
-                name: defaultNodeName(kind),
-                position: { x: event.clientX - bounds.left - 116, y: event.clientY - bounds.top - 40 },
-                config: defaultConfig(kind),
-            };
+            const node = makeNode(kind, id, {
+                x: event.clientX - bounds.left - 116,
+                y: event.clientY - bounds.top - 40,
+            });
             onChange({ ...flow, nodes: [...flow.nodes, node] });
             onSelect(id);
         },

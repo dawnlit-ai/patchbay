@@ -51,6 +51,8 @@ export function App(): JSX.Element {
     const [testing, setTesting] = useState(false);
     const [runsCollapsed, setRunsCollapsed] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    /** Edits made since the last write. Only visible when auto-save is off. */
+    const [dirty, setDirty] = useState(false);
     const [theme, setThemeState] = useState<Theme>(initialTheme);
     const [about, setAbout] = useState<AboutInfo | null>(null);
 
@@ -109,16 +111,60 @@ export function App(): JSX.Element {
     // ── Flow editing ───────────────────────────────────────────────────────
 
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** What a save writes, wherever the request came from — button, key or timer. */
+    const latestFlow = useRef<Flow | null>(null);
+    useEffect(() => {
+        latestFlow.current = flow;
+    }, [flow]);
 
-    const updateFlow = useCallback((next: Flow) => {
-        setFlow(next);
-        setFlows((prev) => prev.map((f) => (f.id === next.id ? next : f)));
-        // Debounced: dragging fires a change per frame, and each save is a file write.
+    const autoSave = settings?.autoSaveFlows ?? true;
+    /** With auto-save on the debounce covers it, so the button stays quiet. */
+    const unsaved = dirty && !autoSave;
+
+    // Main asks before closing the window over edits no file has yet.
+    useEffect(() => {
+        void window.api.flows.setUnsaved(unsaved);
+    }, [unsaved]);
+
+    const writeFlow = useCallback((next: Flow) => {
         if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(() => {
-            void window.api.flows.save(next).catch((e: Error) => setError(e.message));
-        }, 400);
+        saveTimer.current = null;
+        setDirty(false);
+        void window.api.flows.save(next).catch((e: Error) => {
+            setError(e.message);
+            setDirty(true);
+        });
     }, []);
+
+    const saveNow = useCallback(() => {
+        if (latestFlow.current) writeFlow(latestFlow.current);
+    }, [writeFlow]);
+
+    const updateFlow = useCallback(
+        (next: Flow) => {
+            setFlow(next);
+            setFlows((prev) => prev.map((f) => (f.id === next.id ? next : f)));
+            setDirty(true);
+            if (!autoSave) return;
+            // Debounced: dragging fires a change per frame, and each save is a file write.
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            saveTimer.current = setTimeout(() => writeFlow(next), 400);
+        },
+        [autoSave, writeFlow],
+    );
+
+    // Ctrl/Cmd+S saves whether or not auto-save is on — the habit costs nothing
+    // when the answer is "already saved".
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent): void => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                saveNow();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [saveNow]);
 
     const selectedNode = useMemo(
         () => flow?.nodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -168,13 +214,73 @@ export function App(): JSX.Element {
         }
     };
 
+    /**
+     * Anything about to replace the flow on screen asks here first. Returns the
+     * list to pick the next flow from — reread from disk when the user chose to
+     * throw unsaved edits away, since the copy in memory still holds them — or
+     * null if they would rather stay where they are.
+     */
+    const leaveFlow = async (): Promise<Flow[] | null> => {
+        if (!dirty) return flows;
+        // A pending debounce belongs to the flow being left, so flush it now.
+        if (autoSave) {
+            saveNow();
+            return flows;
+        }
+        if (!window.confirm(`“${flow?.name ?? 'This flow'}” has unsaved changes. Discard them?`)) {
+            return null;
+        }
+        const fresh = await window.api.flows.list();
+        setFlows(fresh);
+        setDirty(false);
+        return fresh;
+    };
+
+    const selectFlow = async (id: string): Promise<void> => {
+        if (id === flow?.id) return;
+        const list = await leaveFlow();
+        const next = list?.find((f) => f.id === id);
+        if (!next) return;
+        setFlow(next);
+        setSelectedNodeId(null);
+    };
+
     const newFlow = async (): Promise<void> => {
         const name = window.prompt('Name this flow:', 'New flow');
         if (!name) return;
+        if (!(await leaveFlow())) return;
         const created = await window.api.flows.create(name);
         setFlows((prev) => [...prev, created]);
         setFlow(created);
         setSelectedNodeId(null);
+    };
+
+    const loadFlow = async (): Promise<void> => {
+        setError(null);
+        try {
+            const imported = await window.api.flows.pickAndImport();
+            if (!imported) return;
+            // The file joins the library either way; only the switch to it waits on
+            // an answer about the edits already on screen.
+            const list = await leaveFlow();
+            setFlows((prev) => [...(list ?? prev).filter((f) => f.id !== imported.id), imported]);
+            if (!list) return;
+            setFlow(imported);
+            setSelectedNodeId(null);
+        } catch (e) {
+            setError((e as Error).message);
+        }
+    };
+
+    /** Writes what is on screen, unsaved edits included. */
+    const exportFlow = async (): Promise<void> => {
+        if (!flow) return;
+        setError(null);
+        try {
+            await window.api.flows.pickAndExport(flow);
+        } catch (e) {
+            setError((e as Error).message);
+        }
     };
 
     if (!flow || !settings) {
@@ -193,16 +299,7 @@ export function App(): JSX.Element {
                     </span>
                 </span>
 
-                <select
-                    value={flow.id}
-                    onChange={(e) => {
-                        const next = flows.find((f) => f.id === e.target.value);
-                        if (next) {
-                            setFlow(next);
-                            setSelectedNodeId(null);
-                        }
-                    }}
-                >
+                <select value={flow.id} onChange={(e) => void selectFlow(e.target.value)}>
                     {flows.map((f) => (
                         <option key={f.id} value={f.id}>
                             {f.name}
@@ -210,6 +307,24 @@ export function App(): JSX.Element {
                     ))}
                 </select>
                 <button onClick={() => void newFlow()}>New flow</button>
+                <button title="Open a flow file and add it to the library" onClick={() => void loadFlow()}>
+                    Load…
+                </button>
+                <button
+                    className={unsaved ? 'primary' : ''}
+                    disabled={!unsaved}
+                    title={
+                        autoSave
+                            ? 'Edits save themselves — turn that off in Settings to save by hand.'
+                            : 'Save this flow (Ctrl+S)'
+                    }
+                    onClick={saveNow}
+                >
+                    {unsaved ? 'Save' : 'Saved'}
+                </button>
+                <button title="Write this flow out to a file" onClick={() => void exportFlow()}>
+                    Export…
+                </button>
                 <button onClick={() => setTesting(true)}>Test run…</button>
                 <button
                     className="ghost"
@@ -315,7 +430,11 @@ export function App(): JSX.Element {
                                 settings={settings}
                                 about={about}
                                 onSave={(next) => {
-                                    void window.api.settings.save(next).then(setSettings);
+                                    void window.api.settings.save(next).then((saved) => {
+                                        setSettings(saved);
+                                        // Switching auto-save on adopts the draft on screen.
+                                        if (saved.autoSaveFlows && dirty) saveNow();
+                                    });
                                 }}
                             />
                         )}

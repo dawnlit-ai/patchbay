@@ -13,6 +13,16 @@ import { runsDir } from './paths';
 
 let watcher: Watcher | null = null;
 
+/**
+ * Set by the renderer while the canvas holds edits no file has yet — only
+ * possible with auto-save off. The window asks before closing over them.
+ */
+let unsavedFlow = false;
+
+export function hasUnsavedFlow(): boolean {
+    return unsavedFlow;
+}
+
 function broadcast(channel: string, payload: unknown): void {
     for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(channel, payload);
@@ -50,6 +60,17 @@ const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 /** How far back the "Test run…" picker looks for a message to choose from. */
 const RECENT_LOOKBACK_DAYS = 7;
 
+const FLOW_FILTERS = [
+    { name: 'Patchbay flow', extensions: ['json'] },
+    { name: 'All files', extensions: ['*'] },
+];
+
+/** The flow's name, made safe to hand a file dialog as a suggestion. */
+function flowFileName(name: string): string {
+    const safe = name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
+    return safe || 'flow';
+}
+
 export function registerIpc(): void {
     handle(
         IPC.about,
@@ -68,6 +89,29 @@ export function registerIpc(): void {
     handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));
     handle(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
     handle(IPC.flowsRemove, (id: string) => flowStore.removeFlow(id));
+    handle(IPC.flowsPickAndImport, async () => {
+        const picked = await dialog.showOpenDialog({
+            title: 'Open a flow',
+            filters: FLOW_FILTERS,
+            properties: ['openFile'],
+        });
+        const path = picked.filePaths[0];
+        if (picked.canceled || !path) return null;
+        return flowStore.importFlowFile(path);
+    });
+    handle(IPC.flowsPickAndExport, async (flow: Flow) => {
+        const picked = await dialog.showSaveDialog({
+            title: 'Save flow to file',
+            defaultPath: `${flowFileName(flow.name)}.json`,
+            filters: FLOW_FILTERS,
+        });
+        if (picked.canceled || !picked.filePath) return null;
+        flowStore.exportFlowFile(flow, picked.filePath);
+        return picked.filePath;
+    });
+    handle(IPC.flowsSetUnsaved, (unsaved: boolean) => {
+        unsavedFlow = unsaved;
+    });
 
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => saveSettings(settings));

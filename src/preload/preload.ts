@@ -22,6 +22,9 @@ const api: Api = {
         save: (flow) => ipcRenderer.invoke(IPC.flowsSave, flow),
         create: (name) => ipcRenderer.invoke(IPC.flowsCreate, name),
         remove: (id) => ipcRenderer.invoke(IPC.flowsRemove, id),
+        pickAndImport: () => ipcRenderer.invoke(IPC.flowsPickAndImport),
+        pickAndExport: (flow) => ipcRenderer.invoke(IPC.flowsPickAndExport, flow),
+        setUnsaved: (unsaved) => ipcRenderer.invoke(IPC.flowsSetUnsaved, unsaved),
     },
     settings: {
         get: () => ipcRenderer.invoke(IPC.settingsGet),
