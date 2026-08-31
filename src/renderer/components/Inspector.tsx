@@ -103,9 +103,7 @@ export function Inspector({ node, skills, onChange, onDelete }: Props): JSX.Elem
 
   return (
     <div>
-      <div className="section-title" style={{ color: meta.accent }}>
-        {meta.label}
-      </div>
+      <div className={`section-title accented ${meta.slug}`}>{meta.label}</div>
 
       <Field label="Name">
         <input value={node.name} onChange={(e) => onChange({ ...node, name: e.target.value })} />
@@ -190,13 +188,7 @@ export function Inspector({ node, skills, onChange, onDelete }: Props): JSX.Elem
           {node.config.categories.map((cat, i) => (
             <div
               key={cat.id}
-              style={{
-                border: '1px solid var(--line)',
-                borderRadius: 8,
-                padding: 9,
-                marginBottom: 8,
-                background: 'var(--panel-2)',
-              }}
+            className="card"
             >
               <div className="row" style={{ marginBottom: 6 }}>
                 <input

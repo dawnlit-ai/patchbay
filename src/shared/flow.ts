@@ -192,31 +192,46 @@ export function defaultNodeName(kind: NodeKind): string {
   }
 }
 
+export type Theme = 'light' | 'dark';
+
+/**
+ * Presentation per node kind. `slug` names the CSS class that carries the
+ * kind's accent (`--k`), so a colour is defined once per theme in the
+ * stylesheet rather than inline. `accent` is the literal, needed only where a
+ * colour must be handed to a canvas that cannot read a CSS variable.
+ */
 export const NODE_KIND_META: Record<
   NodeKind,
-  { label: string; blurb: string; accent: string }
+  { label: string; blurb: string; slug: string; accent: Record<Theme, string> }
 > = {
   'trigger.outlook': {
     label: 'Outlook Trigger',
     blurb: 'Watches a mailbox folder and starts a run for each new email.',
-    accent: '#4ade80',
+    slug: 'kind-trigger',
+    accent: { light: '#0f9d58', dark: '#4ade80' },
   },
   categorizer: {
     label: 'Categorizer',
     blurb: 'Sorts the email down one branch by matching your descriptions.',
-    accent: '#60a5fa',
+    slug: 'kind-categorizer',
+    accent: { light: '#2563eb', dark: '#60a5fa' },
   },
   processor: {
     label: 'Processor',
     blurb: 'Runs Claude with the skills you assign, scoped to this email.',
-    accent: '#c084fc',
+    slug: 'kind-processor',
+    accent: { light: '#7c3aed', dark: '#c084fc' },
   },
   terminal: {
     label: 'Terminal',
     blurb: 'Ends the path and records how the email came out.',
-    accent: '#94a3b8',
+    slug: 'kind-terminal',
+    accent: { light: '#64748b', dark: '#94a3b8' },
   },
 };
+
+export const accentFor = (kind: NodeKind, theme: Theme): string =>
+  NODE_KIND_META[kind].accent[theme];
 
 /** A flow needs exactly one trigger; the engine starts every run there. */
 export function findTrigger(flow: Flow): FlowNode | undefined {

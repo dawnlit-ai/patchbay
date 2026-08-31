@@ -85,7 +85,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
   if (editing) {
     return (
       <div>
-        <div className="panel-head" style={{ padding: '0 0 10px', position: 'static' }}>
+        <div className="panel-head plain">
           <strong>{editing}</strong>
           <span className="spacer" />
           <button onClick={() => setEditing(null)}>Cancel</button>
@@ -110,7 +110,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
 
   return (
     <div>
-      <div className="panel-head" style={{ padding: '0 0 10px', position: 'static' }}>
+      <div className="panel-head plain">
         <strong>Skill library</strong>
         <span className="spacer" />
         <button onClick={() => void importSkills()}>Import…</button>

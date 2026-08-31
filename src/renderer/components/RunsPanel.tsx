@@ -152,7 +152,7 @@ export function RunsPanel({
         {!selected && <div className="empty">Select a run to see the path it took.</div>}
         {selected && (
           <>
-            <div className="panel-head" style={{ padding: '0 0 10px', position: 'static' }}>
+            <div className="panel-head plain">
               <strong style={{ fontSize: 14 }}>{selected.email.subject || '(no subject)'}</strong>
               <span className="spacer" />
               {statusBadge(selected.status)}

@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NODE_KIND_META, type Flow, type FlowNode, type NodeKind } from '@shared/flow';
+import { NODE_KIND_META, type Flow, type FlowNode, type NodeKind, type Theme } from '@shared/flow';
 import type { Run, RunSummary } from '@shared/trace';
 import type { EngineStatus, Settings, SkillSummary } from '@shared/settings';
 import { FlowCanvas, type CanvasHighlight } from './components/FlowCanvas';
@@ -11,6 +11,17 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
 
 const PALETTE: NodeKind[] = ['categorizer', 'processor', 'terminal'];
+
+const THEME_KEY = 'efs.theme';
+
+/** Light unless the user has chosen otherwise; the choice is per machine. */
+function readTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
 
 export function App(): JSX.Element {
   const [flows, setFlows] = useState<Flow[]>([]);
@@ -25,6 +36,18 @@ export function App(): JSX.Element {
   const [testing, setTesting] = useState(false);
   const [runsCollapsed, setRunsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+
+  // The stylesheet keys every colour off this attribute, so setting it here is
+  // the whole of what switching themes does.
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // A machine that refuses storage still themes correctly for this session.
+    }
+  }, [theme]);
 
   const refreshSkills = useCallback(() => {
     void window.api.skills.list().then(setSkills);
@@ -185,6 +208,13 @@ export function App(): JSX.Element {
         </select>
         <button onClick={() => void newFlow()}>New flow</button>
         <button onClick={() => setTesting(true)}>Test run…</button>
+        <button
+          className="ghost"
+          title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+          onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+        >
+          {theme === 'light' ? '◐ Dark' : '◑ Light'}
+        </button>
 
         <span className="spacer" />
 
@@ -214,8 +244,7 @@ export function App(): JSX.Element {
             return (
               <div
                 key={kind}
-                className="palette-item"
-                style={{ borderLeftColor: meta.accent }}
+                className={`palette-item ${meta.slug}`}
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData('application/flow-node', kind);
@@ -241,6 +270,7 @@ export function App(): JSX.Element {
             flow={flow}
             selectedNodeId={selectedNodeId}
             highlight={highlight}
+            theme={theme}
             onChange={updateFlow}
             onSelect={setSelectedNodeId}
           />

@@ -17,6 +17,7 @@ import {
 } from '@xyflow/react';
 import {
   NODE_KIND_META,
+  accentFor,
   defaultConfig,
   defaultNodeName,
   hasInput,
@@ -24,6 +25,7 @@ import {
   type Flow,
   type FlowNode,
   type NodeKind,
+  type Theme,
 } from '@shared/flow';
 import type { Pass } from '@shared/trace';
 
@@ -50,7 +52,7 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
   const meta = NODE_KIND_META[flowNode.kind];
   const ports = outputPorts(flowNode);
 
-  const classes = ['node'];
+  const classes = ['node', meta.slug];
   if (selected) classes.push('selected');
   if (pass) classes.push(pass.status === 'error' ? 'failed' : 'visited');
 
@@ -58,8 +60,8 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
     <div className={classes.join(' ')}>
       {hasInput(flowNode.kind) && <Handle type="target" position={Position.Left} id="in" />}
 
-      <div className="node-head" style={{ background: `${meta.accent}22`, color: meta.accent }}>
-        <span className="dot" style={{ background: meta.accent }} />
+      <div className="node-head">
+        <span className="dot" />
         <span className="kind">{meta.label}</span>
         {pass && <span className="seq">#{pass.seq}</span>}
       </div>
@@ -79,7 +81,8 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                 type="source"
                 position={Position.Right}
                 id={port.id}
-                style={{ top: '50%', background: pass?.outPort === port.id ? '#60a5fa' : '#475569' }}
+                className={pass?.outPort === port.id ? 'taken-handle' : undefined}
+                style={{ top: '50%' }}
               />
             </div>
           ))}
@@ -112,10 +115,16 @@ function describe(node: FlowNode): string {
 
 const nodeTypes = { card: NodeCard };
 
+/** React Flow takes plain colour strings, so read the token off the document. */
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 export interface FlowCanvasProps {
   flow: Flow;
   selectedNodeId: string | null;
   highlight: CanvasHighlight | null;
+  theme: Theme;
   onChange(flow: Flow): void;
   onSelect(nodeId: string | null): void;
 }
@@ -124,6 +133,7 @@ export function FlowCanvas({
   flow,
   selectedNodeId,
   highlight,
+  theme,
   onChange,
   onSelect,
 }: FlowCanvasProps): JSX.Element {
@@ -256,14 +266,14 @@ export function FlowCanvas({
         fitView
         defaultEdgeOptions={{ animated: false }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#1e2a45" />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color={cssVar('--grid')} />
         <Controls showInteractive={false} />
         <MiniMap
           pannable
           zoomable
-          maskColor="rgba(11,16,32,0.75)"
-          style={{ background: '#0d1526', border: '1px solid #24304d' }}
-          nodeColor={(n) => NODE_KIND_META[(n.data as NodeData).flowNode.kind].accent}
+          maskColor={cssVar('--scrim')}
+          style={{ background: cssVar('--input-bg'), border: `1px solid ${cssVar('--line')}` }}
+          nodeColor={(n) => accentFor((n.data as NodeData).flowNode.kind, theme)}
         />
       </ReactFlow>
     </div>

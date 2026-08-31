@@ -137,6 +137,8 @@ export function importSkillsFrom(dir: string): string[] {
   return imported;
 }
 
+const STARTER_SKILL_NAME = 'summarize-and-file';
+
 const STARTER_SKILL = `---
 name: summarize-and-file
 description: Read an email end to end and write a short structured summary of what it asks for, who it is from, and what a human would need to do next. Use as a starting point for your own skills.
@@ -179,17 +181,30 @@ that email — you cannot reach any other message.
  * Returns the names imported, for the log.
  */
 export function seedSkillLibrary(candidates: string[]): string[] {
-  if (listSkills().length > 0) return [];
+  const existing = listSkills();
+  // The starter skill is a placeholder this app wrote itself, not something the
+  // user put here, so a library holding only that still counts as unseeded —
+  // otherwise launching once before pointing at a real skills folder would lock
+  // the library to the placeholder forever.
+  const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
+  if (existing.length > 0 && !onlyStarter) return [];
+
   for (const dir of candidates) {
     if (!dir.trim() || !existsSync(dir)) continue;
     try {
       const imported = importSkillsFrom(dir);
-      if (imported.length > 0) return imported;
+      if (imported.length > 0) {
+        // Real skills supersede the placeholder.
+        if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) removeSkill(STARTER_SKILL_NAME);
+        return imported;
+      }
     } catch {
       // A seed folder that cannot be read is not a reason to fail startup;
       // the starter skill below still gives the app something to work with.
     }
   }
-  saveSkill('summarize-and-file', STARTER_SKILL);
-  return ['summarize-and-file'];
+
+  if (onlyStarter) return [];
+  saveSkill(STARTER_SKILL_NAME, STARTER_SKILL);
+  return [STARTER_SKILL_NAME];
 }

@@ -15,7 +15,7 @@ export function SettingsPanel({ settings, onSave }: Props): JSX.Element {
 
   return (
     <div>
-      <div className="panel-head" style={{ padding: '0 0 10px', position: 'static' }}>
+      <div className="panel-head plain">
         <strong>Settings</strong>
         <span className="spacer" />
         <button className="primary" disabled={!dirty} onClick={() => onSave(draft)}>
@@ -67,13 +67,7 @@ export function SettingsPanel({ settings, onSave }: Props): JSX.Element {
       {draft.mcpServers.map((server, i) => (
         <div
           key={i}
-          style={{
-            border: '1px solid var(--line)',
-            borderRadius: 8,
-            padding: 9,
-            marginBottom: 8,
-            background: 'var(--panel-2)',
-          }}
+        className="card"
         >
           <div className="row" style={{ marginBottom: 6 }}>
             <input
