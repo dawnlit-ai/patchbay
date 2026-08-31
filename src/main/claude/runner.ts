@@ -44,7 +44,7 @@ export interface ClaudeRunResult {
 
 const now = (): string => new Date().toISOString();
 
-function truncate(value: string, max = 4000): string {
+function truncate(value: string, max = 4_000): string {
     return value.length <= max ? value : `${value.slice(0, max)}\n… (${value.length - max} more characters)`;
 }
 
@@ -145,7 +145,7 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         at: now(),
         type: 'prompt',
         label: `Prompt to ${request.model}`,
-        detail: truncate(request.prompt, 20000),
+        detail: truncate(request.prompt, 20_000),
     });
 
     try {

@@ -155,7 +155,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 ],
                 model: DEFAULT_MODEL,
                 includeBody: true,
-                bodyMaxChars: 8000,
+                bodyMaxChars: 8_000,
             };
         case 'processor':
             return {

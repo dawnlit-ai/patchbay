@@ -48,9 +48,9 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tool(
             'read_email',
             'Read the full body of the email this run is about, plus its sender, subject and attachment names. Call this before deciding anything — the preview in the prompt is truncated.',
-            { maxChars: z.number().int().min(500).max(200000).optional() },
+            { maxChars: z.number().int().min(500).max(200_000).optional() },
             async ({ maxChars }) => {
-                const result = await outlook.readBody(email.ref, maxChars ?? 50000);
+                const result = await outlook.readBody(email.ref, maxChars ?? 50_000);
                 log('read_email', `${result.bodyLength} characters, ${result.attachmentCount} attachment(s)`);
                 return ok(
                     [
@@ -58,7 +58,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                         `Subject: ${result.subject}`,
                         `Received: ${result.receivedTime}`,
                         `Attachments: ${result.attachmentNames.join(', ') || '(none)'}`,
-                        result.truncated ? `(body truncated at ${maxChars ?? 50000} characters)` : '',
+                        result.truncated ? `(body truncated at ${maxChars ?? 50_000} characters)` : '',
                         '',
                         result.body,
                     ]

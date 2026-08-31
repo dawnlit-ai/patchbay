@@ -27,20 +27,28 @@ export function getRun(id: string): Run | null {
     return readJson<Run | null>(runFile(id), null);
 }
 
+/** A torn final line (power loss mid-append) costs one row, not the list. */
+function parseSummary(line: string): RunSummary | null {
+    try {
+        return JSON.parse(line) as RunSummary;
+    } catch {
+        return null;
+    }
+}
+
 export function listRuns(limit: number): RunSummary[] {
     const file = runIndexFile();
     if (!existsSync(file)) return [];
-    const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
-    const out: RunSummary[] = [];
-    // Walk backwards: the newest runs are the ones anyone wants to see.
-    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
-        try {
-            out.push(JSON.parse(lines[i] as string) as RunSummary);
-        } catch {
-            // A torn final line (power loss mid-append) costs one row, not the list.
-        }
-    }
-    return out;
+    // Newest first, and lazy: the walk ends as soon as `limit` rows have parsed.
+    return readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .toReversed()
+        .values()
+        .map(parseSummary)
+        .filter((run) => run !== null)
+        .take(limit)
+        .toArray();
 }
 
 export function clearRuns(): void {

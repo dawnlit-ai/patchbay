@@ -21,7 +21,7 @@ export function listFlows(): Flow[] {
         writeJson(filePath(seeded.id), seeded);
         return [seeded];
     }
-    return flows.sort((a, b) => a.name.localeCompare(b.name));
+    return flows.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getFlow(id: string): Flow | null {

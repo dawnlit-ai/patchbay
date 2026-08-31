@@ -20,12 +20,10 @@ function broadcast(channel: string, payload: unknown): void {
 }
 
 export function getWatcher(): Watcher {
-    if (!watcher) {
-        watcher = new Watcher(
-            (run: Run) => broadcast(IPC.evtRunUpdated, run),
-            () => broadcast(IPC.evtEngineStatus, watcher?.status()),
-        );
-    }
+    watcher ??= new Watcher(
+        (run: Run) => broadcast(IPC.evtRunUpdated, run),
+        () => broadcast(IPC.evtEngineStatus, watcher?.status()),
+    );
     return watcher;
 }
 

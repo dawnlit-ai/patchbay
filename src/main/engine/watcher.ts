@@ -158,9 +158,8 @@ export class Watcher {
                     continue;
                 }
 
-                const fresh = emails.filter((e) => !seen.has(e.ref.entryId));
                 // Oldest first, so a backlog is processed in the order it arrived.
-                fresh.reverse();
+                const fresh = emails.filter((e) => !seen.has(e.ref.entryId)).toReversed();
                 for (const email of fresh) {
                     mark.seen.push(email.ref.entryId);
                     this.queue.push({ flow, email, trigger: 'poll' });

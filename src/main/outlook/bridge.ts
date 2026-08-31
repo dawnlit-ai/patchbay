@@ -21,7 +21,7 @@ type BridgeModule = typeof import('@dawnlit/outlook-bridge');
 let mod: BridgeModule | null = null;
 
 async function bridge(): Promise<BridgeModule> {
-    if (!mod) mod = await import('@dawnlit/outlook-bridge');
+    mod ??= await import('@dawnlit/outlook-bridge');
     return mod;
 }
 

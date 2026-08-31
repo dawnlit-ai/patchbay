@@ -69,7 +69,7 @@ export function listSkills(): SkillSummary[] {
         if (!existsSync(file)) continue;
         out.push(summarize(entry.name, readFileSync(file, 'utf8'), file));
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name));
+    return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getSkill(name: string): SkillDetail | null {

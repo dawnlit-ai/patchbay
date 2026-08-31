@@ -246,7 +246,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                         type="number"
                         min={500}
                         value={config.bodyMaxChars}
-                        onChange={(e) => patch({ bodyMaxChars: Math.max(500, Number(e.target.value) || 8000) })}
+                        onChange={(e) => patch({ bodyMaxChars: Math.max(500, Number(e.target.value) || 8_000) })}
                     />
                 </Field>
             )}
