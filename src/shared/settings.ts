@@ -40,6 +40,15 @@ export function defaultSettings(): Settings {
   };
 }
 
+/** Who made this and under what terms — shown in Settings → About. */
+export interface AboutInfo {
+  name: string;
+  version: string;
+  developer: string;
+  developerUrl: string;
+  license: string;
+}
+
 export interface SkillSummary {
   name: string;
   description: string;

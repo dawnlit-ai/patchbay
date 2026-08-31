@@ -1,13 +1,14 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
-import type { Settings } from '@shared/settings';
+import type { AboutInfo, Settings } from '@shared/settings';
 
 interface Props {
   settings: Settings;
+  about: AboutInfo | null;
   onSave(settings: Settings): void;
 }
 
-export function SettingsPanel({ settings, onSave }: Props): JSX.Element {
+export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
   const [draft, setDraft] = useState<Settings>(settings);
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
@@ -130,6 +131,24 @@ export function SettingsPanel({ settings, onSave }: Props): JSX.Element {
       >
         + Add server
       </button>
+
+      {about && (
+        <>
+          <div className="section-title">About</div>
+          <div className="about">
+            <div className="title">
+              {about.name} <span style={{ color: 'var(--dim)' }}>{about.version}</span>
+            </div>
+            <div className="line">
+              Developed by <strong>{about.developer}</strong>
+            </div>
+            <div className="line">Licensed under {about.license}</div>
+            <button className="link" onClick={() => void window.api.openDeveloperSite()}>
+              {about.developerUrl}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

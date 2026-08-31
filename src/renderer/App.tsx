@@ -2,7 +2,7 @@ import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NODE_KIND_META, type Flow, type FlowNode, type NodeKind, type Theme } from '@shared/flow';
 import type { Run, RunSummary } from '@shared/trace';
-import type { EngineStatus, Settings, SkillSummary } from '@shared/settings';
+import type { AboutInfo, EngineStatus, Settings, SkillSummary } from '@shared/settings';
 import { FlowCanvas, type CanvasHighlight } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
 import { RunsPanel } from './components/RunsPanel';
@@ -37,6 +37,7 @@ export function App(): JSX.Element {
   const [runsCollapsed, setRunsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
+  const [about, setAbout] = useState<AboutInfo | null>(null);
 
   // The stylesheet keys every colour off this attribute, so setting it here is
   // the whole of what switching themes does.
@@ -61,11 +62,13 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     void (async () => {
-      const [loadedFlows, loadedSettings, loadedStatus] = await Promise.all([
+      const [loadedFlows, loadedSettings, loadedStatus, loadedAbout] = await Promise.all([
         window.api.flows.list(),
         window.api.settings.get(),
         window.api.engine.status(),
+        window.api.about(),
       ]);
+      setAbout(loadedAbout);
       setFlows(loadedFlows);
       setFlow(loadedFlows[0] ?? null);
       setSettings(loadedSettings);
@@ -188,7 +191,12 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <div className="topbar">
-        <span className="brand">Email Flow Studio</span>
+        <span className="brand">
+          <span className="name">Email Flow Studio</span>
+          <span className="by">
+            by <b>Dawnlit</b>
+          </span>
+        </span>
 
         <select
           value={flow.id}
@@ -317,6 +325,7 @@ export function App(): JSX.Element {
             {tab === 'settings' && (
               <SettingsPanel
                 settings={settings}
+                about={about}
                 onSave={(next) => {
                   void window.api.settings.save(next).then(setSettings);
                 }}

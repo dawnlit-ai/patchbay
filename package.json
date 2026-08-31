@@ -3,7 +3,7 @@
   "productName": "Email Flow Studio",
   "version": "0.1.0",
   "private": true,
-  "description": "Blueprint-style visual email processing flows: Outlook in, Claude skills out, every pass traced.",
+  "description": "Blueprint-style visual email processing flows: Outlook in, Claude skills out, every pass traced. Built by Dawnlit.",
   "license": "AGPL-3.0-or-later",
   "main": ".vite/build/main.js",
   "engines": {
@@ -44,5 +44,5 @@
     "react-dom": "^19.2.8",
     "zod": "^4.5.4"
   },
-  "author": "Wynter Lin"
+  "author": "Dawnlit"
 }

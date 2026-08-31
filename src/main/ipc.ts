@@ -1,8 +1,8 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
+import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import { IPC, type InboxFolderOption } from '@shared/ipc';
 import type { Flow } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { Settings } from '@shared/settings';
+import type { AboutInfo, Settings } from '@shared/settings';
 import * as flowStore from './store/flowStore';
 import * as skillStore from './store/skillStore';
 import * as traceStore from './store/traceStore';
@@ -47,7 +47,22 @@ function handle<T extends unknown[], R>(
   });
 }
 
+/** One canonical destination, so no renderer input reaches shell.openExternal. */
+const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
+
 export function registerIpc(): void {
+  handle(
+    IPC.about,
+    (): AboutInfo => ({
+      name: 'Email Flow Studio',
+      version: app.getVersion(),
+      developer: 'Dawnlit',
+      developerUrl: DEVELOPER_URL,
+      license: 'AGPL-3.0-or-later',
+    }),
+  );
+  handle(IPC.openDeveloperSite, () => shell.openExternal(DEVELOPER_URL));
+
   handle(IPC.flowsList, () => flowStore.listFlows());
   handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
   handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));

@@ -6,7 +6,7 @@
 
 import type { Flow } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
-import type { EngineStatus, Settings, SkillDetail, SkillSummary } from './settings';
+import type { AboutInfo, EngineStatus, Settings, SkillDetail, SkillSummary } from './settings';
 
 export interface InboxFolderOption {
   folderPath: string;
@@ -18,6 +18,13 @@ export interface InboxFolderOption {
 }
 
 export interface Api {
+  /**
+   * Product identity. `openDeveloperSite` deliberately takes no URL — the main
+   * process owns the destination, so the renderer cannot ask the OS to open an
+   * arbitrary address.
+   */
+  about(): Promise<AboutInfo>;
+  openDeveloperSite(): Promise<void>;
   flows: {
     list(): Promise<Flow[]>;
     get(id: string): Promise<Flow | null>;
@@ -67,6 +74,9 @@ export interface Api {
 }
 
 export const IPC = {
+  about: 'app:about',
+  openDeveloperSite: 'app:openDeveloperSite',
+
   flowsList: 'flows:list',
   flowsGet: 'flows:get',
   flowsSave: 'flows:save',

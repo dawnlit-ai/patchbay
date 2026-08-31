@@ -1,11 +1,13 @@
 # Email Flow Studio
 
+*A [Dawnlit](https://github.com/dawnlit-ai) project.*
+
 Build email-processing pipelines the way you'd wire a Blueprint graph: drag nodes
 onto a canvas, connect them port to port, and watch a real email travel the path
 you drew. Outlook supplies the mail, Claude does the thinking, and every pass is
 written down so you can work out afterwards why an email went where it did.
 
-![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
+![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![by](https://img.shields.io/badge/by-Dawnlit-0f9d58) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
 
 ## What it does
 
@@ -192,7 +194,7 @@ entirely on the skill.
 
 ## Licence
 
-Copyright (C) 2026 Wynter Lin.
+Copyright (C) 2026 Dawnlit.
 
 Email Flow Studio is free software: you can redistribute it and/or modify it
 under the terms of the **GNU Affero General Public License** as published by the
@@ -210,7 +212,12 @@ modified source.
 not relicense what it talks to: `@anthropic-ai/claude-agent-sdk` is proprietary
 ("© Anthropic PBC. All rights reserved", subject to Anthropic's
 [legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
-`@dawnlit/outlook-bridge` is Apache-2.0. Both are installed from npm by whoever
-builds the app rather than redistributed here — worth understanding before you
-ship binaries, since bundling a proprietary SDK into an AGPL distribution is a
-question for a lawyer rather than a README.
+`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed
+and separately versioned). Both are installed from npm by whoever builds the app
+rather than redistributed here — worth understanding before you ship binaries,
+since bundling a proprietary SDK into an AGPL distribution is a question for a
+lawyer rather than a README.
+
+---
+
+Built by **Dawnlit** — <https://github.com/dawnlit-ai>

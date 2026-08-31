@@ -15,6 +15,8 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const api: Api = {
+  about: () => ipcRenderer.invoke(IPC.about),
+  openDeveloperSite: () => ipcRenderer.invoke(IPC.openDeveloperSite),
   flows: {
     list: () => ipcRenderer.invoke(IPC.flowsList),
     get: (id) => ipcRenderer.invoke(IPC.flowsGet, id),
