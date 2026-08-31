@@ -1,0 +1,47 @@
+{
+  "name": "email-flow-studio",
+  "productName": "Email Flow Studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Blueprint-style visual email processing flows: Outlook in, Claude skills out, every pass traced.",
+  "license": "UNLICENSED",
+  "main": ".vite/build/main.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "allowScripts": [
+    "electron",
+    "esbuild",
+    "@dawnlit/outlook-bridge"
+  ],
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "typecheck": "tsc --noEmit",
+    "selftest": "esbuild scripts/selftest.ts --bundle --platform=node --format=cjs --outfile=.selftest/selftest.cjs --external:electron --external:@anthropic-ai/claude-agent-sdk --external:@dawnlit/outlook-bridge --log-level=warning && electron .selftest/selftest.cjs",
+    "postinstall": "node node_modules/electron/install.js"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/plugin-vite": "^7.11.2",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.251",
+    "@dawnlit/outlook-bridge": "github:dawnlit-ai/outlook-bridge#main",
+    "@xyflow/react": "^12.11.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.4"
+  }
+}
