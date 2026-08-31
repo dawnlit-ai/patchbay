@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   resolve: {
-    alias: { '@shared': resolve(__dirname, 'src/shared') },
+    alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
   },
   build: {
     rollupOptions: {

@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 
 export default defineConfig({
-  root: resolve(__dirname, 'src/renderer'),
+  root: resolve(import.meta.dirname, 'src/renderer'),
   plugins: [react()],
   resolve: {
-    alias: { '@shared': resolve(__dirname, 'src/shared') },
+    alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
   },
 });

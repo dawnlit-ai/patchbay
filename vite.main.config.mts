@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // way, and electron is supplied by the runtime.
 export default defineConfig({
   resolve: {
-    alias: { '@shared': resolve(__dirname, 'src/shared') },
+    alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
   },
   build: {
     rollupOptions: {

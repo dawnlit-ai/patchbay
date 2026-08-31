@@ -19,5 +19,5 @@
       "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "*.config.ts", "forge.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "*.config.ts", "*.config.mts", "forge.config.ts"]
 }
