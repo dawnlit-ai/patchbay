@@ -6,17 +6,17 @@ import { resolve } from 'node:path';
 // package, outlook-bridge writes PowerShell/AppleScript scratch files the same
 // way, and electron is supplied by the runtime.
 export default defineConfig({
-  resolve: {
-    alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
-  },
-  build: {
-    rollupOptions: {
-      external: [
-        'electron',
-        '@anthropic-ai/claude-agent-sdk',
-        '@dawnlit/outlook-bridge',
-        /^node:/,
-      ],
+    resolve: {
+        alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
     },
-  },
+    build: {
+        rollupOptions: {
+            external: [
+                'electron',
+                '@anthropic-ai/claude-agent-sdk',
+                '@dawnlit/outlook-bridge',
+                /^node:/,
+            ],
+        },
+    },
 });

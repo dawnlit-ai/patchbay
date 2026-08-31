@@ -1,13 +1,4 @@
-import {
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  statSync,
-  rmSync,
-  existsSync,
-  cpSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, } from 'node:fs';
 import { join } from 'node:path';
 import { skillsDir } from '../paths';
 import type { SkillDetail, SkillSummary } from '@shared/settings';
@@ -23,12 +14,12 @@ import type { SkillDetail, SkillSummary } from '@shared/settings';
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export function isValidSkillName(name: string): boolean {
-  return NAME_RE.test(name) && name.length <= 64;
+    return NAME_RE.test(name) && name.length <= 64;
 }
 
 interface Frontmatter {
-  name?: string;
-  description?: string;
+    name?: string;
+    description?: string;
 }
 
 /**
@@ -38,84 +29,84 @@ interface Frontmatter {
  * because the file is only ever written back whole.
  */
 export function parseFrontmatter(content: string): Frontmatter {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-  if (!match?.[1]) return {};
-  const out: Frontmatter = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const kv = /^(name|description):\s*(.*)$/.exec(line);
-    if (!kv?.[1]) continue;
-    let value = (kv[2] ?? '').trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+    if (!match?.[1]) return {};
+    const out: Frontmatter = {};
+    for (const line of match[1].split(/\r?\n/)) {
+        const kv = /^(name|description):\s*(.*)$/.exec(line);
+        if (!kv?.[1]) continue;
+        let value = (kv[2] ?? '').trim();
+        if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+        ) {
+            value = value.slice(1, -1);
+        }
+        if (kv[1] === 'name') out.name = value;
+        else out.description = value;
     }
-    if (kv[1] === 'name') out.name = value;
-    else out.description = value;
-  }
-  return out;
+    return out;
 }
 
 function skillFile(name: string): string {
-  return join(skillsDir(), name, 'SKILL.md');
+    return join(skillsDir(), name, 'SKILL.md');
 }
 
 export function listSkills(): SkillSummary[] {
-  const dir = skillsDir();
-  const out: SkillSummary[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = join(dir, entry.name, 'SKILL.md');
-    if (!existsSync(file)) continue;
-    const content = readFileSync(file, 'utf8');
-    const fm = parseFrontmatter(content);
-    const stat = statSync(file);
-    out.push({
-      name: entry.name,
-      description: fm.description ?? '',
-      size: stat.size,
-      updatedAt: stat.mtime.toISOString(),
-    });
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+    const dir = skillsDir();
+    const out: SkillSummary[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const file = join(dir, entry.name, 'SKILL.md');
+        if (!existsSync(file)) continue;
+        const content = readFileSync(file, 'utf8');
+        const fm = parseFrontmatter(content);
+        const stat = statSync(file);
+        out.push({
+            name: entry.name,
+            description: fm.description ?? '',
+            size: stat.size,
+            updatedAt: stat.mtime.toISOString(),
+        });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getSkill(name: string): SkillDetail | null {
-  if (!isValidSkillName(name)) return null;
-  const file = skillFile(name);
-  if (!existsSync(file)) return null;
-  const content = readFileSync(file, 'utf8');
-  const stat = statSync(file);
-  return {
-    name,
-    description: parseFrontmatter(content).description ?? '',
-    size: stat.size,
-    updatedAt: stat.mtime.toISOString(),
-    content,
-  };
+    if (!isValidSkillName(name)) return null;
+    const file = skillFile(name);
+    if (!existsSync(file)) return null;
+    const content = readFileSync(file, 'utf8');
+    const stat = statSync(file);
+    return {
+        name,
+        description: parseFrontmatter(content).description ?? '',
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+        content,
+    };
 }
 
 export function saveSkill(name: string, content: string): SkillSummary {
-  if (!isValidSkillName(name)) {
-    throw new Error(
-      `Invalid skill name "${name}". Use lowercase letters, digits and hyphens — the name becomes both a folder and a Claude skill identifier.`,
-    );
-  }
-  mkdirSync(join(skillsDir(), name), { recursive: true });
-  writeFileSync(skillFile(name), content, 'utf8');
-  const stat = statSync(skillFile(name));
-  return {
-    name,
-    description: parseFrontmatter(content).description ?? '',
-    size: stat.size,
-    updatedAt: stat.mtime.toISOString(),
-  };
+    if (!isValidSkillName(name)) {
+        throw new Error(
+            `Invalid skill name "${name}". Use lowercase letters, digits and hyphens — the name becomes both a folder and a Claude skill identifier.`,
+        );
+    }
+    mkdirSync(join(skillsDir(), name), { recursive: true });
+    writeFileSync(skillFile(name), content, 'utf8');
+    const stat = statSync(skillFile(name));
+    return {
+        name,
+        description: parseFrontmatter(content).description ?? '',
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+    };
 }
 
 export function removeSkill(name: string): void {
-  if (!isValidSkillName(name)) return;
-  rmSync(join(skillsDir(), name), { recursive: true, force: true });
+    if (!isValidSkillName(name)) return;
+    rmSync(join(skillsDir(), name), { recursive: true, force: true });
 }
 
 /**
@@ -124,17 +115,17 @@ export function removeSkill(name: string): void {
  * is overwritten, so re-importing picks up upstream edits.
  */
 export function importSkillsFrom(dir: string): string[] {
-  if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
-  const imported: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const source = join(dir, entry.name);
-    if (!existsSync(join(source, 'SKILL.md'))) continue;
-    if (!isValidSkillName(entry.name)) continue;
-    cpSync(source, join(skillsDir(), entry.name), { recursive: true });
-    imported.push(entry.name);
-  }
-  return imported;
+    if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
+    const imported: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const source = join(dir, entry.name);
+        if (!existsSync(join(source, 'SKILL.md'))) continue;
+        if (!isValidSkillName(entry.name)) continue;
+        cpSync(source, join(skillsDir(), entry.name), { recursive: true });
+        imported.push(entry.name);
+    }
+    return imported;
 }
 
 const STARTER_SKILL_NAME = 'summarize-and-file';
@@ -181,30 +172,30 @@ that email — you cannot reach any other message.
  * Returns the names imported, for the log.
  */
 export function seedSkillLibrary(candidates: string[]): string[] {
-  const existing = listSkills();
-  // The starter skill is a placeholder this app wrote itself, not something the
-  // user put here, so a library holding only that still counts as unseeded —
-  // otherwise launching once before pointing at a real skills folder would lock
-  // the library to the placeholder forever.
-  const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
-  if (existing.length > 0 && !onlyStarter) return [];
+    const existing = listSkills();
+    // The starter skill is a placeholder this app wrote itself, not something the
+    // user put here, so a library holding only that still counts as unseeded —
+    // otherwise launching once before pointing at a real skills folder would lock
+    // the library to the placeholder forever.
+    const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
+    if (existing.length > 0 && !onlyStarter) return [];
 
-  for (const dir of candidates) {
-    if (!dir.trim() || !existsSync(dir)) continue;
-    try {
-      const imported = importSkillsFrom(dir);
-      if (imported.length > 0) {
-        // Real skills supersede the placeholder.
-        if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) removeSkill(STARTER_SKILL_NAME);
-        return imported;
-      }
-    } catch {
-      // A seed folder that cannot be read is not a reason to fail startup;
-      // the starter skill below still gives the app something to work with.
+    for (const dir of candidates) {
+        if (!dir.trim() || !existsSync(dir)) continue;
+        try {
+            const imported = importSkillsFrom(dir);
+            if (imported.length > 0) {
+                // Real skills supersede the placeholder.
+                if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) removeSkill(STARTER_SKILL_NAME);
+                return imported;
+            }
+        } catch {
+            // A seed folder that cannot be read is not a reason to fail startup;
+            // the starter skill below still gives the app something to work with.
+        }
     }
-  }
 
-  if (onlyStarter) return [];
-  saveSkill(STARTER_SKILL_NAME, STARTER_SKILL);
-  return [STARTER_SKILL_NAME];
+    if (onlyStarter) return [];
+    saveSkill(STARTER_SKILL_NAME, STARTER_SKILL);
+    return [STARTER_SKILL_NAME];
 }

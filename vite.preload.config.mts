@@ -7,24 +7,24 @@ import { resolve } from 'node:path';
 // a plain config merge cannot do. Remove once @electron-forge/plugin-vite moves
 // over to `codeSplitting`.
 const preferCodeSplittingFlag = (): Plugin => ({
-  name: 'patchbay:preload-code-splitting',
-  config(config) {
-    const output = config.build?.rollupOptions?.output;
-    if (output && !Array.isArray(output)) {
-      delete output.inlineDynamicImports;
-      output.codeSplitting = false;
-    }
-  },
+    name: 'patchbay:preload-code-splitting',
+    config(config) {
+        const output = config.build?.rollupOptions?.output;
+        if (output && !Array.isArray(output)) {
+            delete output.inlineDynamicImports;
+            output.codeSplitting = false;
+        }
+    },
 });
 
 export default defineConfig({
-  plugins: [preferCodeSplittingFlag()],
-  resolve: {
-    alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
-  },
-  build: {
-    rollupOptions: {
-      external: ['electron', /^node:/],
+    plugins: [preferCodeSplittingFlag()],
+    resolve: {
+        alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
     },
-  },
+    build: {
+        rollupOptions: {
+            external: ['electron', /^node:/],
+        },
+    },
 });

@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { mkdirSync, existsSync, cpSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -17,31 +17,31 @@ let root: string | null = null;
 const FORMER_PRODUCT_NAMES = ['Email Flow Studio'];
 
 function adoptLegacyWorkspace(target: string): void {
-  for (const name of FORMER_PRODUCT_NAMES) {
-    const legacy = join(app.getPath('appData'), name, 'workspace');
-    if (!existsSync(legacy)) continue;
-    // Copied rather than moved: if anything about this goes wrong, the original
-    // is still sitting there under the old name.
-    cpSync(legacy, target, { recursive: true });
-    console.log(`Adopted workspace from "${name}": ${legacy} → ${target}`);
-    return;
-  }
+    for (const name of FORMER_PRODUCT_NAMES) {
+        const legacy = join(app.getPath('appData'), name, 'workspace');
+        if (!existsSync(legacy)) continue;
+        // Copied rather than moved: if anything about this goes wrong, the original
+        // is still sitting there under the old name.
+        cpSync(legacy, target, { recursive: true });
+        console.log(`Adopted workspace from "${name}": ${legacy} → ${target}`);
+        return;
+    }
 }
 
 export function workspaceRoot(): string {
-  if (!root) {
-    const next = join(app.getPath('userData'), 'workspace');
-    if (!existsSync(next)) adoptLegacyWorkspace(next);
-    root = next;
-    mkdirSync(root, { recursive: true });
-  }
-  return root;
+    if (!root) {
+        const next = join(app.getPath('userData'), 'workspace');
+        if (!existsSync(next)) adoptLegacyWorkspace(next);
+        root = next;
+        mkdirSync(root, { recursive: true });
+    }
+    return root;
 }
 
 function ensure(...segments: string[]): string {
-  const dir = join(workspaceRoot(), ...segments);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+    const dir = join(workspaceRoot(), ...segments);
+    mkdirSync(dir, { recursive: true });
+    return dir;
 }
 
 /** Where SKILL.md folders live. The Agent SDK discovers them from here. */

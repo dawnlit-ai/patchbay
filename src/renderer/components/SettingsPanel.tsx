@@ -3,152 +3,153 @@ import { useState } from 'react';
 import type { AboutInfo, Settings } from '@shared/settings';
 
 interface Props {
-  settings: Settings;
-  about: AboutInfo | null;
-  onSave(settings: Settings): void;
+    settings: Settings;
+    about: AboutInfo | null;
+
+    onSave(settings: Settings): void;
 }
 
 export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
-  const [draft, setDraft] = useState<Settings>(settings);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
+    const [draft, setDraft] = useState<Settings>(settings);
+    const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
-  const patch = (partial: Partial<Settings>): void => setDraft({ ...draft, ...partial });
+    const patch = (partial: Partial<Settings>): void => setDraft({ ...draft, ...partial });
 
-  return (
-    <div>
-      <div className="panel-head plain">
-        <strong>Settings</strong>
-        <span className="spacer" />
-        <button className="primary" disabled={!dirty} onClick={() => onSave(draft)}>
-          Save
-        </button>
-      </div>
+    return (
+        <div>
+            <div className="panel-head plain">
+                <strong>Settings</strong>
+                <span className="spacer"/>
+                <button className="primary" disabled={!dirty} onClick={() => onSave(draft)}>
+                    Save
+                </button>
+            </div>
 
-      <label className="field">
-        <span>Claude executable</span>
-        <input
-          value={draft.claudeExecutablePath}
-          placeholder="(auto-detect)"
-          onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
-        />
-        <div className="hint">
-          Leave blank to use the Claude Code install on this machine, or the Agent SDK’s own bundled
-          binary. Set it only if the app cannot find one.
-        </div>
-      </label>
+            <label className="field">
+                <span>Claude executable</span>
+                <input
+                    value={draft.claudeExecutablePath}
+                    placeholder="(auto-detect)"
+                    onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
+                />
+                <div className="hint">
+                    Leave blank to use the Claude Code install on this machine, or the Agent SDK’s own bundled
+                    binary. Set it only if the app cannot find one.
+                </div>
+            </label>
 
-      <label className="field">
-        <span>Seed skills from</span>
-        <input
-          value={draft.skillSeedPath}
-          placeholder="(auto-detect)"
-          onChange={(e) => patch({ skillSeedPath: e.target.value })}
-        />
-        <div className="hint">
-          A folder of <code>&lt;name&gt;/SKILL.md</code> directories, imported once when the library
-          is empty. Use Skills → Import… to pull more in at any time.
-        </div>
-      </label>
+            <label className="field">
+                <span>Seed skills from</span>
+                <input
+                    value={draft.skillSeedPath}
+                    placeholder="(auto-detect)"
+                    onChange={(e) => patch({ skillSeedPath: e.target.value })}
+                />
+                <div className="hint">
+                    A folder of <code>&lt;name&gt;/SKILL.md</code> directories, imported once when the library
+                    is empty. Use Skills → Import… to pull more in at any time.
+                </div>
+            </label>
 
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={draft.pollingEnabled}
-          onChange={(e) => patch({ pollingEnabled: e.target.checked })}
-        />
-        Allow flows to watch mailboxes
-      </label>
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={draft.pollingEnabled}
+                    onChange={(e) => patch({ pollingEnabled: e.target.checked })}
+                />
+                Allow flows to watch mailboxes
+            </label>
 
-      <div className="section-title">MCP servers</div>
-      <div className="hint" style={{ color: 'var(--dim)', marginBottom: 8 }}>
-        Extra tool servers handed to every Processor node — for example the MCP server of another
-        app whose tools your skills call.
-      </div>
+            <div className="section-title">MCP servers</div>
+            <div className="hint" style={{ color: 'var(--dim)', marginBottom: 8 }}>
+                Extra tool servers handed to every Processor node — for example the MCP server of another
+                app whose tools your skills call.
+            </div>
 
-      {draft.mcpServers.map((server, i) => (
-        <div
-          key={i}
-        className="card"
-        >
-          <div className="row" style={{ marginBottom: 6 }}>
-            <input
-              placeholder="name"
-              value={server.name}
-              onChange={(e) => {
-                const mcpServers = [...draft.mcpServers];
-                mcpServers[i] = { ...server, name: e.target.value };
-                patch({ mcpServers });
-              }}
-            />
+            {draft.mcpServers.map((server, i) => (
+                <div
+                    key={i}
+                    className="card"
+                >
+                    <div className="row" style={{ marginBottom: 6 }}>
+                        <input
+                            placeholder="name"
+                            value={server.name}
+                            onChange={(e) => {
+                                const mcpServers = [...draft.mcpServers];
+                                mcpServers[i] = { ...server, name: e.target.value };
+                                patch({ mcpServers });
+                            }}
+                        />
+                        <button
+                            className="danger"
+                            style={{ flex: 'none' }}
+                            onClick={() => patch({ mcpServers: draft.mcpServers.filter((_, j) => j !== i) })}
+                        >
+                            Remove
+                        </button>
+                    </div>
+                    <input
+                        placeholder="command, e.g. node"
+                        style={{ marginBottom: 6 }}
+                        value={server.command}
+                        onChange={(e) => {
+                            const mcpServers = [...draft.mcpServers];
+                            mcpServers[i] = { ...server, command: e.target.value };
+                            patch({ mcpServers });
+                        }}
+                    />
+                    <input
+                        placeholder="arguments, space separated"
+                        value={server.args.join(' ')}
+                        onChange={(e) => {
+                            const mcpServers = [...draft.mcpServers];
+                            mcpServers[i] = { ...server, args: e.target.value.split(' ').filter(Boolean) };
+                            patch({ mcpServers });
+                        }}
+                    />
+                    <label className="check" style={{ marginTop: 6, marginBottom: 0 }}>
+                        <input
+                            type="checkbox"
+                            checked={server.enabled}
+                            onChange={(e) => {
+                                const mcpServers = [...draft.mcpServers];
+                                mcpServers[i] = { ...server, enabled: e.target.checked };
+                                patch({ mcpServers });
+                            }}
+                        />
+                        Enabled
+                    </label>
+                </div>
+            ))}
+
             <button
-              className="danger"
-              style={{ flex: 'none' }}
-              onClick={() => patch({ mcpServers: draft.mcpServers.filter((_, j) => j !== i) })}
+                onClick={() =>
+                    patch({
+                        mcpServers: [...draft.mcpServers, { name: '', command: '', args: [], enabled: true }],
+                    })
+                }
             >
-              Remove
+                + Add server
             </button>
-          </div>
-          <input
-            placeholder="command, e.g. node"
-            style={{ marginBottom: 6 }}
-            value={server.command}
-            onChange={(e) => {
-              const mcpServers = [...draft.mcpServers];
-              mcpServers[i] = { ...server, command: e.target.value };
-              patch({ mcpServers });
-            }}
-          />
-          <input
-            placeholder="arguments, space separated"
-            value={server.args.join(' ')}
-            onChange={(e) => {
-              const mcpServers = [...draft.mcpServers];
-              mcpServers[i] = { ...server, args: e.target.value.split(' ').filter(Boolean) };
-              patch({ mcpServers });
-            }}
-          />
-          <label className="check" style={{ marginTop: 6, marginBottom: 0 }}>
-            <input
-              type="checkbox"
-              checked={server.enabled}
-              onChange={(e) => {
-                const mcpServers = [...draft.mcpServers];
-                mcpServers[i] = { ...server, enabled: e.target.checked };
-                patch({ mcpServers });
-              }}
-            />
-            Enabled
-          </label>
+
+            {about && (
+                <>
+                    <div className="section-title">About</div>
+                    <div className="about">
+                        <div className="title">
+                            {about.name} <span style={{ color: 'var(--dim)' }}>{about.version}</span>
+                        </div>
+                        <div className="line">
+                            Developed by <strong>{about.developer}</strong>
+                        </div>
+                        <div className="line">Licensed under {about.license}</div>
+                        <button className="link" onClick={() => void window.api.openDeveloperSite()}>
+                            {about.developerUrl}
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
-      ))}
-
-      <button
-        onClick={() =>
-          patch({
-            mcpServers: [...draft.mcpServers, { name: '', command: '', args: [], enabled: true }],
-          })
-        }
-      >
-        + Add server
-      </button>
-
-      {about && (
-        <>
-          <div className="section-title">About</div>
-          <div className="about">
-            <div className="title">
-              {about.name} <span style={{ color: 'var(--dim)' }}>{about.version}</span>
-            </div>
-            <div className="line">
-              Developed by <strong>{about.developer}</strong>
-            </div>
-            <div className="line">Licensed under {about.license}</div>
-            <button className="link" onClick={() => void window.api.openDeveloperSite()}>
-              {about.developerUrl}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
+    );
 }

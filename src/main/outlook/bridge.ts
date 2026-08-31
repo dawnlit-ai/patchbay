@@ -1,10 +1,10 @@
 import type {
-  InboxEmail,
-  InboxFolderInfo,
-  EmailBodyResult,
-  MoveEmailsResult,
-  ReplyEmailResult,
-  SavedAttachment,
+    EmailBodyResult,
+    InboxEmail,
+    InboxFolderInfo,
+    MoveEmailsResult,
+    ReplyEmailResult,
+    SavedAttachment,
 } from '@dawnlit/outlook-bridge';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption } from '@shared/ipc';
@@ -23,8 +23,8 @@ type BridgeModule = typeof import('@dawnlit/outlook-bridge');
 let mod: BridgeModule | null = null;
 
 async function bridge(): Promise<BridgeModule> {
-  if (!mod) mod = await import('@dawnlit/outlook-bridge');
-  return mod;
+    if (!mod) mod = await import('@dawnlit/outlook-bridge');
+    return mod;
 }
 
 /**
@@ -37,87 +37,87 @@ async function bridge(): Promise<BridgeModule> {
 let chain: Promise<unknown> = Promise.resolve();
 
 function serialize<T>(work: () => Promise<T>): Promise<T> {
-  // Each link swallows its predecessor's rejection so one failed call does not
-  // poison the queue for everything behind it.
-  const next = chain.then(work, work);
-  chain = next.catch(() => undefined);
-  return next;
+    // Each link swallows its predecessor's rejection so one failed call does not
+    // poison the queue for everything behind it.
+    const next = chain.then(work, work);
+    chain = next.catch(() => undefined);
+    return next;
 }
 
 export async function getAccounts(): Promise<string[]> {
-  return serialize(async () => (await bridge()).getOutlookAccounts());
+    return serialize(async () => (await bridge()).getOutlookAccounts());
 }
 
 export async function listFolders(account: string): Promise<InboxFolderOption[]> {
-  const b = await bridge();
-  const folders: InboxFolderInfo[] = await serialize(() => b.listInboxFolders(account));
-  const options: InboxFolderOption[] = [
-    { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
-  ];
-  for (const f of folders) {
-    // The trigger stores a path relative to the Inbox, which is what
-    // readInboxEmails' `folder` argument takes.
-    const idx = f.folderPath.toLowerCase().lastIndexOf('\\inbox\\');
-    const relative = idx >= 0 ? f.folderPath.slice(idx + '\\inbox\\'.length) : f.name;
-    options.push({
-      folderPath: f.folderPath,
-      relativePath: relative,
-      name: `${'— '.repeat(Math.max(0, f.depth - 1))}${f.name}`,
-      depth: f.depth,
-      itemCount: f.itemCount,
-    });
-  }
-  return options;
+    const b = await bridge();
+    const folders: InboxFolderInfo[] = await serialize(() => b.listInboxFolders(account));
+    const options: InboxFolderOption[] = [
+        { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
+    ];
+    for (const f of folders) {
+        // The trigger stores a path relative to the Inbox, which is what
+        // readInboxEmails' `folder` argument takes.
+        const idx = f.folderPath.toLowerCase().lastIndexOf('\\inbox\\');
+        const relative = idx >= 0 ? f.folderPath.slice(idx + '\\inbox\\'.length) : f.name;
+        options.push({
+            folderPath: f.folderPath,
+            relativePath: relative,
+            name: `${'— '.repeat(Math.max(0, f.depth - 1))}${f.name}`,
+            depth: f.depth,
+            itemCount: f.itemCount,
+        });
+    }
+    return options;
 }
 
 function toEnvelope(account: string, e: InboxEmail): EmailEnvelope {
-  const ref: EmailRef = {
-    entryId: e.entryId,
-    storeId: e.storeId,
-    account,
-    folderPath: e.folderPath ?? '',
-  };
-  return {
-    ref,
-    subject: e.subject,
-    senderName: e.senderName,
-    senderEmail: e.senderEmail,
-    receivedTime: e.receivedTime,
-    bodyPreview: e.bodyPreview,
-    attachmentNames: e.attachmentNames ?? [],
-  };
+    const ref: EmailRef = {
+        entryId: e.entryId,
+        storeId: e.storeId,
+        account,
+        folderPath: e.folderPath ?? '',
+    };
+    return {
+        ref,
+        subject: e.subject,
+        senderName: e.senderName,
+        senderEmail: e.senderEmail,
+        receivedTime: e.receivedTime,
+        bodyPreview: e.bodyPreview,
+        attachmentNames: e.attachmentNames ?? [],
+    };
 }
 
 export async function readInbox(
-  account: string,
-  folder: string,
-  lookbackDays: number,
-  limit: number,
+    account: string,
+    folder: string,
+    lookbackDays: number,
+    limit: number,
 ): Promise<EmailEnvelope[]> {
-  const b = await bridge();
-  const emails = await serialize(() =>
-    b.readInboxEmails(account, lookbackDays, limit, folder || undefined),
-  );
-  return emails.map((e) => toEnvelope(account, e));
+    const b = await bridge();
+    const emails = await serialize(() =>
+        b.readInboxEmails(account, lookbackDays, limit, folder || undefined),
+    );
+    return emails.map((e) => toEnvelope(account, e));
 }
 
 export async function readBody(ref: EmailRef, maxChars: number): Promise<EmailBodyResult> {
-  const b = await bridge();
-  return serialize(() => b.readEmailBody(ref.entryId, ref.storeId, maxChars, false));
+    const b = await bridge();
+    return serialize(() => b.readEmailBody(ref.entryId, ref.storeId, maxChars, false));
 }
 
 export async function saveAttachments(
-  ref: EmailRef,
-  names: string[],
-  destDir: string,
+    ref: EmailRef,
+    names: string[],
+    destDir: string,
 ): Promise<SavedAttachment[]> {
-  const b = await bridge();
-  return serialize(() => b.saveEmailAttachments(ref.entryId, names, ref.storeId, destDir));
+    const b = await bridge();
+    return serialize(() => b.saveEmailAttachments(ref.entryId, names, ref.storeId, destDir));
 }
 
 export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmailsResult> {
-  const b = await bridge();
-  return serialize(() => b.moveOutlookEmails(ref.account, [ref.entryId], folder, true));
+    const b = await bridge();
+    return serialize(() => b.moveOutlookEmails(ref.account, [ref.entryId], folder, true));
 }
 
 /**
@@ -125,20 +125,20 @@ export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmai
  * app sets it true. A flow can propose a reply; a person sends it.
  */
 export async function draftReply(
-  ref: EmailRef,
-  htmlBody: string,
-  replyAll: boolean,
+    ref: EmailRef,
+    htmlBody: string,
+    replyAll: boolean,
 ): Promise<ReplyEmailResult> {
-  const b = await bridge();
-  return serialize(() =>
-    b.replyOutlookEmail({
-      emailAccount: ref.account,
-      entryId: ref.entryId,
-      storeId: ref.storeId,
-      htmlBody,
-      replyAll,
-      sendImmediately: false,
-      openDraftWindow: false,
-    }),
-  );
+    const b = await bridge();
+    return serialize(() =>
+        b.replyOutlookEmail({
+            emailAccount: ref.account,
+            entryId: ref.entryId,
+            storeId: ref.storeId,
+            htmlBody,
+            replyAll,
+            sendImmediately: false,
+            openDraftWindow: false,
+        }),
+    );
 }
