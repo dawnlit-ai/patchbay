@@ -574,6 +574,47 @@ code {
     stroke-width: 1.8;
 }
 
+.react-flow__edge:hover .react-flow__edge-path,
+.react-flow__edge.selected .react-flow__edge-path {
+    stroke: var(--accent);
+}
+
+/* The × that cuts a connection: on the wire, and only while the wire is under
+   the pointer or selected. Inside the edge's group, so reaching for it does not
+   count as leaving the edge. */
+.edge-cut {
+    opacity: 0;
+    pointer-events: all;
+    cursor: pointer;
+    transition: opacity 0.12s ease;
+}
+
+.react-flow__edge:hover .edge-cut,
+.react-flow__edge.selected .edge-cut {
+    opacity: 1;
+}
+
+.edge-cut circle {
+    fill: var(--panel);
+    stroke: var(--line);
+}
+
+.edge-cut path {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
+.edge-cut:hover circle {
+    fill: var(--err-bg);
+    stroke: var(--err-line);
+}
+
+.edge-cut:hover path {
+    stroke: var(--err);
+}
+
 .react-flow__edge.taken .react-flow__edge-path {
     stroke: var(--accent);
     stroke-width: 2.6;

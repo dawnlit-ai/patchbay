@@ -3,10 +3,13 @@ import { useCallback, useMemo, useRef } from 'react';
 import {
     Background,
     BackgroundVariant,
+    BaseEdge,
     type Connection,
     Controls,
     type Edge,
     type EdgeChange,
+    type EdgeProps,
+    getBezierPath,
     Handle,
     MiniMap,
     type Node,
@@ -41,6 +44,10 @@ export interface CanvasHighlight {
 interface NodeData extends Record<string, unknown> {
     flowNode: FlowNode;
     pass?: Pass;
+}
+
+interface EdgeData extends Record<string, unknown> {
+    onRemove(edgeId: string): void;
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
@@ -108,7 +115,63 @@ function describe(node: FlowNode): string {
     }
 }
 
+/**
+ * A connection, with the button that cuts it. The button is drawn inside the
+ * edge's own group rather than through EdgeLabelRenderer, so hovering the wire
+ * reveals it and moving onto the button keeps it there — one CSS rule, no
+ * hover state to track.
+ */
+function Wire({
+                  id,
+                  sourceX,
+                  sourceY,
+                  sourcePosition,
+                  targetX,
+                  targetY,
+                  targetPosition,
+                  markerEnd,
+                  style,
+                  interactionWidth,
+                  data,
+              }: EdgeProps): JSX.Element {
+    const [path, midX, midY] = getBezierPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+    });
+    const { onRemove } = data as EdgeData;
+
+    return (
+        <>
+            <BaseEdge
+                id={id}
+                path={path}
+                markerEnd={markerEnd}
+                style={style}
+                interactionWidth={interactionWidth}
+            />
+            <g
+                className="edge-cut"
+                transform={`translate(${midX} ${midY})`}
+                // The click would otherwise land on the edge behind it and only select it.
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(id);
+                }}
+            >
+                <title>Remove this connection</title>
+                <circle r={9}/>
+                <path d="M -3.4 -3.4 L 3.4 3.4 M 3.4 -3.4 L -3.4 3.4"/>
+            </g>
+        </>
+    );
+}
+
 const nodeTypes = { card: NodeCard };
+const edgeTypes = { wire: Wire };
 
 /**
  * React Flow takes plain colour strings rather than CSS variables, so read the
@@ -150,17 +213,24 @@ export function FlowCanvas({
         [flow.nodes, selectedNodeId, highlight],
     );
 
+    const removeEdge = useCallback(
+        (edgeId: string) => onChange({ ...flow, edges: flow.edges.filter((e) => e.id !== edgeId) }),
+        [flow, onChange],
+    );
+
     const rfEdges: Edge[] = useMemo(
         () =>
             flow.edges.map((e) => ({
                 id: e.id,
+                type: 'wire',
                 source: e.source,
                 sourceHandle: e.sourceHandle,
                 target: e.target,
                 targetHandle: 'in',
                 className: highlight?.takenEdges.has(e.id) ? 'taken' : undefined,
+                data: { onRemove: removeEdge } satisfies EdgeData,
             })),
-        [flow.edges, highlight],
+        [flow.edges, highlight, removeEdge],
     );
 
     const onNodesChange = useCallback(
@@ -245,6 +315,7 @@ export function FlowCanvas({
                 nodes={rfNodes}
                 edges={rfEdges}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
@@ -259,7 +330,11 @@ export function FlowCanvas({
                 fitViewOptions={{ maxZoom: 1 }}
                 minZoom={0.2}
                 maxZoom={2.5}
-                defaultEdgeOptions={{ animated: false }}
+                // Delete alongside Backspace, for whichever key the keyboard has. React
+                // Flow ignores both while a field has focus, so the inspector is safe.
+                deleteKeyCode={['Backspace', 'Delete']}
+                // A wire is thin; this is the invisible width that catches the pointer.
+                defaultEdgeOptions={{ animated: false, interactionWidth: 24 }}
             >
                 <Background variant={BackgroundVariant.Dots} gap={22} size={1} color={cssVar('--grid')}/>
                 <Controls showInteractive={false}/>
