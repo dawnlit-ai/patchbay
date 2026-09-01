@@ -54,6 +54,17 @@ function handle<T extends unknown[], R>(
     });
 }
 
+/**
+ * Acts on the window the call came from rather than whichever one holds focus, so
+ * a title-bar button always moves the bar that was clicked.
+ */
+function handleWindow(channel: string, fn: (win: BrowserWindow) => void): void {
+    ipcMain.handle(channel, (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (win && !win.isDestroyed()) fn(win);
+    });
+}
+
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
@@ -147,6 +158,17 @@ export function registerIpc(): void {
         return 'queued';
     });
     handle(IPC.engineCancel, (runId: string) => getWatcher().cancel(runId));
+
+    handleWindow(IPC.windowMinimize, (win) => win.minimize());
+    handleWindow(IPC.windowToggleMaximize, (win) => {
+        if (win.isMaximized()) win.unmaximize();
+        else win.maximize();
+    });
+    handleWindow(IPC.windowClose, (win) => win.close());
+    ipcMain.handle(
+        IPC.windowIsMaximized,
+        (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,
+    );
 
     handle(IPC.runsList, (limit: number) => traceStore.listRuns(limit));
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));

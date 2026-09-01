@@ -11,6 +11,7 @@ import { RunsPanel } from './components/RunsPanel';
 import { SkillLibrary } from './components/SkillLibrary';
 import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
+import { WindowControls } from './components/WindowControls';
 
 const PALETTE: NodeKind[] = ['categorizer', 'processor', 'terminal'];
 
@@ -433,6 +434,8 @@ export function App(): JSX.Element {
                 <button className={watching ? '' : 'primary'} onClick={() => void toggleWatching()}>
                     {watching ? 'Stop' : 'Start watching'}
                 </button>
+
+                <WindowControls/>
             </div>
 
             {error && <div className="err-banner inset">{error}</div>}

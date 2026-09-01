@@ -50,6 +50,12 @@ const api: Api = {
         testRun: (flowId, email) => ipcRenderer.invoke(IPC.engineTestRun, flowId, email),
         cancel: (runId) => ipcRenderer.invoke(IPC.engineCancel, runId),
     },
+    window: {
+        minimize: () => ipcRenderer.invoke(IPC.windowMinimize),
+        toggleMaximize: () => ipcRenderer.invoke(IPC.windowToggleMaximize),
+        close: () => ipcRenderer.invoke(IPC.windowClose),
+        isMaximized: () => ipcRenderer.invoke(IPC.windowIsMaximized),
+    },
     runs: {
         list: (limit) => ipcRenderer.invoke(IPC.runsList, limit),
         get: (id) => ipcRenderer.invoke(IPC.runsGet, id),
@@ -59,6 +65,7 @@ const api: Api = {
     on: {
         runUpdated: (cb) => subscribe(IPC.evtRunUpdated, cb),
         engineStatus: (cb) => subscribe(IPC.evtEngineStatus, cb),
+        windowMaximized: (cb) => subscribe(IPC.evtWindowMaximized, cb),
     },
 };
 

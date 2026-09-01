@@ -59,6 +59,17 @@ export interface Api {
         testRun(flowId: string, email: EmailEnvelope): Promise<string>;
         cancel(runId: string): Promise<void>;
     };
+    /**
+     * The app draws its own title bar, so minimise, maximise and close have to be
+     * asked for rather than handed to the frame.
+     */
+    window: {
+        minimize(): Promise<void>;
+        /** Maximise, or restore if already maximised. */
+        toggleMaximize(): Promise<void>;
+        close(): Promise<void>;
+        isMaximized(): Promise<boolean>;
+    };
     runs: {
         list(limit: number): Promise<RunSummary[]>;
         get(id: string): Promise<Run | null>;
@@ -69,6 +80,8 @@ export interface Api {
     on: {
         runUpdated(cb: (run: Run) => void): () => void;
         engineStatus(cb: (status: EngineStatus) => void): () => void;
+        /** Whether the window is maximised, so the button can offer the opposite. */
+        windowMaximized(cb: (maximized: boolean) => void): () => void;
     };
 
     about(): Promise<AboutInfo>;
@@ -113,6 +126,11 @@ export const IPC = {
     engineTestRun: 'engine:testRun',
     engineCancel: 'engine:cancel',
 
+    windowMinimize: 'window:minimize',
+    windowToggleMaximize: 'window:toggleMaximize',
+    windowClose: 'window:close',
+    windowIsMaximized: 'window:isMaximized',
+
     runsList: 'runs:list',
     runsGet: 'runs:get',
     runsClear: 'runs:clear',
@@ -121,4 +139,5 @@ export const IPC = {
     // main → renderer
     evtRunUpdated: 'evt:runUpdated',
     evtEngineStatus: 'evt:engineStatus',
+    evtWindowMaximized: 'evt:windowMaximized',
 } as const;

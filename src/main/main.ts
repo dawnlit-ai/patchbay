@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { join } from 'node:path';
+import { IPC } from '@shared/ipc';
 import { getWatcher, hasUnsavedFlow, registerIpc } from './ipc';
 import { seedSkillLibrary } from './store/skillStore';
 import { getSettings } from './store/settingsStore';
@@ -23,6 +24,9 @@ function createWindow(): void {
         // before the renderer paints.
         backgroundColor: '#f4f6f9',
         title: 'Patchbay',
+        // The top bar draws the name and the minimise/maximise/close buttons itself,
+        // so the OS frame would only repeat them a row higher.
+        frame: false,
         webPreferences: {
             preload: join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -30,6 +34,14 @@ function createWindow(): void {
             sandbox: false,
         },
     });
+
+    // The maximise button offers whichever state the window is not in, and the
+    // window can reach either without it — a drag to the top edge, a snap shortcut.
+    const sendMaximized = (): void => {
+        if (!win.isDestroyed()) win.webContents.send(IPC.evtWindowMaximized, win.isMaximized());
+    };
+    win.on('maximize', sendMaximized);
+    win.on('unmaximize', sendMaximized);
 
     // With auto-save off the canvas can hold edits no file has yet, and closing
     // would drop them without a word.
