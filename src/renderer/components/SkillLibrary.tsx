@@ -102,7 +102,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                     onChange={(e) => setContent(e.target.value)}
                     spellCheck={false}
                 />
-                <div className="hint" style={{ marginTop: 6 }}>
+                <div className="hint">
                     Saved as <code>.claude/skills/{editing}/SKILL.md</code> in the app workspace, which is
                     where Claude discovers it.
                 </div>

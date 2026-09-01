@@ -188,7 +188,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
 
             {categories.map((cat, i) => (
                 <div key={cat.id} className="card">
-                    <div className="row" style={{ marginBottom: 6 }}>
+                    <div className="row">
                         <input
                             value={cat.label}
                             placeholder="Label"

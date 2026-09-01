@@ -71,21 +71,21 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                 />
                 Save flow edits automatically
             </label>
-            <div className="hint" style={{ marginBottom: 12 }}>
+            <div className="hint block">
                 On, every change to the canvas is written straight away. Off, the topbar keeps a Save
                 button and edits stay a draft until you press it — a running flow goes on using the last
                 saved version.
             </div>
 
             <div className="section-title">MCP servers</div>
-            <div className="hint" style={{ marginBottom: 8 }}>
+            <div className="hint block">
                 Extra tool servers handed to every Processor node — for example the MCP server of another
                 app whose tools your skills call.
             </div>
 
             {draft.mcpServers.map((server, i) => (
                 <div key={i} className="card">
-                    <div className="row" style={{ marginBottom: 6 }}>
+                    <div className="row">
                         <input
                             placeholder="name"
                             value={server.name}
@@ -100,7 +100,6 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                     </div>
                     <input
                         placeholder="command, e.g. node"
-                        style={{ marginBottom: 6 }}
                         value={server.command}
                         onChange={(e) => patchServer(i, { command: e.target.value })}
                     />
@@ -109,7 +108,7 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                         value={server.args.join(' ')}
                         onChange={(e) => patchServer(i, { args: e.target.value.split(' ').filter(Boolean) })}
                     />
-                    <label className="check" style={{ marginTop: 6, marginBottom: 0 }}>
+                    <label className="check">
                         <input
                             type="checkbox"
                             checked={server.enabled}
@@ -135,7 +134,7 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
                     <div className="section-title">About</div>
                     <div className="about">
                         <div className="title">
-                            {about.name} <span style={{ color: 'var(--dim)' }}>{about.version}</span>
+                            {about.name} <span className="version">{about.version}</span>
                         </div>
                         <div className="line">
                             Developed by <strong>{about.developer}</strong>

@@ -268,7 +268,6 @@ export function FlowCanvas({
                     pannable
                     zoomable
                     maskColor={cssVar('--scrim')}
-                    style={{ background: cssVar('--input-bg'), border: `1px solid ${cssVar('--line')}` }}
                     nodeColor={(n) => cssVar(`--k-${NODE_KIND_META[(n.data as NodeData).flowNode.kind].token}`)}
                 />
             </ReactFlow>

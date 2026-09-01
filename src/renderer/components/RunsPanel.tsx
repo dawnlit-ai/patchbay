@@ -97,7 +97,7 @@ export function RunsPanel({
     if (collapsed) {
         return (
             <div className="runs collapsed">
-                <div className="panel-head" style={{ width: '100%' }}>
+                <div className="panel-head">
                     <strong>Runs</strong>
                     <span className="badge">{runs.length}</span>
                     <span className="spacer"/>
@@ -142,7 +142,7 @@ export function RunsPanel({
                             <span>·</span>
                             <span>{run.senderEmail}</span>
                         </div>
-                        <div className="meta" style={{ marginTop: 4 }}>
+                        <div className="meta">
                             {statusBadge(run.status)}
                             {run.disposition && <span className="badge">{run.disposition}</span>}
                             {run.trigger === 'manual' && <span className="badge">test</span>}
@@ -157,7 +157,7 @@ export function RunsPanel({
                 {selected && (
                     <>
                         <div className="panel-head plain">
-                            <strong style={{ fontSize: 14 }}>{selected.email.subject || '(no subject)'}</strong>
+                            <strong>{selected.email.subject || '(no subject)'}</strong>
                             <span className="spacer"/>
                             {statusBadge(selected.status)}
                             {selected.status === 'running' && (
@@ -191,7 +191,7 @@ export function RunsPanel({
                                 <span>{selected.email.attachmentNames.join(', ')}</span>
                             </div>
                         )}
-                        {selected.error && <div className="err-banner" style={{ marginTop: 10 }}>{selected.error}</div>}
+                        {selected.error && <div className="err-banner">{selected.error}</div>}
 
                         <div className="section-title">Path</div>
                         {selected.passes.map((pass) => (
