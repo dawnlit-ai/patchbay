@@ -8,6 +8,11 @@ import { workspaceRoot } from './paths';
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+/** Matches the step and range Chromium's own zoom shortcuts use. */
+const ZOOM_STEP = 0.5;
+const ZOOM_MIN = -3;
+const ZOOM_MAX = 6;
+
 function createWindow(): void {
     const win = new BrowserWindow({
         width: 1560,
@@ -39,6 +44,23 @@ function createWindow(): void {
             detail: 'Cancel and press Save (Ctrl+S), or close and lose the edits made since the last save.',
         });
         if (choice === 0) event.preventDefault();
+    });
+
+    // Dropping the default menu also dropped its zoomIn/zoomOut/resetZoom roles,
+    // which were what bound Ctrl+Plus, Ctrl+Minus and Ctrl+0. Rebind them on the
+    // window so the shortcuts survive without a menu bar to host them.
+    win.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+
+        const level = win.webContents.getZoomLevel();
+        let next: number;
+        if (input.key === '+' || input.key === '=') next = level + ZOOM_STEP;
+        else if (input.key === '-' || input.key === '_') next = level - ZOOM_STEP;
+        else if (input.key === '0') next = 0;
+        else return;
+
+        win.webContents.setZoomLevel(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next)));
+        event.preventDefault();
     });
 
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
