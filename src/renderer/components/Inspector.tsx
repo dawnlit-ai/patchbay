@@ -14,7 +14,7 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption } from '@shared/ipc';
-import type { SkillSummary } from '@shared/settings';
+import { SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
 
 /**
  * Configures the selected node. Each kind gets its own section, handed the
@@ -256,37 +256,57 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
     );
 }
 
+const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
+
 function ProcessorFields({
                              config,
                              patch,
                              skills,
                          }: Section<ProcessorConfig> & { skills: SkillSummary[] }): JSX.Element {
+    const toggle = (ref: string, on: boolean): void =>
+        patch({ skills: on ? [...config.skills, ref] : config.skills.filter((s) => s !== ref) });
+
+    // Ticked in the flow file but in neither library — a flow imported from an
+    // install whose global shelf held more than this one does. Said out loud,
+    // because the checkbox that would have shown it is not there to be unticked.
+    const offered = new Set(skills.map((skill) => skillRef(skill.scope, skill.name)));
+    const missing = config.skills.filter((ref) => !offered.has(ref));
+
     return (
         <>
             <Legend
                 label="Skills"
                 hint={
                     skills.length === 0
-                        ? 'No skills in the library yet — add one on the Skills tab.'
+                        ? 'No skills yet — add one on the Skills tab.'
                         : 'Claude may invoke any skill you tick, and nothing else.'
                 }
             />
-            {skills.map((skill) => (
-                <label className="check" key={skill.name} title={skill.description}>
-                    <input
-                        type="checkbox"
-                        checked={config.skills.includes(skill.name)}
-                        onChange={(e) =>
-                            patch({
-                                skills: e.target.checked
-                                    ? [...config.skills, skill.name]
-                                    : config.skills.filter((s) => s !== skill.name),
-                            })
-                        }
-                    />
-                    {skill.name}
-                </label>
-            ))}
+            {SKILL_SCOPES.map((scope) => {
+                const inScope = skills.filter((skill) => skill.scope === scope);
+                if (inScope.length === 0) return null;
+                return (
+                    <div key={scope}>
+                        <div className="hint">{SCOPE_LABEL[scope]}</div>
+                        {inScope.map((skill) => {
+                            const ref = skillRef(scope, skill.name);
+                            return (
+                                <label className="check" key={ref} title={skill.description}>
+                                    <input
+                                        type="checkbox"
+                                        checked={config.skills.includes(ref)}
+                                        onChange={(e) => toggle(ref, e.target.checked)}
+                                    />
+                                    {skill.name}
+                                </label>
+                            );
+                        })}
+                    </div>
+                );
+            })}
+            {missing.length > 0 && (
+                <div className="hint">Ticked but not in either library here: {missing.join(', ')}</div>
+            )}
 
             <div className="gap"/>
 

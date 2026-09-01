@@ -1,12 +1,33 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, } from 'node:fs';
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
-import { skillsDir } from '../paths';
-import type { SkillDetail, SkillSummary } from '@shared/settings';
+import { flowSkillsDir, globalPluginDir, globalSkillsDir } from '../paths';
+import { getSettings } from './settingsStore';
+import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary, } from '@shared/settings';
 
 /**
- * The skill library is a directory of `<name>/SKILL.md` files — the layout the
- * Agent SDK discovers from `cwd/.claude/skills`. Files rather than rows, so a
- * skill edited here, in an editor, or synced from another project all agree.
+ * Skills live in one of two libraries, both directories of `<name>/SKILL.md`
+ * files. Files rather than rows, so a skill edited here, in an editor, or synced
+ * from another project all agree.
+ *
+ * - **global** — shared by every flow in the install, kept in the plugin layout
+ *   because that is what lets a run load skills from outside its own working
+ *   directory.
+ * - **flow** — one flow's own, under that flow's directory, which is the working
+ *   directory its nodes run in. Deleted, exported and imported with the flow.
+ *
+ * Every call names the scope it means; `flowId` is read only when that scope is
+ * `flow`, and the two libraries may hold the same name without either shadowing
+ * the other.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -14,6 +35,28 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export function isValidSkillName(name: string): boolean {
     return NAME_RE.test(name) && name.length <= 64;
+}
+
+/**
+ * What makes the global directory a plugin the SDK will load: a manifest beside
+ * the `skills` folder. Written on the way past rather than at startup, so it is
+ * there however the folder was first reached.
+ */
+function ensureGlobalPlugin(): string {
+    const manifest = join(globalPluginDir(), '.claude-plugin', 'plugin.json');
+    if (!existsSync(manifest)) {
+        mkdirSync(join(globalPluginDir(), '.claude-plugin'), { recursive: true });
+        const content = {
+            name: GLOBAL_SKILL_PLUGIN,
+            description: 'Skills shared by every flow in this Patchbay workspace.',
+        };
+        writeFileSync(manifest, JSON.stringify(content, null, 2), 'utf8');
+    }
+    return globalSkillsDir();
+}
+
+function libraryDir(scope: SkillScope, flowId: string): string {
+    return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDir(flowId);
 }
 
 interface Frontmatter {
@@ -46,69 +89,108 @@ export function parseFrontmatter(content: string): Frontmatter {
     return out;
 }
 
-function skillFile(name: string): string {
-    return join(skillsDir(), name, 'SKILL.md');
+function skillFile(scope: SkillScope, flowId: string, name: string): string {
+    return join(libraryDir(scope, flowId), name, 'SKILL.md');
 }
 
-function summarize(name: string, content: string, file: string): SkillSummary {
+function summarize(scope: SkillScope, name: string, content: string, file: string): SkillSummary {
     const stat = statSync(file);
     return {
         name,
+        scope,
         description: parseFrontmatter(content).description ?? '',
         size: stat.size,
         updatedAt: stat.mtime.toISOString(),
     };
 }
 
-export function listSkills(): SkillSummary[] {
-    const dir = skillsDir();
+export function listSkills(scope: SkillScope, flowId: string): SkillSummary[] {
+    const dir = libraryDir(scope, flowId);
     const out: SkillSummary[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const file = join(dir, entry.name, 'SKILL.md');
         if (!existsSync(file)) continue;
-        out.push(summarize(entry.name, readFileSync(file, 'utf8'), file));
+        out.push(summarize(scope, entry.name, readFileSync(file, 'utf8'), file));
     }
     return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-export function getSkill(name: string): SkillDetail | null {
-    if (!isValidSkillName(name)) return null;
-    const file = skillFile(name);
-    if (!existsSync(file)) return null;
-    const content = readFileSync(file, 'utf8');
-    return { ...summarize(name, content, file), content };
+/** Both libraries at once — what the Skills tab and a Processor's list show. */
+export function listAllSkills(flowId: string): SkillSummary[] {
+    return [...listSkills('global', flowId), ...listSkills('flow', flowId)];
 }
 
-export function saveSkill(name: string, content: string): SkillSummary {
+export function getSkill(scope: SkillScope, flowId: string, name: string): SkillDetail | null {
+    if (!isValidSkillName(name)) return null;
+    const file = skillFile(scope, flowId, name);
+    if (!existsSync(file)) return null;
+    const content = readFileSync(file, 'utf8');
+    return { ...summarize(scope, name, content, file), content };
+}
+
+export function saveSkill(
+    scope: SkillScope,
+    flowId: string,
+    name: string,
+    content: string,
+): SkillSummary {
     if (!isValidSkillName(name)) {
         throw new Error(
             `Invalid skill name "${name}". Use lowercase letters, digits and hyphens — the name becomes both a folder and a Claude skill identifier.`,
         );
     }
-    mkdirSync(join(skillsDir(), name), { recursive: true });
-    writeFileSync(skillFile(name), content, 'utf8');
-    return summarize(name, content, skillFile(name));
+    mkdirSync(join(libraryDir(scope, flowId), name), { recursive: true });
+    const file = skillFile(scope, flowId, name);
+    writeFileSync(file, content, 'utf8');
+    return summarize(scope, name, content, file);
 }
 
-export function removeSkill(name: string): void {
+export function removeSkill(scope: SkillScope, flowId: string, name: string): void {
     if (!isValidSkillName(name)) return;
-    rmSync(join(skillsDir(), name), { recursive: true, force: true });
+    rmSync(join(libraryDir(scope, flowId), name), { recursive: true, force: true });
 }
 
 /**
- * Copy `<dir>/<skill>/SKILL.md` trees into the library, overwriting a skill of
+ * Take a skill out of one library and put it in the other, folder and all — what
+ * dragging a row onto the other tab does. Overwrites a skill of the same name
+ * there; from here the two are just directories, so the asking is the caller's.
+ * The `global:` prefix on a tick moves with it, which the renderer repairs in the
+ * flow on screen.
+ */
+export function moveSkill(
+    from: SkillScope,
+    to: SkillScope,
+    flowId: string,
+    name: string,
+): SkillSummary {
+    if (!isValidSkillName(name)) throw new Error(`Invalid skill name "${name}".`);
+    if (from === to) throw new Error(`"${name}" is already in that library.`);
+    const source = join(libraryDir(from, flowId), name);
+    if (!existsSync(join(source, 'SKILL.md'))) throw new Error(`There is no skill "${name}" to move.`);
+
+    const target = join(libraryDir(to, flowId), name);
+    rmSync(target, { recursive: true, force: true });
+    renameSync(source, target);
+
+    const file = join(target, 'SKILL.md');
+    return summarize(to, name, readFileSync(file, 'utf8'), file);
+}
+
+/**
+ * Copy `<dir>/<skill>/SKILL.md` trees into one library, overwriting a skill of
  * the same name, so re-importing picks up upstream edits.
  */
-export function importSkillsFrom(dir: string): string[] {
+export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
+    const target = libraryDir(scope, flowId);
     const imported: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const source = join(dir, entry.name);
         if (!existsSync(join(source, 'SKILL.md'))) continue;
         if (!isValidSkillName(entry.name)) continue;
-        cpSync(source, join(skillsDir(), entry.name), { recursive: true });
+        cpSync(source, join(target, entry.name), { recursive: true });
         imported.push(entry.name);
     }
     return imported;
@@ -148,24 +230,31 @@ that email — you cannot reach any other message.
 `;
 
 /**
- * Fill the library on first run, and only on first run. Skills here are the
- * app's own copies — editable without touching whatever they came from — so
- * seeding is a one-time import rather than a link. Returns the names imported.
+ * Fill the global library on first run, and only on first run. Flow libraries
+ * start bare on purpose: everything a new flow needs is already on the global
+ * shelf, and what goes in its own is whatever that flow alone should carry.
+ *
+ * Candidates in order: the folder named in Settings, then a `skills` directory
+ * beside the app, and failing both the starter skill — so a Processor always has
+ * something to tick. These are the app's own copies, editable without touching
+ * whatever they came from. Returns the names imported.
  */
-export function seedSkillLibrary(candidates: string[]): string[] {
-    const existing = listSkills();
+export function seedGlobalLibrary(): string[] {
+    const existing = listSkills('global', '');
     // A library holding only the placeholder still counts as unseeded; otherwise
     // one launch before pointing at a real skills folder would lock it in forever.
     const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
     if (existing.length > 0 && !onlyStarter) return [];
 
-    for (const dir of candidates) {
+    for (const dir of [getSettings().skillSeedPath, join(process.cwd(), 'skills')]) {
         if (!dir.trim() || !existsSync(dir)) continue;
         try {
-            const imported = importSkillsFrom(dir);
+            const imported = importSkillsFrom('global', '', dir);
             if (imported.length > 0) {
                 // Real skills supersede the placeholder.
-                if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) removeSkill(STARTER_SKILL_NAME);
+                if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) {
+                    removeSkill('global', '', STARTER_SKILL_NAME);
+                }
                 return imported;
             }
         } catch {
@@ -175,6 +264,6 @@ export function seedSkillLibrary(candidates: string[]): string[] {
     }
 
     if (onlyStarter) return [];
-    saveSkill(STARTER_SKILL_NAME, STARTER_SKILL);
+    saveSkill('global', '', STARTER_SKILL_NAME, STARTER_SKILL);
     return [STARTER_SKILL_NAME];
 }

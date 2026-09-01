@@ -100,7 +100,7 @@ SELFTEST OK
    client.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
-3. Drag a **Processor** per branch, tick a skill, and connect it.
+3. Drag a **Processor** per branch, tick a skill from either library, and connect it.
 4. Hit **Test run…**, pick a real email you already understand, and read the trace.
 5. When the path looks right, **Start watching**.
 
@@ -109,21 +109,38 @@ fire fifty runs for last week's inbox.
 
 ## Skills
 
-A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them:
+A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. There are **two libraries**, and
+the Skills tab switches between them:
 
 ```
-<userData>/workspace/.claude/skills/<name>/SKILL.md
+<userData>/workspace/global/skills/<name>/SKILL.md            shared by every flow
+<userData>/workspace/flows/<flow-id>/.claude/skills/<name>/SKILL.md   this flow only
 ```
 
-On first run the library seeds itself from the first of these that exists — `skillSeedPath` in Settings, then
-`./skills` — falling back to one starter skill if neither does. These are the app's **own copies**: edit them in the
-Skills tab without touching the originals. Seeding runs only while the library is empty — or holds nothing but that
-starter skill, which the app wrote itself — so it never fights an edit you made here.
+**Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
+skills land. **Flow** skills sit inside the flow's own directory — which is also the working directory its nodes run in
+— so only that flow sees them, they are deleted with it, and they travel with it when you export. The two may hold the
+same name without either shadowing the other: a Processor stores a global tick as `global:<name>` and its own as the
+bare name.
 
-The **Skills** tab edits them in place, and **Import…** pulls in a folder of existing skills at any time. The Agent SDK
-discovers them from the workspace, so what you see in the tab is what Claude sees at runtime.
+The global library is seeded on first run from the first of these that exists — `skillSeedPath` in Settings, then
+`./skills` — falling back to one starter skill if neither does. Seeding runs only while that library is empty, or holds
+nothing but the starter skill the app wrote itself, so it never fights an edit you made here. A new flow starts with an
+empty library of its own, because everything it needs is already on the shelf.
 
-> A seeded skill that calls another app's MCP tools (`mcp__<server-name>__*`,
+Drag a skill onto the other tab to **move** it between the libraries. The open flow's ticks are re-pointed as it goes
+(`global:x` ↔ `x`); a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name
+already there replaces it, so both are asked about first.
+
+**Import…** pulls a folder of existing skills into whichever library is showing. **Export…** writes the flow's own
+skills, plus the global ones its Processors actually tick, into the flow file; importing that file restores the flow's
+own and adds any global skill whose name is still free — it never rewrites a global skill this install already has.
+
+Under the hood the flow's library is discovered as project skills from the run's working directory, and the global one
+is handed over as a local plugin — which is what lets a run load skills from outside its own directory. That is where
+the `global:` prefix comes from.
+
+> A skill that calls another app's MCP tools (`mcp__<server-name>__*`,
 > say) needs that server added under **Settings → MCP servers** before a
 > Processor can run it.
 
@@ -149,7 +166,7 @@ src/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
 │  ├─ claude/   Agent SDK wrapper, and the email-scoped MCP tools
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
-│  ├─ store/    flows, skills, settings, run traces (JSON on disk)
+│  ├─ store/    flows and their skills, settings, run traces (files on disk)
 │  └─ ipc.ts    one handler per channel in shared/ipc.ts
 ├─ preload/     contextBridge — the renderer gets `window.api` and nothing else
 └─ renderer/    React Flow canvas, inspector, trace viewer

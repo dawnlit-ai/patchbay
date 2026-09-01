@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC } from '@shared/ipc';
 import { getWatcher, hasUnsavedFlow, registerIpc } from './ipc';
-import { seedSkillLibrary } from './store/skillStore';
-import { getSettings } from './store/settingsStore';
+import { migrateToFlowDirectories } from './store/flowStore';
+import { seedGlobalLibrary } from './store/skillStore';
 import { workspaceRoot } from './paths';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -82,22 +82,18 @@ function createWindow(): void {
     }
 }
 
-/**
- * Seed folders to try in order: the one named in Settings, then a `skills`
- * directory beside the app. With neither, the library gets the starter skill.
- */
-function skillSeedCandidates(): string[] {
-    return [getSettings().skillSeedPath, join(process.cwd(), 'skills')];
-}
-
 void app.whenReady().then(() => {
     // Nothing in the default File/Edit/View/Window menu belongs to this app, so it
     // goes on every platform: off the window on Windows and Linux, out of the system
     // bar on macOS.
     Menu.setApplicationMenu(null);
     workspaceRoot();
-    const seeded = seedSkillLibrary(skillSeedCandidates());
-    if (seeded.length > 0) console.log(`Seeded skill library: ${seeded.join(', ')}`);
+    // Flows used to be loose files sharing one library; a workspace written before
+    // that changed is rearranged here, once, before anything reads it.
+    const migrated = migrateToFlowDirectories();
+    if (migrated.length > 0) console.log(`Gave ${migrated.length} flow(s) a directory of their own`);
+    const seeded = seedGlobalLibrary();
+    if (seeded.length > 0) console.log(`Seeded the global skill library: ${seeded.join(', ')}`);
     registerIpc();
     createWindow();
 

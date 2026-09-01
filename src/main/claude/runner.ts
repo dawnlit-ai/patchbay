@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { McpServerConfig, Options, SettingSource } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, SdkPluginConfig, SettingSource, } from '@anthropic-ai/claude-agent-sdk';
 import type { EffortLevel } from '@shared/flow';
 import type { PassCost, TraceEvent } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
@@ -19,8 +19,15 @@ export interface ClaudeRunRequest {
     effort?: EffortLevel;
     maxTurns: number;
     maxBudgetUsd?: number;
-    /** Agent SDK cwd. Must be the workspace, so `.claude/skills` is discoverable. */
+    /** Agent SDK cwd. Must be the flow's directory, so its `.claude/skills` is discoverable. */
     cwd: string;
+    /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
+    additionalDirectories?: string[];
+    /**
+     * Skill directories outside `cwd`, each as a local plugin — the only way the
+     * SDK loads skills a run's own working directory does not hold.
+     */
+    plugins?: SdkPluginConfig[];
     skills?: string[];
     allowedTools: string[];
     /** `[]` disables every built-in tool — right for a pure classification call. */
@@ -130,6 +137,10 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         },
     };
 
+    if (request.plugins?.length) options.plugins = request.plugins;
+    if (request.additionalDirectories?.length) {
+        options.additionalDirectories = request.additionalDirectories;
+    }
     if (request.tools) options.tools = request.tools;
     if (request.effort) options.effort = request.effort;
     if (request.maxBudgetUsd) options.maxBudgetUsd = request.maxBudgetUsd;

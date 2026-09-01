@@ -36,12 +36,14 @@ const api: Api = {
         recent: (account, folder, limit) => ipcRenderer.invoke(IPC.outlookRecent, account, folder, limit),
     },
     skills: {
-        list: () => ipcRenderer.invoke(IPC.skillsList),
-        get: (name) => ipcRenderer.invoke(IPC.skillsGet, name),
-        save: (name, content) => ipcRenderer.invoke(IPC.skillsSave, name, content),
-        remove: (name) => ipcRenderer.invoke(IPC.skillsRemove, name),
-        importFrom: (dir) => ipcRenderer.invoke(IPC.skillsImportFrom, dir),
-        pickAndImport: () => ipcRenderer.invoke(IPC.skillsPickAndImport),
+        list: (flowId) => ipcRenderer.invoke(IPC.skillsList, flowId),
+        get: (scope, flowId, name) => ipcRenderer.invoke(IPC.skillsGet, scope, flowId, name),
+        save: (scope, flowId, name, content) =>
+            ipcRenderer.invoke(IPC.skillsSave, scope, flowId, name, content),
+        remove: (scope, flowId, name) => ipcRenderer.invoke(IPC.skillsRemove, scope, flowId, name),
+        move: (from, to, flowId, name) => ipcRenderer.invoke(IPC.skillsMove, from, to, flowId, name),
+        importFrom: (scope, flowId, dir) => ipcRenderer.invoke(IPC.skillsImportFrom, scope, flowId, dir),
+        pickAndImport: (scope, flowId) => ipcRenderer.invoke(IPC.skillsPickAndImport, scope, flowId),
     },
     engine: {
         start: () => ipcRenderer.invoke(IPC.engineStart),

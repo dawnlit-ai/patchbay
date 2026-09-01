@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { type InboxFolderOption, IPC } from '@shared/ipc';
 import type { Flow } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { AboutInfo, Settings } from '@shared/settings';
+import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
 import * as flowStore from './store/flowStore';
 import * as skillStore from './store/skillStore';
 import * as traceStore from './store/traceStore';
@@ -135,19 +135,33 @@ export function registerIpc(): void {
         outlook.readInbox(account, folder, RECENT_LOOKBACK_DAYS, limit),
     );
 
-    handle(IPC.skillsList, () => skillStore.listSkills());
-    handle(IPC.skillsGet, (name: string) => skillStore.getSkill(name));
-    handle(IPC.skillsSave, (name: string, content: string) => skillStore.saveSkill(name, content));
-    handle(IPC.skillsRemove, (name: string) => skillStore.removeSkill(name));
-    handle(IPC.skillsImportFrom, (dir: string) => skillStore.importSkillsFrom(dir));
-    handle(IPC.skillsPickAndImport, async () => {
+    handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));
+    handle(IPC.skillsGet, (scope: SkillScope, flowId: string, name: string) =>
+        skillStore.getSkill(scope, flowId, name),
+    );
+    handle(IPC.skillsSave, (scope: SkillScope, flowId: string, name: string, content: string) =>
+        skillStore.saveSkill(scope, flowId, name, content),
+    );
+    handle(IPC.skillsRemove, (scope: SkillScope, flowId: string, name: string) =>
+        skillStore.removeSkill(scope, flowId, name),
+    );
+    handle(IPC.skillsMove, (from: SkillScope, to: SkillScope, flowId: string, name: string) =>
+        skillStore.moveSkill(from, to, flowId, name),
+    );
+    handle(IPC.skillsImportFrom, (scope: SkillScope, flowId: string, dir: string) =>
+        skillStore.importSkillsFrom(scope, flowId, dir),
+    );
+    handle(IPC.skillsPickAndImport, async (scope: SkillScope, flowId: string) => {
         const picked = await dialog.showOpenDialog({
-            title: 'Choose a folder containing skill directories',
+            title:
+                scope === 'global'
+                    ? 'Choose a folder of skills to add to every flow'
+                    : 'Choose a folder of skills to add to this flow',
             properties: ['openDirectory'],
         });
         const dir = picked.filePaths[0];
         if (picked.canceled || !dir) return null;
-        return { dir, imported: skillStore.importSkillsFrom(dir) };
+        return { dir, imported: skillStore.importSkillsFrom(scope, flowId, dir) };
     });
 
     handle(IPC.engineStart, () => getWatcher().start());

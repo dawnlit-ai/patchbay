@@ -445,6 +445,43 @@ code {
     background: var(--panel-3);
 }
 
+/* Two libraries in one panel: which of them the Skills tab is showing. */
+.scope-switch {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    margin-bottom: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+}
+
+.scope-switch button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 6px 8px;
+    border-radius: calc(var(--radius-md) - 3px);
+}
+
+.scope-switch button:hover:not(:disabled) {
+    color: var(--text);
+}
+
+.scope-switch button.active {
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+/* The tab a dragged skill would land in. */
+.scope-switch button.drop-on {
+    color: var(--text);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .tab-body {
     padding: 12px;
     overflow-y: auto;
@@ -1171,6 +1208,17 @@ code {
     background: var(--err-bg);
     border: 1px solid var(--err-line);
     color: var(--err);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+/* The same shape as an error banner, for something that merely happened. */
+.notice {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--muted);
     border-radius: var(--radius-md);
     padding: 8px 10px;
     margin-bottom: 10px;

@@ -42,15 +42,16 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
             </label>
 
             <label className="field">
-                <span>Seed skills from</span>
+                <span>Seed global skills from</span>
                 <input
                     value={draft.skillSeedPath}
                     placeholder="(auto-detect)"
                     onChange={(e) => patch({ skillSeedPath: e.target.value })}
                 />
                 <div className="hint">
-                    A folder of <code>&lt;name&gt;/SKILL.md</code> directories, imported once when the library
-                    is empty. Use Skills → Import… to pull more in at any time.
+                    A folder of <code>&lt;name&gt;/SKILL.md</code> directories, imported once while the
+                    global library is empty. Use Skills → Import… to pull more into either library at any
+                    time.
                 </div>
             </label>
 

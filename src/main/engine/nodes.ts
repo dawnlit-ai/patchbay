@@ -4,12 +4,15 @@ import type { EmailEnvelope, PassCost, TraceEvent } from '@shared/trace';
 import { runClaude } from '../claude/runner';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
 import { getSettings } from '../store/settingsStore';
-import { workspaceRoot } from '../paths';
+import { flowDir, globalPluginDir } from '../paths';
 import * as outlook from '../outlook/bridge';
+import { isGlobalRef } from '@shared/settings';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
+    /** The flow being run: its directory holds the skills this node may use. */
+    flowId: string;
     node: FlowNode;
     email: EmailEnvelope;
     scratchDir: string;
@@ -101,7 +104,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         prompt,
         model: config.model,
         maxTurns: 4,
-        cwd: workspaceRoot(),
+        cwd: flowDir(ctx.flowId),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.
         tools: [],
@@ -183,9 +186,20 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         effort: config.effort,
         maxTurns: config.maxTurns,
         maxBudgetUsd: config.maxBudgetUsd,
-        cwd: workspaceRoot(),
-        // 'project' is what makes the workspace's .claude/skills discoverable.
+        // The flow's own directory: 'project' is what makes the `.claude/skills`
+        // beneath it discoverable, and no other flow's library sits under it.
+        cwd: flowDir(ctx.flowId),
         settingSources: ['project'],
+        // The global library lives outside that directory, so it arrives as a
+        // plugin — and only when this node actually ticks something from it.
+        plugins: config.skills.some(isGlobalRef)
+            ? [{ type: 'local', path: globalPluginDir(), skipMcpDiscovery: true }]
+            : undefined,
+        // The scratch folder is outside that directory, and saved attachments are
+        // the whole point of it.
+        additionalDirectories: [ctx.scratchDir],
+        // Already in the SDK's own spelling: `global:name` for a plugin skill, a
+        // bare name for one of the flow's own.
         skills: config.skills.length > 0 ? config.skills : undefined,
         allowedTools,
         mcpServers,

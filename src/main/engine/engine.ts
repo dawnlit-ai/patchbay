@@ -93,6 +93,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         let pass: Pass;
         try {
             const outcome = await executeNode({
+                flowId: flow.id,
                 node,
                 email,
                 scratchDir,

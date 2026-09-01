@@ -2,7 +2,14 @@ import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
-import type { AboutInfo, EngineStatus, Settings, SkillSummary } from '@shared/settings';
+import {
+    type AboutInfo,
+    type EngineStatus,
+    type Settings,
+    skillRef,
+    type SkillScope,
+    type SkillSummary,
+} from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
@@ -74,9 +81,17 @@ export function App(): JSX.Element {
         }
     }, []);
 
+    /** Every library belongs to a flow, so switching flows swaps the list. */
+    const flowId = flow?.id ?? null;
     const refreshSkills = useCallback(() => {
-        void window.api.skills.list().then(setSkills);
-    }, []);
+        if (!flowId) {
+            setSkills([]);
+            return;
+        }
+        void window.api.skills.list(flowId).then(setSkills);
+    }, [flowId]);
+
+    useEffect(refreshSkills, [refreshSkills]);
 
     const refreshRuns = useCallback(() => {
         void window.api.runs.list(100).then(setRuns);
@@ -97,10 +112,9 @@ export function App(): JSX.Element {
             setFlow(loadedFlows[0] ?? null);
             setSettings(loadedSettings);
             setStatus(loadedStatus);
-            refreshSkills();
             refreshRuns();
         })();
-    }, [refreshRuns, refreshSkills]);
+    }, [refreshRuns]);
 
     // Live updates. An open run stays open and keeps filling in; otherwise the
     // newest becomes the one on screen, so a flow shows its work without a click.
@@ -183,6 +197,31 @@ export function App(): JSX.Element {
         (node: FlowNode) => {
             if (!flow) return;
             updateFlow({ ...flow, nodes: flow.nodes.map((n) => (n.id === node.id ? node : n)) });
+        },
+        [flow, updateFlow],
+    );
+
+    /**
+     * A skill that changed library changed name with it — `global:x` one way, a
+     * bare `x` the other — so every Processor that ticked it is re-pointed. Only
+     * the flow on screen: the move itself is what tells other flows it is gone.
+     */
+    const relabelSkill = useCallback(
+        (from: SkillScope, to: SkillScope, name: string) => {
+            if (!flow) return;
+            const before = skillRef(from, name);
+            const after = skillRef(to, name);
+            let changed = false;
+            const nodes = flow.nodes.map((node) => {
+                if (node.config.kind !== 'processor') return node;
+                if (!node.config.skills.includes(before)) return node;
+                changed = true;
+                // Through a Set: a node ticking both libraries' copies would otherwise
+                // end up ticking the survivor twice.
+                const skills = [...new Set(node.config.skills.map((s) => (s === before ? after : s)))];
+                return { ...node, config: { ...node.config, skills } };
+            });
+            if (changed) updateFlow({ ...flow, nodes });
         },
         [flow, updateFlow],
     );
@@ -511,7 +550,16 @@ export function App(): JSX.Element {
                                 onDelete={deleteNode}
                             />
                         )}
-                        {tab === 'skills' && <SkillLibrary skills={skills} onRefresh={refreshSkills}/>}
+                        {tab === 'skills' && (
+                            <SkillLibrary
+                                flowId={flow.id}
+                                flowName={flow.name}
+                                skills={skills}
+                                otherFlowCount={flows.length - 1}
+                                onRefresh={refreshSkills}
+                                onMoved={relabelSkill}
+                            />
+                        )}
                         {tab === 'settings' && (
                             <SettingsPanel
                                 settings={settings}

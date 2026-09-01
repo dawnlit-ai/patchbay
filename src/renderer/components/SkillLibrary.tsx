@@ -2,7 +2,7 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { NameDialog } from './NameDialog';
-import type { SkillSummary } from '@shared/settings';
+import { SKILL_SCOPES, type SkillScope, type SkillSummary } from '@shared/settings';
 
 const TEMPLATE = (name: string): string => `---
 name: ${name}
@@ -26,41 +26,116 @@ email being processed.
 - Ask for nothing; if the email is ambiguous, say so in the note.
 `;
 
+/** Marks a drag as one of ours, and carries the name being dragged. */
+const DRAG_TYPE = 'application/patchbay-skill';
+
 interface Props {
+    /** The open flow, whose own library is one of the two on offer here. */
+    flowId: string;
+    flowName: string;
+    /** Both libraries; each entry says which it came from. */
     skills: SkillSummary[];
+    /** How many other flows a skill leaving the global library would abandon. */
+    otherFlowCount: number;
 
     onRefresh(): void;
+
+    /** A skill changed library: the open flow's ticks for it need re-pointing. */
+    onMoved(from: SkillScope, to: SkillScope, name: string): void;
 }
 
-export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
+export function SkillLibrary({
+                                 flowId,
+                                 flowName,
+                                 skills,
+                                 otherFlowCount,
+                                 onRefresh,
+                                 onMoved,
+                             }: Props): JSX.Element {
+    /** Which library the panel is showing, and everything on it acts on. */
+    const [scope, setScope] = useState<SkillScope>('global');
     const [editing, setEditing] = useState<string | null>(null);
     const [content, setContent] = useState('');
-    const [error, setError] = useState<string | null>(null);
+    /** One slot for both outcomes; `bad` is the difference between them. */
+    const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
     const [busy, setBusy] = useState(false);
     const [naming, setNaming] = useState(false);
     /** Which skill the delete question is about, if it is on screen. */
     const [deleting, setDeleting] = useState<string | null>(null);
+    /** The library a dragged skill is hovering over, so the tab can say so. */
+    const [dropOn, setDropOn] = useState<SkillScope | null>(null);
+    /** A move worth asking about first: it overwrites, or it abandons other flows. */
+    const [confirming, setConfirming] = useState<string | null>(null);
+
+    const shown = skills.filter((s) => s.scope === scope);
+    const other: SkillScope = scope === 'global' ? 'flow' : 'global';
+    const libraryName = (which: SkillScope): string =>
+        which === 'global' ? 'the global library' : `“${flowName}”`;
 
     useEffect(() => {
         if (!editing) return;
-        void window.api.skills.get(editing).then((detail) => {
+        void window.api.skills.get(scope, flowId, editing).then((detail) => {
             if (detail) setContent(detail.content);
         });
-    }, [editing]);
+    }, [editing, flowId, scope]);
+
+    const say = (text: string): void => setMessage({ text, bad: false });
+    const failed = (e: unknown): void => setMessage({ text: (e as Error).message, bad: true });
+
+    /** Leaving a library closes what was open in it: the name means something else there. */
+    const switchScope = (next: SkillScope): void => {
+        setScope(next);
+        setEditing(null);
+        setMessage(null);
+    };
 
     const save = async (): Promise<void> => {
         if (!editing) return;
         setBusy(true);
-        setError(null);
+        setMessage(null);
         try {
-            await window.api.skills.save(editing, content);
+            await window.api.skills.save(scope, flowId, editing, content);
             onRefresh();
             setEditing(null);
         } catch (e) {
-            setError((e as Error).message);
+            failed(e);
         } finally {
             setBusy(false);
         }
+    };
+
+    /** Whether dropping `name` on the other library needs a question first. */
+    const moveWarnings = (name: string): string[] => {
+        const warnings: string[] = [];
+        if (skills.some((s) => s.scope === other && s.name === name)) {
+            warnings.push(`${libraryName(other)} already has a “${name}”, and this one replaces it.`);
+        }
+        if (scope === 'global' && otherFlowCount > 0) {
+            warnings.push(
+                `It leaves the global shelf, so the ${otherFlowCount} other flow${otherFlowCount === 1 ? '' : 's'} can no longer tick it. This flow’s own ticks are re-pointed for you.`,
+            );
+        }
+        return warnings;
+    };
+
+    const move = async (name: string): Promise<void> => {
+        setMessage(null);
+        try {
+            await window.api.skills.move(scope, other, flowId, name);
+            onRefresh();
+            onMoved(scope, other, name);
+            say(`Moved “${name}” to ${libraryName(other)}.`);
+        } catch (e) {
+            failed(e);
+        }
+    };
+
+    /** A drop lands on the library the panel is not showing; the rest is asking. */
+    const drop = (name: string): void => {
+        setDropOn(null);
+        if (!name || !shown.some((s) => s.name === name)) return;
+        if (moveWarnings(name).length > 0) setConfirming(name);
+        else void move(name);
     };
 
     const create = (name: string): void => {
@@ -71,19 +146,19 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
     };
 
     const importSkills = async (): Promise<void> => {
-        setError(null);
+        setMessage(null);
         try {
-            const result = await window.api.skills.pickAndImport();
+            const result = await window.api.skills.pickAndImport(scope, flowId);
             if (result) {
                 onRefresh();
-                setError(
+                say(
                     result.imported.length > 0
                         ? `Imported ${result.imported.length}: ${result.imported.join(', ')}`
                         : 'No folders containing a SKILL.md were found there.',
                 );
             }
         } catch (e) {
-            setError((e as Error).message);
+            failed(e);
         }
     };
 
@@ -98,7 +173,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                         Save
                     </button>
                 </div>
-                {error && <div className="err-banner">{error}</div>}
+                {message && <div className={message.bad ? 'err-banner' : 'notice'}>{message.text}</div>}
                 <textarea
                     rows={26}
                     value={content}
@@ -106,8 +181,17 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                     spellCheck={false}
                 />
                 <div className="hint">
-                    Saved as <code>.claude/skills/{editing}/SKILL.md</code> in the app workspace, which is
-                    where Claude discovers it.
+                    {scope === 'global' ? (
+                        <>
+                            Saved as <code>global/skills/{editing}/SKILL.md</code> in the app workspace, and
+                            offered to every flow.
+                        </>
+                    ) : (
+                        <>
+                            Saved as <code>.claude/skills/{editing}/SKILL.md</code> inside this flow’s own
+                            folder, where only its Processors can reach it.
+                        </>
+                    )}
                 </div>
             </div>
         );
@@ -116,7 +200,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
     return (
         <div>
             <div className="panel-head plain">
-                <strong>Skill library</strong>
+                <strong>Skills</strong>
                 <span className="spacer"/>
                 <button onClick={() => void importSkills()}>Import…</button>
                 <button className="primary" onClick={() => setNaming(true)}>
@@ -124,9 +208,40 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                 </button>
             </div>
 
+            <div className="scope-switch">
+                {SKILL_SCOPES.map((which) => (
+                    <button
+                        key={which}
+                        className={`${scope === which ? 'active' : ''}${dropOn === which ? ' drop-on' : ''}`}
+                        title={
+                            which === 'global'
+                                ? 'Shared by every flow in this install'
+                                : `Only “${flowName}” can use these`
+                        }
+                        onClick={() => switchScope(which)}
+                        // The library on show is where a dragged skill came from, so only
+                        // the other tab accepts it.
+                        onDragOver={(e) => {
+                            if (which === scope || !e.dataTransfer.types.includes(DRAG_TYPE)) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            setDropOn(which);
+                        }}
+                        onDragLeave={() => setDropOn((current) => (current === which ? null : current))}
+                        onDrop={(e) => {
+                            if (which === scope) return;
+                            e.preventDefault();
+                            drop(e.dataTransfer.getData(DRAG_TYPE));
+                        }}
+                    >
+                        {which === 'global' ? 'Global' : 'This flow'}
+                    </button>
+                ))}
+            </div>
+
             {naming && (
                 <NameDialog
-                    title="New skill"
+                    title={scope === 'global' ? 'New global skill' : 'New skill for this flow'}
                     label="Skill name"
                     initial="my-skill"
                     confirmLabel="Create"
@@ -139,26 +254,63 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
             {deleting && (
                 <ConfirmDialog
                     title="Delete skill"
-                    message={`Delete skill “${deleting}”? Its whole folder goes with it.`}
+                    message={
+                        scope === 'global'
+                            ? `Delete “${deleting}” from the global library? Every flow that ticks it loses it.`
+                            : `Delete “${deleting}” from “${flowName}”? Its whole folder goes with it.`
+                    }
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(null)}
                     onConfirm={() => {
-                        void window.api.skills.remove(deleting).then(onRefresh);
+                        void window.api.skills.remove(scope, flowId, deleting).then(onRefresh);
                         setDeleting(null);
                     }}
                 />
             )}
 
-            {error && <div className="err-banner">{error}</div>}
+            {confirming && (
+                <ConfirmDialog
+                    title="Move skill"
+                    message={`Move “${confirming}” to ${libraryName(other)}? ${moveWarnings(confirming).join(' ')}`}
+                    confirmLabel="Move"
+                    onCancel={() => setConfirming(null)}
+                    onConfirm={() => {
+                        void move(confirming);
+                        setConfirming(null);
+                    }}
+                />
+            )}
 
-            {skills.length === 0 && (
+            {message && <div className={message.bad ? 'err-banner' : 'notice'}>{message.text}</div>}
+
+            <div className="hint block">
+                {scope === 'global'
+                    ? 'The shared shelf: any flow can tick these, and editing one changes it everywhere.'
+                    : `Kept inside this flow’s own folder: only “${flowName}” sees them, and they travel with it when you export.`}
+                {' '}
+                Drag a skill onto the other tab to move it there.
+            </div>
+
+            {shown.length === 0 && (
                 <div className="empty">
-                    No skills yet. Create one, or import a folder of existing Claude Code skills.
+                    {scope === 'global'
+                        ? 'No global skills yet. Create one, or import a folder of existing Claude Code skills.'
+                        : 'Nothing specific to this flow. Create one here when a skill should not follow every other flow.'}
                 </div>
             )}
 
-            {skills.map((skill) => (
-                <div key={skill.name} className="list-row" onClick={() => setEditing(skill.name)}>
+            {shown.map((skill) => (
+                <div
+                    key={skill.name}
+                    className="list-row"
+                    draggable
+                    onDragStart={(e) => {
+                        e.dataTransfer.setData(DRAG_TYPE, skill.name);
+                        e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragEnd={() => setDropOn(null)}
+                    onClick={() => setEditing(skill.name)}
+                >
                     <div className="grow">
                         <strong>{skill.name}</strong>
                         <div className="desc">{skill.description || 'No description'}</div>

@@ -6,7 +6,7 @@
 
 import type { Flow } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
-import type { AboutInfo, EngineStatus, Settings, SkillDetail, SkillSummary } from './settings';
+import type { AboutInfo, EngineStatus, Settings, SkillDetail, SkillScope, SkillSummary, } from './settings';
 
 export interface InboxFolderOption {
     folderPath: string;
@@ -26,7 +26,10 @@ export interface Api {
         remove(id: string): Promise<void>;
         /** Ask for a flow file, then add what it holds to the library as a new flow. */
         pickAndImport(): Promise<Flow | null>;
-        /** Ask where to put it, then write the flow there. Resolves to the path. */
+        /**
+         * Ask where to put it, then write the flow there — its skill library
+         * included, so the file runs wherever it lands. Resolves to the path.
+         */
         pickAndExport(flow: Flow): Promise<string | null>;
         /** Whether closing the window right now would throw canvas edits away. */
         setUnsaved(unsaved: boolean): Promise<void>;
@@ -41,15 +44,28 @@ export interface Api {
         /** Recent mail, for picking a message to test a flow against. */
         recent(account: string, folder: string, limit: number): Promise<EmailEnvelope[]>;
     };
+    /**
+     * Two libraries: one global to the install, one belonging to the flow. Every
+     * call says which it means, and `flowId` is read only for the flow's own.
+     */
     skills: {
-        list(): Promise<SkillSummary[]>;
-        get(name: string): Promise<SkillDetail | null>;
-        save(name: string, content: string): Promise<SkillSummary>;
-        remove(name: string): Promise<void>;
+        /** Both at once, each entry carrying the scope it came from. */
+        list(flowId: string): Promise<SkillSummary[]>;
+        get(scope: SkillScope, flowId: string, name: string): Promise<SkillDetail | null>;
+        save(scope: SkillScope, flowId: string, name: string, content: string): Promise<SkillSummary>;
+        remove(scope: SkillScope, flowId: string, name: string): Promise<void>;
+        /**
+         * Take it out of one library and put it in the other, overwriting a skill of
+         * the same name there. The caller asks first, and repairs the ticks.
+         */
+        move(from: SkillScope, to: SkillScope, flowId: string, name: string): Promise<SkillSummary>;
         /** Copy SKILL.md folders in from a directory on disk. Returns names imported. */
-        importFrom(dir: string): Promise<string[]>;
+        importFrom(scope: SkillScope, flowId: string, dir: string): Promise<string[]>;
         /** Ask the user for a folder, then import from it. */
-        pickAndImport(): Promise<{ dir: string; imported: string[] } | null>;
+        pickAndImport(
+            scope: SkillScope,
+            flowId: string,
+        ): Promise<{ dir: string; imported: string[] } | null>;
     };
     engine: {
         start(): Promise<EngineStatus>;
@@ -120,6 +136,7 @@ export const IPC = {
     skillsGet: 'skills:get',
     skillsSave: 'skills:save',
     skillsRemove: 'skills:remove',
+    skillsMove: 'skills:move',
     skillsImportFrom: 'skills:importFrom',
     skillsPickAndImport: 'skills:pickAndImport',
 
