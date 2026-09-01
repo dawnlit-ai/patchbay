@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { type InboxFolderOption, IPC } from '@shared/ipc';
 import type { Flow } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
@@ -9,6 +9,7 @@ import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
 import { Watcher } from './engine/watcher';
+import { AgentControl } from './mcp/server';
 import { runsDir } from './paths';
 
 let watcher: Watcher | null = null;
@@ -25,6 +26,24 @@ export function getWatcher(): Watcher {
         () => broadcast(IPC.evtEngineStatus, watcher?.status()),
     );
     return watcher;
+}
+
+let agentControl: AgentControl | null = null;
+
+/**
+ * The app's own MCP server. It drives the same watcher and the same stores the
+ * window does — an agent is another hand on the same workspace, not a second
+ * copy of it — so a flow it writes is announced here for the window to re-read.
+ */
+export function getAgentControl(): AgentControl {
+    agentControl ??= new AgentControl(
+        {
+            watcher: () => getWatcher(),
+            changed: (change) => broadcast(IPC.evtWorkspaceChanged, change),
+        },
+        () => broadcast(IPC.evtAgentControl, agentControl?.status()),
+    );
+    return agentControl;
 }
 
 /**
@@ -84,6 +103,7 @@ export function registerIpc(): void {
         }),
     );
     handle(IPC.openDeveloperSite, () => shell.openExternal(DEVELOPER_URL));
+    handle(IPC.copyText, (text: string) => clipboard.writeText(text));
 
     handle(IPC.flowsList, () => flowStore.listFlows());
     handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
@@ -113,7 +133,20 @@ export function registerIpc(): void {
     });
 
     handle(IPC.settingsGet, () => getSettings());
-    handle(IPC.settingsSave, (settings: Settings) => saveSettings(settings));
+    handle(IPC.settingsSave, (settings: Settings) => {
+        // The token is minted here and only ever shown in the window, so the stored
+        // one stands whatever comes back: a panel open since before a regeneration
+        // holds the old one, and saving it would put a replaced token back in use.
+        const { token } = getSettings().agentControl;
+        const saved = saveSettings({ ...settings, agentControl: { ...settings.agentControl, token } });
+        // Switching the agent-control server on, off, or onto another port is an
+        // ordinary settings edit; this is what carries it out.
+        getAgentControl().apply();
+        return saved;
+    });
+
+    handle(IPC.agentControlStatus, () => getAgentControl().status());
+    handle(IPC.agentControlRegenerateToken, () => getAgentControl().regenerateToken());
 
     handle(IPC.outlookAccounts, () => outlook.getAccounts());
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>
@@ -155,10 +188,9 @@ export function registerIpc(): void {
     handle(IPC.engineStart, () => getWatcher().start());
     handle(IPC.engineStop, () => getWatcher().stop());
     handle(IPC.engineStatus, () => getWatcher().status());
-    handle(IPC.engineTestRun, (flowId: string, nodeId: string, email: EmailEnvelope) => {
-        getWatcher().enqueueManual(flowId, nodeId, email);
-        return 'queued';
-    });
+    handle(IPC.engineTestRun, (flowId: string, nodeId: string, email: EmailEnvelope) =>
+        getWatcher().enqueueManual(flowId, nodeId, email),
+    );
     handle(IPC.engineCancel, (runId: string) => getWatcher().cancel(runId));
 
     handleWindow(IPC.windowMinimize, (win) => win.minimize());

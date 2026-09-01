@@ -6,7 +6,24 @@
 
 import type { Flow } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
-import type { AboutInfo, EngineStatus, Settings, SkillDetail, SkillScope, SkillSummary, } from './settings';
+import type {
+    AboutInfo,
+    AgentControlStatus,
+    EngineStatus,
+    Settings,
+    SkillDetail,
+    SkillScope,
+    SkillSummary,
+} from './settings';
+
+/**
+ * What an agent driving the app through its MCP server changed on disk, so the
+ * window re-reads that and not the rest.
+ */
+export interface WorkspaceChange {
+    flows: boolean;
+    skills: boolean;
+}
 
 export interface InboxFolderOption {
     folderPath: string;
@@ -40,6 +57,15 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
+    };
+    /**
+     * The app's own MCP server. Switching it on and choosing its port are ordinary
+     * settings, saved like any other; these two are what only the server knows.
+     */
+    agentControl: {
+        status(): Promise<AgentControlStatus>;
+        /** A new token, taking the old one out of use. */
+        regenerateToken(): Promise<AgentControlStatus>;
     };
     outlook: {
         accounts(): Promise<string[]>;
@@ -104,9 +130,15 @@ export interface Api {
         engineStatus(cb: (status: EngineStatus) => void): () => void;
         /** Whether the window is maximised, so the button can offer the opposite. */
         windowMaximized(cb: (maximized: boolean) => void): () => void;
+        agentControl(cb: (status: AgentControlStatus) => void): () => void;
+        /** An agent wrote to the workspace; what is on screen is now behind it. */
+        workspaceChanged(cb: (change: WorkspaceChange) => void): () => void;
     };
 
     about(): Promise<AboutInfo>;
+
+    /** Put text on the clipboard — a token is not something to retype. */
+    copyText(text: string): Promise<void>;
 
     /**
      * Deliberately takes no URL: main owns the destination, so the renderer
@@ -118,6 +150,7 @@ export interface Api {
 export const IPC = {
     about: 'app:about',
     openDeveloperSite: 'app:openDeveloperSite',
+    copyText: 'app:copyText',
 
     flowsList: 'flows:list',
     flowsGet: 'flows:get',
@@ -130,6 +163,9 @@ export const IPC = {
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
+
+    agentControlStatus: 'agentControl:status',
+    agentControlRegenerateToken: 'agentControl:regenerateToken',
 
     outlookAccounts: 'outlook:accounts',
     outlookFolders: 'outlook:folders',
@@ -163,4 +199,6 @@ export const IPC = {
     evtRunUpdated: 'evt:runUpdated',
     evtEngineStatus: 'evt:engineStatus',
     evtWindowMaximized: 'evt:windowMaximized',
+    evtAgentControl: 'evt:agentControl',
+    evtWorkspaceChanged: 'evt:workspaceChanged',
 } as const;

@@ -8,6 +8,20 @@ export interface McpServerSetting {
     enabled: boolean;
 }
 
+/**
+ * Patchbay's own MCP server: the one an agent connects *to*, in order to drive
+ * the app. Off until switched on, and even then it listens on the loopback
+ * interface only and every request has to carry the token.
+ */
+export interface AgentControlSettings {
+    enabled: boolean;
+    port: number;
+    /** Minted the first time the server is switched on, and shown in Settings. */
+    token: string;
+}
+
+export const DEFAULT_AGENT_CONTROL_PORT = 8787;
+
 export interface Settings {
     /**
      * The `claude` executable the Agent SDK drives. Empty resolves the SDK's own
@@ -27,6 +41,8 @@ export interface Settings {
     defaultModel: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
+    /** The app's own MCP server, for an agent driving Patchbay from outside it. */
+    agentControl: AgentControlSettings;
 }
 
 export function defaultSettings(): Settings {
@@ -36,7 +52,21 @@ export function defaultSettings(): Settings {
         mcpServers: [],
         defaultModel: 'claude-opus-5',
         pollingEnabled: true,
+        agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
     };
+}
+
+/** What the Settings panel shows about the agent-control server, live. */
+export interface AgentControlStatus {
+    enabled: boolean;
+    /** Enabled and actually listening — a port already in use is neither. */
+    running: boolean;
+    /** The address to hand an MCP client. Empty while it is not listening. */
+    url: string;
+    token: string;
+    lastError?: string;
+    /** When an agent last called, so the panel can show a sign of life. */
+    lastRequestAt?: string;
 }
 
 /** Who made this and under what terms — shown in Settings → About. */

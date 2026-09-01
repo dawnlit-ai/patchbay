@@ -1,0 +1,212 @@
+import { app } from 'electron';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { AgentControlStatus } from '@shared/settings';
+import { getSettings, saveSettings } from '../store/settingsStore';
+import { type AgentHost, INSTRUCTIONS, registerAgentTools } from './tools';
+
+/**
+ * Patchbay's own MCP server — the one an agent connects *to*, as opposed to the
+ * ones a Processor is handed. It is how Claude Code, or anything else speaking
+ * MCP, drives this app for the person sitting at it: read the flows, wire a
+ * node, write a skill, start a test run and read the trace.
+ *
+ * It is off until switched on, and when it is on:
+ *
+ * - it listens on the loopback interface only, so nothing off this machine can
+ *   reach it;
+ * - every request carries a bearer token minted here and shown in Settings;
+ * - a request whose `Host` is not this listener, or that carries an `Origin` at
+ *   all, is refused before the token is even looked at. Those two headers are
+ *   the ones a page in a browser cannot forge, and a page is the one thing that
+ *   can be told to POST to a loopback port without the person knowing.
+ *
+ * Each request builds its own server and transport and throws both away
+ * afterwards. There is no session to lose when the app restarts, and a second
+ * agent connecting cannot collide with the first.
+ */
+
+export const MCP_PATH = '/mcp';
+
+/** The name the tools arrive under in a client: `mcp__patchbay__list_flows`. */
+export const SERVER_NAME = 'patchbay';
+
+const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+
+function deny(res: ServerResponse, status: number, message: string): void {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: message }));
+}
+
+/** Same length or not, compared in the same time. */
+function tokenMatches(expected: string, offered: string): boolean {
+    const a = Buffer.from(expected, 'utf8');
+    const b = Buffer.from(offered, 'utf8');
+    return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export class AgentControl {
+    private http: Server | null = null;
+    /** The port actually bound, which is only known once listening has begun. */
+    private port = 0;
+    private lastError?: string;
+    private lastRequestAt?: string;
+
+    constructor(
+        private readonly host: AgentHost,
+        /** Called whenever the status changes, so the window can show it. */
+        private readonly onStatus: () => void,
+    ) {
+    }
+
+    status(): AgentControlStatus {
+        const settings = getSettings().agentControl;
+        const running = this.http !== null && this.port !== 0;
+        return {
+            enabled: settings.enabled,
+            running,
+            url: running ? `http://127.0.0.1:${this.port}${MCP_PATH}` : '',
+            token: settings.token,
+            lastError: this.lastError,
+            lastRequestAt: this.lastRequestAt,
+        };
+    }
+
+    /**
+     * Bring the listener into line with the settings — the one entry point, so
+     * switching it on, changing the port and starting the app all take the same
+     * path. Listening happens after this returns; the status event says when.
+     */
+    apply(): AgentControlStatus {
+        const settings = getSettings().agentControl;
+        if (!settings.enabled) {
+            this.stop();
+            // A complaint about a port belongs to a server someone wanted running.
+            this.lastError = undefined;
+            this.onStatus();
+            return this.status();
+        }
+        if (settings.port < 1024 || settings.port > 65_535 || !Number.isInteger(settings.port)) {
+            this.stop();
+            this.lastError = `Port ${settings.port} is not one this app can listen on. Choose between 1024 and 65535.`;
+            this.onStatus();
+            return this.status();
+        }
+        if (this.http && this.port === settings.port) return this.status();
+
+        this.stop();
+        // Minted on the way up rather than at install time, so a workspace that
+        // never switches this on never holds a credential for it.
+        if (!settings.token) {
+            saveSettings({
+                ...getSettings(),
+                agentControl: { ...settings, token: randomBytes(24).toString('hex') },
+            });
+        }
+        this.listen(settings.port);
+        return this.status();
+    }
+
+    /** A new token, taking the old one out of use. Any agent holding it is cut off. */
+    regenerateToken(): AgentControlStatus {
+        const settings = getSettings();
+        saveSettings({
+            ...settings,
+            agentControl: { ...settings.agentControl, token: randomBytes(24).toString('hex') },
+        });
+        this.onStatus();
+        return this.status();
+    }
+
+    stop(): void {
+        if (!this.http) return;
+        this.http.close();
+        // Anything mid-request keeps the process alive otherwise: an agent holding
+        // a connection open should not outlive the window it was driving.
+        this.http.closeAllConnections();
+        this.http = null;
+        this.port = 0;
+        this.lastError = undefined;
+        this.onStatus();
+    }
+
+    private listen(port: number): void {
+        const http = createServer((req, res) => void this.handle(req, res));
+        http.on('error', (error: NodeJS.ErrnoException) => {
+            this.http = null;
+            this.port = 0;
+            this.lastError =
+                error.code === 'EADDRINUSE'
+                    ? `Port ${port} is already in use on this machine. Choose another one.`
+                    : error.message;
+            this.onStatus();
+        });
+        http.listen(port, '127.0.0.1', () => {
+            this.port = port;
+            this.lastError = undefined;
+            this.onStatus();
+        });
+        this.http = http;
+    }
+
+    /**
+     * Bound to loopback, so a request from another machine cannot arrive — but a
+     * page in a browser on this machine can still be told to post here. It cannot
+     * set either of these headers, so they are checked before anything else.
+     */
+    private fromThisApp(req: IncomingMessage): boolean {
+        if (!LOOPBACK.includes(req.socket.remoteAddress ?? '')) return false;
+        const hosts = [`127.0.0.1:${this.port}`, `localhost:${this.port}`, `[::1]:${this.port}`];
+        if (!hosts.includes((req.headers.host ?? '').toLowerCase())) return false;
+        const origin = req.headers.origin;
+        return origin === undefined || hosts.some((host) => origin === `http://${host}`);
+    }
+
+    private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        this.lastRequestAt = new Date().toISOString();
+        const { token } = getSettings().agentControl;
+        const path = (req.url ?? '/').split('?')[0];
+
+        if (!this.fromThisApp(req)) {
+            deny(res, 403, 'Patchbay answers requests from this machine only.');
+        } else if (path !== MCP_PATH) {
+            deny(res, 404, `Nothing here. Patchbay's MCP endpoint is ${MCP_PATH}.`);
+        } else if (!token || !tokenMatches(token, /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '')) {
+            deny(res, 401, 'Missing or wrong token. Settings → Agent control shows the one this install expects.');
+        } else {
+            await this.serve(req, res);
+        }
+        this.onStatus();
+    }
+
+    private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        const server = new McpServer(
+            { name: SERVER_NAME, version: app.getVersion() },
+            { instructions: INSTRUCTIONS },
+        );
+        registerAgentTools(server, this.host);
+
+        const transport = new StreamableHTTPServerTransport({
+            // Stateless: every request carries what it needs, so restarting the app
+            // does not strand a session, and two agents do not share one.
+            sessionIdGenerator: undefined,
+            enableJsonResponse: true,
+        });
+        res.on('close', () => {
+            void transport.close();
+            void server.close();
+        });
+
+        try {
+            await server.connect(transport);
+            await transport.handleRequest(req, res);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            this.lastError = message;
+            if (!res.headersSent) deny(res, 500, message);
+            else res.end();
+        }
+    }
+}

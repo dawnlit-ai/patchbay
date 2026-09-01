@@ -94,6 +94,15 @@ edges taken : e1, e2
 SELFTEST OK
 ```
 
+The MCP server the app exposes has a check of its own, which costs nothing and touches neither Outlook nor Claude:
+
+```bash
+npm run mcpcheck
+```
+
+It starts the server against a throwaway workspace in the temp directory, drives it with a real MCP client — build a
+flow, wire it, write a skill, read it back — and prints a line per check.
+
 ## First run
 
 1. **Start watching** is off. Click the trigger node and choose a mailbox — the account list comes from your Outlook
@@ -157,6 +166,55 @@ Inside a Processor run, a skill gets an MCP server whose tools are bound to the 
 There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
 here sends mail.** A drafted reply waits in Outlook for a person.
 
+## Letting an agent drive it
+
+There are two kinds of MCP server in this app, pointing opposite ways. A Processor is *handed* servers — the
+email-scoped one above, plus whatever you add under **Settings → MCP servers**. This one is the other direction:
+Patchbay's own, which an agent connects *to* in order to drive the app. Switch it on under **Settings → Agent
+control** and paste the command shown there into a terminal:
+
+```bash
+claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
+```
+
+After that, "wire me a flow that sorts pre-alerts from rate quotes and runs the pre-alert skill on the first branch" is
+something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
+does — one workspace, not two copies of it — and the window re-reads what it changed as it goes.
+
+| Area     | Tools                                                                     |
+|----------|---------------------------------------------------------------------------|
+| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`     |
+| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`         |
+| Skills   | `list_skills`, `get_skill`, `write_skill`, `delete_skill`                 |
+| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                     |
+| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run` |
+| Runs     | `list_runs`, `get_run`                                                    |
+| Settings | `get_settings`                                                            |
+
+`get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
+possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a
+value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
+dropped, with the tool that dropped it saying how many.
+
+Three things are deliberately absent:
+
+- **No tool reaches into the mailbox for a message.** An agent lists a folder to pick an email to test against;
+  fetching a body is the job of the run's own scoped tools, and those cannot reach a second message. A run already
+  recorded is another matter — `get_run` returns the prompts a node sent, email and all, because a trace you cannot
+  read is not a trace.
+- **No tool writes settings.** The Claude executable and the servers handed to a Processor decide what code a run
+  executes, so they stay with the person at the window.
+- **Nothing sends mail.** Nothing in this app does.
+
+It is off until you switch it on. When it is on it binds to `127.0.0.1` only; every request has to carry the token
+Settings shows, and **New token** cuts off anything still holding the old one. A request whose `Host` is not this
+listener, or that carries an `Origin` at all, is refused before the token is even looked at — those are the two headers
+a web page cannot forge, and a page is the one thing that can be told to post to a loopback port without you knowing.
+Close the last window and the server stops with it.
+
+`test_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool calls, so whatever
+permission prompt your client puts in front of a tool is what keeps a person in the loop.
+
 ## Architecture
 
 ```
@@ -165,6 +223,7 @@ src/
 ├─ main/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
 │  ├─ claude/   Agent SDK wrapper, and the email-scoped MCP tools
+│  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
 │  ├─ store/    flows and their skills, settings, run traces (files on disk)
 │  └─ ipc.ts    one handler per channel in shared/ipc.ts

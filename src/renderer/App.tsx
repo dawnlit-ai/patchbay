@@ -4,6 +4,7 @@ import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
 import {
     type AboutInfo,
+    type AgentControlStatus,
     type EngineStatus,
     type Settings,
     skillRef,
@@ -80,6 +81,8 @@ export function App(): JSX.Element {
     const [error, setError] = useState<string | null>(null);
     const [theme, setThemeState] = useState<Theme>(initialTheme);
     const [about, setAbout] = useState<AboutInfo | null>(null);
+    /** The app's own MCP server, so Settings can show whether it is listening. */
+    const [agentControl, setAgentControl] = useState<AgentControlStatus | null>(null);
 
     const setTheme = useCallback((next: Theme) => {
         applyTheme(next);
@@ -111,17 +114,19 @@ export function App(): JSX.Element {
 
     useEffect(() => {
         void (async () => {
-            const [loadedFlows, loadedSettings, loadedStatus, loadedAbout] = await Promise.all([
+            const [loadedFlows, loadedSettings, loadedStatus, loadedAbout, loadedAgent] = await Promise.all([
                 window.api.flows.list(),
                 window.api.settings.get(),
                 window.api.engine.status(),
                 window.api.about(),
+                window.api.agentControl.status(),
             ]);
             setAbout(loadedAbout);
             setFlows(loadedFlows);
             setFlow(loadedFlows[0] ?? null);
             setSettings(loadedSettings);
             setStatus(loadedStatus);
+            setAgentControl(loadedAgent);
             refreshRuns();
         })();
     }, [refreshRuns]);
@@ -134,9 +139,11 @@ export function App(): JSX.Element {
             setSelectedRun((current) => (!current || current.id === run.id ? run : current));
         });
         const offStatus = window.api.on.engineStatus((next) => setStatus(next));
+        const offAgent = window.api.on.agentControl((next) => setAgentControl(next));
         return () => {
             offRun();
             offStatus();
+            offAgent();
         };
     }, []);
 
@@ -164,6 +171,27 @@ export function App(): JSX.Element {
     const flushSave = useCallback(() => {
         if (queued.current) writeFlow(queued.current);
     }, [writeFlow]);
+
+    /**
+     * An agent driving the app through its MCP server writes to the same files
+     * this window does, so the moment it does, what is on screen is behind. An
+     * edit of ours still in the queue goes out first; then the library is re-read
+     * and the flow on screen becomes whatever the store now holds under its id —
+     * or the first one left, if the agent deleted it.
+     */
+    useEffect(
+        () =>
+            window.api.on.workspaceChanged((change) => {
+                if (change.skills) refreshSkills();
+                if (!change.flows) return;
+                flushSave();
+                void window.api.flows.list().then((list) => {
+                    setFlows(list);
+                    setFlow((current) => list.find((f) => f.id === current?.id) ?? list[0] ?? null);
+                });
+            }),
+        [flushSave, refreshSkills],
+    );
 
     const updateFlow = useCallback(
         (next: Flow) => {
@@ -571,8 +599,12 @@ export function App(): JSX.Element {
                             <SettingsPanel
                                 settings={settings}
                                 about={about}
+                                agentControl={agentControl}
                                 onSave={(next) => {
                                     void window.api.settings.save(next).then(setSettings);
+                                }}
+                                onRegenerateToken={() => {
+                                    void window.api.agentControl.regenerateToken().then(setAgentControl);
                                 }}
                             />
                         )}

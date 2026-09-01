@@ -1,15 +1,36 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
-import type { AboutInfo, McpServerSetting, Settings } from '@shared/settings';
+import type {
+    AboutInfo,
+    AgentControlSettings,
+    AgentControlStatus,
+    McpServerSetting,
+    Settings,
+} from '@shared/settings';
 
 interface Props {
     settings: Settings;
     about: AboutInfo | null;
+    /** What the agent-control server is actually doing, as opposed to what is asked of it. */
+    agentControl: AgentControlStatus | null;
 
     onSave(settings: Settings): void;
+
+    onRegenerateToken(): void;
 }
 
-export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
+/** What to paste into a terminal to point Claude Code at this install. */
+function connectCommand(status: AgentControlStatus): string {
+    return `claude mcp add --transport http patchbay ${status.url} --header "Authorization: Bearer ${status.token}"`;
+}
+
+export function SettingsPanel({
+                                  settings,
+                                  about,
+                                  agentControl,
+                                  onSave,
+                                  onRegenerateToken,
+                              }: Props): JSX.Element {
     const [draft, setDraft] = useState<Settings>(settings);
     const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
@@ -17,6 +38,11 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
 
     const patchServer = (index: number, partial: Partial<McpServerSetting>): void =>
         patch({ mcpServers: draft.mcpServers.map((s, j) => (j === index ? { ...s, ...partial } : s)) });
+
+    const patchAgent = (partial: Partial<AgentControlSettings>): void =>
+        patch({ agentControl: { ...draft.agentControl, ...partial } });
+
+    const copy = (text: string): void => void window.api.copyText(text);
 
     return (
         <div>
@@ -115,6 +141,76 @@ export function SettingsPanel({ settings, about, onSave }: Props): JSX.Element {
             >
                 + Add server
             </button>
+
+            <div className="section-title">Agent control</div>
+            <div className="hint block">
+                Patchbay’s own MCP server — the one an agent connects <em>to</em>. Switch it on and Claude
+                Code, or anything else speaking MCP, can read your flows, wire nodes, write skills and start
+                a test run, through the same files this window edits. It listens on 127.0.0.1 only, and every
+                request has to carry the token below.
+            </div>
+
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={draft.agentControl.enabled}
+                    onChange={(e) => patchAgent({ enabled: e.target.checked })}
+                />
+                Let an agent drive this app
+            </label>
+
+            <label className="field">
+                <span>Port</span>
+                <input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={draft.agentControl.port}
+                    onChange={(e) => patchAgent({ port: Number(e.target.value) })}
+                />
+                <div className="hint">
+                    Loopback only. Change it if something else on this machine already answers here — Save
+                    moves the server across.
+                </div>
+            </label>
+
+            {agentControl?.lastError && <div className="err-banner">{agentControl.lastError}</div>}
+
+            {agentControl?.running && (
+                <div className="card">
+                    <div className="row">
+                        <span className="badge ok fixed">Listening</span>
+                        <span className="spacer"/>
+                        {agentControl.lastRequestAt && (
+                            <span className="hint fixed">
+                                Last call {new Date(agentControl.lastRequestAt).toLocaleTimeString()}
+                            </span>
+                        )}
+                    </div>
+                    <div className="hint">Add this install to Claude Code:</div>
+                    <div className="copyable">{connectCommand(agentControl)}</div>
+                    <div className="row">
+                        <button onClick={() => copy(connectCommand(agentControl))}>Copy command</button>
+                        <button onClick={() => copy(agentControl.url)}>Copy URL</button>
+                        <button
+                            className="danger"
+                            title="Mint a new token. Any agent still holding the old one is cut off."
+                            onClick={onRegenerateToken}
+                        >
+                            New token
+                        </button>
+                    </div>
+                    <div className="hint">
+                        The tools arrive as <code>mcp__patchbay__*</code>. None of them reaches into your
+                        mailbox for a message, and none sends mail — an agent picks an email to test against,
+                        and the run’s own tools do the reading.
+                    </div>
+                </div>
+            )}
+
+            {dirty && draft.agentControl.enabled !== settings.agentControl.enabled && (
+                <div className="hint block">Save to {draft.agentControl.enabled ? 'start' : 'stop'} it.</div>
+            )}
 
             {about && (
                 <>

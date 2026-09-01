@@ -1167,6 +1167,23 @@ code {
     overflow: hidden;
 }
 
+/*
+ * A value there to be copied rather than read — the agent-control URL and the
+ * command that hands it to a client. Wraps anywhere and selects whole, because a
+ * token broken across a line is one that gets pasted half missing.
+ */
+.copyable {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    background: var(--input-bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
 .about {
     border: 1px solid var(--line);
     border-radius: var(--radius-md);

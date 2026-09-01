@@ -38,6 +38,11 @@ interface WatchedTrigger {
 }
 
 interface QueueItem {
+    /**
+     * Minted here rather than at execution, so whoever queued the run has its id
+     * before it starts — enough to cancel it, or to ask for its trace.
+     */
+    runId: string;
     flow: Flow;
     /** The trigger the email arrived at, and where its run starts. */
     startNodeId: string;
@@ -113,15 +118,18 @@ export class Watcher {
     /**
      * Run a flow against a chosen email now, bypassing the watermark entirely.
      * The trigger is named rather than looked up: which one a test starts from is
-     * the user's choice once a flow has more than one.
+     * the user's choice once a flow has more than one. Returns the id the run
+     * will have, which is what an agent asking for one needs to follow it.
      */
-    enqueueManual(flowId: string, nodeId: string, email: EmailEnvelope): void {
+    enqueueManual(flowId: string, nodeId: string, email: EmailEnvelope): string {
         const flow = getFlow(flowId);
         if (!flow) throw new Error(`No flow ${flowId}`);
         const node = flow.nodes.find((n) => n.id === nodeId);
         if (!triggerConfig(node)) throw new Error(`No trigger ${nodeId} in ${flow.name}`);
-        this.queue.push({ flow, startNodeId: nodeId, email, trigger: 'manual' });
+        const runId = randomUUID();
+        this.queue.push({ runId, flow, startNodeId: nodeId, email, trigger: 'manual' });
         void this.drain();
+        return runId;
     }
 
     /** Every trigger in the library, whether or not it names a mailbox yet. */
@@ -196,7 +204,13 @@ export class Watcher {
                 const fresh = emails.filter((e) => !seen.has(e.ref.entryId)).toReversed();
                 for (const email of fresh) {
                     mark.seen.push(email.ref.entryId);
-                    this.queue.push({ flow, startNodeId: node.id, email, trigger: 'poll' });
+                    this.queue.push({
+                        runId: randomUUID(),
+                        flow,
+                        startNodeId: node.id,
+                        email,
+                        trigger: 'poll',
+                    });
                 }
                 if (fresh.length > 0) {
                     mark.seen = mark.seen.slice(-SEEN_LIMIT);
@@ -226,9 +240,9 @@ export class Watcher {
             while (this.queue.length > 0) {
                 const item = this.queue.shift();
                 if (!item) break;
-                // Minted here, not inside the run, so `cancel` can find the controller
-                // from the moment the run starts.
-                const runId = randomUUID();
+                // The id came with the item, so `cancel` can find the controller from
+                // the moment the run starts — and whoever queued it already has it.
+                const runId = item.runId;
                 const controller = new AbortController();
                 this.active.set(runId, controller);
                 this.onStatus();

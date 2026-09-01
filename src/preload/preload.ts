@@ -16,6 +16,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 const api: Api = {
     about: () => ipcRenderer.invoke(IPC.about),
     openDeveloperSite: () => ipcRenderer.invoke(IPC.openDeveloperSite),
+    copyText: (text) => ipcRenderer.invoke(IPC.copyText, text),
     flows: {
         list: () => ipcRenderer.invoke(IPC.flowsList),
         get: (id) => ipcRenderer.invoke(IPC.flowsGet, id),
@@ -29,6 +30,10 @@ const api: Api = {
     settings: {
         get: () => ipcRenderer.invoke(IPC.settingsGet),
         save: (settings) => ipcRenderer.invoke(IPC.settingsSave, settings),
+    },
+    agentControl: {
+        status: () => ipcRenderer.invoke(IPC.agentControlStatus),
+        regenerateToken: () => ipcRenderer.invoke(IPC.agentControlRegenerateToken),
     },
     outlook: {
         accounts: () => ipcRenderer.invoke(IPC.outlookAccounts),
@@ -68,6 +73,8 @@ const api: Api = {
         runUpdated: (cb) => subscribe(IPC.evtRunUpdated, cb),
         engineStatus: (cb) => subscribe(IPC.evtEngineStatus, cb),
         windowMaximized: (cb) => subscribe(IPC.evtWindowMaximized, cb),
+        agentControl: (cb) => subscribe(IPC.evtAgentControl, cb),
+        workspaceChanged: (cb) => subscribe(IPC.evtWorkspaceChanged, cb),
     },
 };
 

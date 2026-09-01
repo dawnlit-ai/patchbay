@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC } from '@shared/ipc';
-import { getWatcher, registerIpc } from './ipc';
+import { getAgentControl, getWatcher, registerIpc } from './ipc';
 import { migrateToFlowDirectories } from './store/flowStore';
 import { seedGlobalLibrary } from './store/skillStore';
 import { workspaceRoot } from './paths';
@@ -80,15 +80,24 @@ void app.whenReady().then(() => {
     const seeded = seedGlobalLibrary();
     if (seeded.length > 0) console.log(`Seeded the global skill library: ${seeded.join(', ')}`);
     registerIpc();
+    // Listens only if the workspace says so; a settings edit is what turns it on.
+    getAgentControl().apply();
     createWindow();
 
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        if (BrowserWindow.getAllWindows().length !== 0) return;
+        createWindow();
+        // The control server stopped with the last window, on the grounds that an
+        // app with nothing on screen is not one to drive; a window is back, so it is.
+        getAgentControl().apply();
     });
 });
 
 app.on('window-all-closed', () => {
-    // Watching is a foreground activity here: no window, no poller.
+    // Watching is a foreground activity here: no window, no poller. The same goes
+    // for the agent-control server — an app with nothing on screen is not one an
+    // agent should still be able to drive.
     getWatcher().stop();
+    getAgentControl().stop();
     if (process.platform !== 'darwin') app.quit();
 });
