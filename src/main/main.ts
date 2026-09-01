@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { join } from 'node:path';
 import { getWatcher, hasUnsavedFlow, registerIpc } from './ipc';
 import { seedSkillLibrary } from './store/skillStore';
@@ -57,6 +57,10 @@ function skillSeedCandidates(): string[] {
 }
 
 void app.whenReady().then(() => {
+    // Nothing in the default File/Edit/View/Window menu belongs to this app, so it
+    // goes on every platform: off the window on Windows and Linux, out of the system
+    // bar on macOS.
+    Menu.setApplicationMenu(null);
     workspaceRoot();
     const seeded = seedSkillLibrary(skillSeedCandidates());
     if (seeded.length > 0) console.log(`Seeded skill library: ${seeded.join(', ')}`);
