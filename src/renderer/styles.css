@@ -17,6 +17,9 @@
     --dim: #8494a8;
     --accent: #2563eb;
     --accent-soft: rgba(37, 99, 235, 0.1);
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-fg: #ffffff;
     --ok: #15803d;
     --ok-line: #bbe6c8;
     --warn: #b45309;
@@ -42,36 +45,39 @@
 }
 
 :root[data-theme='dark'] {
-    --bg: #0b1020;
-    --panel: #111a2e;
-    --panel-2: #16203a;
-    --panel-3: #1d294a;
-    --input-bg: #0d1526;
-    --line: #24304d;
-    --line-soft: #1b2740;
-    --text: #e6edf7;
-    --muted: #8fa3c4;
-    --dim: #63769a;
+    --bg: #131416;
+    --panel: #1b1d1f;
+    --panel-2: #212427;
+    --panel-3: #2a2e31;
+    --input-bg: #161819;
+    --line: #34383c;
+    --line-soft: #26292c;
+    --text: #e8eaec;
+    --muted: #a0a6ac;
+    --dim: #757c83;
     --accent: #60a5fa;
     --accent-soft: rgba(96, 165, 250, 0.14);
+    --primary: #60a5fa;
+    --primary-hover: #3b82f6;
+    --primary-fg: #131416;
     --ok: #4ade80;
-    --ok-line: #1f4d33;
+    --ok-line: #244a33;
     --warn: #fbbf24;
-    --warn-line: #4d3d18;
+    --warn-line: #4a3c1c;
     --err: #f87171;
-    --err-line: #4a2530;
-    --err-bg: #2a1720;
-    --grid: #1e2a45;
-    --code-bg: #0a1120;
-    --chip: rgba(255, 255, 255, 0.14);
-    --shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
-    --scrim: rgba(4, 8, 18, 0.72);
+    --err-line: #4d2b2b;
+    --err-bg: #2a1b1b;
+    --grid: #2b2f33;
+    --code-bg: #121315;
+    --chip: rgba(255, 255, 255, 0.12);
+    --shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.65);
+    --scrim: rgba(0, 0, 0, 0.72);
 
     --k-trigger: #4ade80;
     --k-categorizer: #60a5fa;
     --k-processor: #c084fc;
-    --k-terminal: #94a3b8;
+    --k-terminal: #9aa0a6;
 }
 
 * {
@@ -127,13 +133,14 @@ button:disabled {
 }
 
 button.primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-fg);
 }
 
 button.primary:hover:not(:disabled) {
-    filter: brightness(1.08);
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 button.danger {
