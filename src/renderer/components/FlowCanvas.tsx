@@ -260,6 +260,9 @@ export function FlowCanvas({
                     e.dataTransfer.dropEffect = 'move';
                 }}
                 fitView
+                fitViewOptions={{ maxZoom: 1 }}
+                minZoom={0.2}
+                maxZoom={2.5}
                 defaultEdgeOptions={{ animated: false }}
             >
                 <Background variant={BackgroundVariant.Dots} gap={22} size={1} color={cssVar('--grid')}/>
