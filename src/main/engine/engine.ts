@@ -1,4 +1,4 @@
-import { findTrigger, type Flow, type FlowNode, outputPorts } from '@shared/flow';
+import { type Flow, type FlowNode, outputPorts } from '@shared/flow';
 import type { EmailEnvelope, Pass, Run, TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
@@ -17,6 +17,8 @@ export interface RunRequest {
     /** Minted by the caller, so a run is cancellable before its first pass lands. */
     runId: string;
     flow: Flow;
+    /** The trigger this run starts from — a flow may have several. */
+    startNodeId: string;
     email: EmailEnvelope;
     trigger: 'poll' | 'manual';
     signal: AbortSignal;
@@ -26,7 +28,7 @@ export interface RunRequest {
 }
 
 export async function executeRun(request: RunRequest): Promise<Run> {
-    const { runId, flow, email, trigger, signal } = request;
+    const { runId, flow, startNodeId, email, trigger, signal } = request;
     const run: Run = {
         id: runId,
         flowId: flow.id,
@@ -56,8 +58,8 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         return run;
     };
 
-    const start = findTrigger(flow);
-    if (!start) return finish('failed', 'This flow has no trigger node to start from.');
+    const start = flow.nodes.find((n) => n.id === startNodeId);
+    if (!start) return finish('failed', 'The trigger this run started from is no longer in the flow.');
 
     publish();
 

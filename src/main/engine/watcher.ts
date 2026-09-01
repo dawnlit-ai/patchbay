@@ -3,7 +3,7 @@ import { watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
 import { getSettings } from '../store/settingsStore';
-import { findTrigger, type Flow } from '@shared/flow';
+import { findTriggers, type Flow, type FlowNode, triggerConfig, type TriggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { EngineStatus } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
@@ -19,16 +19,28 @@ import { executeRun } from './engine';
 interface Watermark {
     /** Message ids already handled, newest last. Bounded so the file stays small. */
     seen: string[];
-    /** False until the first poll has established a baseline for this flow. */
+    /** False until the first poll has established a baseline for this trigger. */
     primed: boolean;
 }
 
+/** Keyed per trigger, not per flow: two triggers watch two folders separately. */
 type Watermarks = Record<string, Watermark>;
+
+const markKey = (flowId: string, nodeId: string): string => `${flowId}:${nodeId}`;
 
 const SEEN_LIMIT = 500;
 
+/** One trigger node, with the flow it belongs to and its config already narrowed. */
+interface WatchedTrigger {
+    flow: Flow;
+    node: FlowNode;
+    config: TriggerConfig;
+}
+
 interface QueueItem {
     flow: Flow;
+    /** The trigger the email arrived at, and where its run starts. */
+    startNodeId: string;
     email: EmailEnvelope;
     trigger: 'poll' | 'manual';
 }
@@ -41,7 +53,7 @@ export class Watcher {
     private active = new Map<string, AbortController>();
     private lastPollAt?: string;
     private lastError?: string;
-    private lastPollPerFlow = new Map<string, number>();
+    private lastPollPerTrigger = new Map<string, number>();
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -59,7 +71,7 @@ export class Watcher {
             return this.status();
         }
         this.lastError = undefined;
-        // A fixed tick; each flow's own pollSeconds decides whether its turn has come.
+        // A fixed tick; each trigger's own pollSeconds decides when its turn comes.
         this.timer = setInterval(() => void this.poll(), 15_000);
         void this.poll();
         this.onStatus();
@@ -75,16 +87,14 @@ export class Watcher {
     }
 
     status(): EngineStatus {
-        const watching = this.watchedFlows().map((flow) => {
-            const trigger = findTrigger(flow);
-            const config = trigger?.config.kind === 'trigger.outlook' ? trigger.config : undefined;
-            return {
-                flowId: flow.id,
-                flowName: flow.name,
-                account: config?.account ?? '',
-                folder: config?.folder ?? '',
-            };
-        });
+        const watching = this.watchedTriggers().map(({ flow, node, config }) => ({
+            flowId: flow.id,
+            flowName: flow.name,
+            nodeId: node.id,
+            nodeName: node.name,
+            account: config.account,
+            folder: config.folder,
+        }));
         return {
             running: this.timer !== null,
             watching,
@@ -100,19 +110,33 @@ export class Watcher {
 
     // ── Polling ────────────────────────────────────────────────────────────
 
-    /** Run a flow against a chosen email now, bypassing the watermark entirely. */
-    enqueueManual(flowId: string, email: EmailEnvelope): void {
+    /**
+     * Run a flow against a chosen email now, bypassing the watermark entirely.
+     * The trigger is named rather than looked up: which one a test starts from is
+     * the user's choice once a flow has more than one.
+     */
+    enqueueManual(flowId: string, nodeId: string, email: EmailEnvelope): void {
         const flow = getFlow(flowId);
         if (!flow) throw new Error(`No flow ${flowId}`);
-        this.queue.push({ flow, email, trigger: 'manual' });
+        const node = flow.nodes.find((n) => n.id === nodeId);
+        if (!triggerConfig(node)) throw new Error(`No trigger ${nodeId} in ${flow.name}`);
+        this.queue.push({ flow, startNodeId: nodeId, email, trigger: 'manual' });
         void this.drain();
     }
 
-    private watchedFlows(): Flow[] {
-        return listFlows().filter((flow) => {
-            const trigger = findTrigger(flow);
-            return trigger?.config.kind === 'trigger.outlook' && trigger.config.account.trim() !== '';
-        });
+    /** Every trigger in the library, whether or not it names a mailbox yet. */
+    private triggers(): WatchedTrigger[] {
+        return listFlows().flatMap((flow) =>
+            findTriggers(flow).flatMap((node) => {
+                const config = triggerConfig(node);
+                return config ? [{ flow, node, config }] : [];
+            }),
+        );
+    }
+
+    /** Those a poll can actually read. A trigger with no account yet is left alone. */
+    private watchedTriggers(): WatchedTrigger[] {
+        return this.triggers().filter((t) => t.config.account.trim() !== '');
     }
 
     private async poll(): Promise<void> {
@@ -122,14 +146,24 @@ export class Watcher {
             const marks = readJson<Watermarks>(watermarkFile(), {});
             let changed = false;
 
-            for (const flow of this.watchedFlows()) {
-                const trigger = findTrigger(flow);
-                if (trigger?.config.kind !== 'trigger.outlook') continue;
-                const config = trigger.config;
+            const triggers = this.triggers();
 
-                const due = (this.lastPollPerFlow.get(flow.id) ?? 0) + config.pollSeconds * 1000;
+            // A trigger the user has since deleted leaves its mark behind; dropped
+            // here so the file tracks the canvas rather than growing with every edit.
+            const live = new Set(triggers.map((t) => markKey(t.flow.id, t.node.id)));
+            for (const key of Object.keys(marks)) {
+                if (live.has(key)) continue;
+                delete marks[key];
+                changed = true;
+            }
+
+            for (const { flow, node, config } of triggers) {
+                if (config.account.trim() === '') continue;
+                const key = markKey(flow.id, node.id);
+
+                const due = (this.lastPollPerTrigger.get(key) ?? 0) + config.pollSeconds * 1000;
                 if (Date.now() < due) continue;
-                this.lastPollPerFlow.set(flow.id, Date.now());
+                this.lastPollPerTrigger.set(key, Date.now());
 
                 let emails: EmailEnvelope[];
                 try {
@@ -141,11 +175,11 @@ export class Watcher {
                     );
                     this.lastError = undefined;
                 } catch (e) {
-                    this.lastError = `${flow.name}: ${e instanceof Error ? e.message : String(e)}`;
+                    this.lastError = `${flow.name} / ${node.name}: ${e instanceof Error ? e.message : String(e)}`;
                     continue;
                 }
 
-                const mark: Watermark = marks[flow.id] ?? { seen: [], primed: false };
+                const mark: Watermark = marks[key] ?? { seen: [], primed: false };
                 const seen = new Set(mark.seen);
 
                 // The first poll establishes a baseline; without it, switching a flow
@@ -153,7 +187,7 @@ export class Watcher {
                 if (!mark.primed && !config.processBacklogOnStart) {
                     mark.seen = emails.map((e) => e.ref.entryId).slice(-SEEN_LIMIT);
                     mark.primed = true;
-                    marks[flow.id] = mark;
+                    marks[key] = mark;
                     changed = true;
                     continue;
                 }
@@ -162,14 +196,14 @@ export class Watcher {
                 const fresh = emails.filter((e) => !seen.has(e.ref.entryId)).toReversed();
                 for (const email of fresh) {
                     mark.seen.push(email.ref.entryId);
-                    this.queue.push({ flow, email, trigger: 'poll' });
+                    this.queue.push({ flow, startNodeId: node.id, email, trigger: 'poll' });
                 }
                 if (fresh.length > 0) {
                     mark.seen = mark.seen.slice(-SEEN_LIMIT);
                     changed = true;
                 }
                 mark.primed = true;
-                marks[flow.id] = mark;
+                marks[key] = mark;
             }
 
             // Persisted before the runs execute: a crash mid-run must not reprocess
@@ -202,6 +236,7 @@ export class Watcher {
                     await executeRun({
                         runId,
                         flow: item.flow,
+                        startNodeId: item.startNodeId,
                         email: item.email,
                         trigger: item.trigger,
                         signal: controller.signal,

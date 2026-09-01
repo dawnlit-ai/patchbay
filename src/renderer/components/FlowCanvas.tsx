@@ -175,10 +175,6 @@ export function FlowCanvas({
                     nodes = nodes.map((n) => (n.id === change.id ? { ...n, position } : n));
                     touched = true;
                 } else if (change.type === 'remove') {
-                    // The trigger is the entry point: removing it would leave a flow that
-                    // can never start, so it stays put.
-                    const target = nodes.find((n) => n.id === change.id);
-                    if (target?.kind === 'trigger.outlook') continue;
                     nodes = nodes.filter((n) => n.id !== change.id);
                     edges = edges.filter((e) => e.source !== change.id && e.target !== change.id);
                     touched = true;
@@ -274,6 +270,15 @@ export function FlowCanvas({
                     nodeColor={(n) => cssVar(`--k-${NODE_KIND_META[(n.data as NodeData).flowNode.kind].token}`)}
                 />
             </ReactFlow>
+
+            {flow.nodes.length === 0 && (
+                <div className="canvas-empty">
+                    <div className="empty">
+                        Nothing on the canvas yet. Drag an <b>Outlook Trigger</b> in from the left to
+                        say which mailbox this flow watches — a flow can hold several, or none at all.
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

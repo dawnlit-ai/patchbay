@@ -68,8 +68,15 @@ export interface SkillDetail extends SkillSummary {
 
 export interface EngineStatus {
     running: boolean;
-    /** Per-flow poll state, keyed by flow id. */
-    watching: { flowId: string; flowName: string; account: string; folder: string }[];
+    /** One entry per trigger being polled — a flow may contribute several. */
+    watching: {
+        flowId: string;
+        flowName: string;
+        nodeId: string;
+        nodeName: string;
+        account: string;
+        folder: string;
+    }[];
     lastPollAt?: string;
     lastError?: string;
     activeRunIds: string[];

@@ -14,8 +14,8 @@ export function listFlows(): Flow[] {
         .map((f) => readJson<Flow | null>(join(dir, f), null))
         .filter((f): f is Flow => f !== null);
 
-    // A fresh install starts with a trigger already on the canvas, rather than an
-    // empty list and an empty grid.
+    // A fresh install starts with one empty flow, rather than an empty list and
+    // nothing to drag a node onto.
     if (flows.length === 0) {
         const seeded = emptyFlow(randomUUID(), 'My first flow');
         writeJson(filePath(seeded.id), seeded);
@@ -42,11 +42,13 @@ export function createFlow(name: string): Flow {
 export function removeFlow(id: string): void {
     const path = filePath(id);
     if (existsSync(path)) unlinkSync(path);
-    // Nothing will read this flow's watermark again: ids are minted fresh, so no
-    // later flow inherits it, and left behind it only grows the file.
+    // Nothing will read this flow's watermarks again: ids are minted fresh, so no
+    // later flow inherits them, and left behind they only grow the file. There is
+    // one per trigger, so the flow's share of the file is taken by prefix.
     const marks = readJson<Record<string, unknown>>(watermarkFile(), {});
-    if (id in marks) {
-        delete marks[id];
+    const mine = Object.keys(marks).filter((key) => key.startsWith(`${id}:`));
+    if (mine.length > 0) {
+        for (const key of mine) delete marks[key];
         writeJson(watermarkFile(), marks);
     }
 }

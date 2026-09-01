@@ -55,8 +55,11 @@ export interface Api {
         start(): Promise<EngineStatus>;
         stop(): Promise<EngineStatus>;
         status(): Promise<EngineStatus>;
-        /** Run one flow against one specific email, ignoring the watermark. */
-        testRun(flowId: string, email: EmailEnvelope): Promise<string>;
+        /**
+         * Run one flow against one specific email, ignoring the watermark. The run
+         * starts at the named trigger, since a flow may hold more than one.
+         */
+        testRun(flowId: string, nodeId: string, email: EmailEnvelope): Promise<string>;
         cancel(runId: string): Promise<void>;
     };
     /**

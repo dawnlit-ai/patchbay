@@ -91,6 +91,7 @@ async function main(): Promise<void> {
     const run = await executeRun({
         runId: randomUUID(),
         flow: buildFlow(account),
+        startNodeId: 'trigger',
         email,
         trigger: 'manual',
         signal: new AbortController().signal,

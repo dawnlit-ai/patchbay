@@ -153,8 +153,8 @@ export function registerIpc(): void {
     handle(IPC.engineStart, () => getWatcher().start());
     handle(IPC.engineStop, () => getWatcher().stop());
     handle(IPC.engineStatus, () => getWatcher().status());
-    handle(IPC.engineTestRun, (flowId: string, email: EmailEnvelope) => {
-        getWatcher().enqueueManual(flowId, email);
+    handle(IPC.engineTestRun, (flowId: string, nodeId: string, email: EmailEnvelope) => {
+        getWatcher().enqueueManual(flowId, nodeId, email);
         return 'queued';
     });
     handle(IPC.engineCancel, (runId: string) => getWatcher().cancel(runId));

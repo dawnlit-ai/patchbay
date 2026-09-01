@@ -225,9 +225,18 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
     },
 };
 
-/** A flow needs exactly one trigger; the engine starts every run there. */
-export function findTrigger(flow: Flow): FlowNode | undefined {
-    return flow.nodes.find((n) => n.kind === 'trigger.outlook');
+/**
+ * Every trigger on the canvas, in the order the file lists them. A flow may hold
+ * none — then there is nothing to watch — or several, each polling its own
+ * mailbox and starting its own runs.
+ */
+export function findTriggers(flow: Flow): FlowNode[] {
+    return flow.nodes.filter((n) => n.kind === 'trigger.outlook');
+}
+
+/** A trigger's own config, narrowed. Undefined for a node of any other kind. */
+export function triggerConfig(node: FlowNode | undefined): TriggerConfig | undefined {
+    return node?.config.kind === 'trigger.outlook' ? node.config : undefined;
 }
 
 /** A node of `kind` with its defaults — dropped on the canvas, seeded, or repaired. */
@@ -235,9 +244,9 @@ export function makeNode(kind: NodeKind, id: string, position: { x: number; y: n
     return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
 }
 
+/** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
-    const trigger = makeNode('trigger.outlook', 'trigger', { x: 80, y: 220 });
-    return { id, name, nodes: [trigger], edges: [], updatedAt: new Date().toISOString() };
+    return { id, name, nodes: [], edges: [], updatedAt: new Date().toISOString() };
 }
 
 // ── Reading a flow the app did not write ─────────────────────────────────
@@ -323,15 +332,16 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
 /**
  * Rebuild a flow from unknown JSON — a file exported from another install, or
  * one edited by hand. Anything the engine or canvas would trip over is repaired
- * here rather than mid-run: unknown node kinds and repeated ids are dropped, the
- * flow keeps exactly one trigger, and an edge survives only if it still joins a
- * real output port to a node that accepts input.
+ * here rather than mid-run: unknown node kinds and repeated ids are dropped, and
+ * an edge survives only if it still joins a real output port to a node that
+ * accepts input. However many triggers the file carries — none included — is
+ * however many the flow opens with.
  */
 export function parseFlow(value: unknown, id: string, fallbackName: string): Flow {
     const raw = isObject(value) ? value : {};
 
     const takenIds = new Set<string>();
-    let nodes = (Array.isArray(raw.nodes) ? raw.nodes : []).filter(isObject).flatMap(
+    const nodes = (Array.isArray(raw.nodes) ? raw.nodes : []).filter(isObject).flatMap(
         (n, i): FlowNode[] => {
             const kind = NODE_KINDS.find((k) => k === n.kind);
             const nodeId = str(n.id, '') || `node-${i + 1}`;
@@ -351,15 +361,6 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
             ];
         },
     );
-
-    // Exactly one trigger, because that is where the engine starts every run.
-    const triggers = nodes.filter((n) => n.kind === 'trigger.outlook');
-    nodes = nodes.filter((n) => n.kind !== 'trigger.outlook' || n === triggers[0]);
-    if (triggers.length === 0) {
-        let triggerId = 'trigger';
-        for (let n = 2; takenIds.has(triggerId); n++) triggerId = `trigger-${n}`;
-        nodes = [makeNode('trigger.outlook', triggerId, { x: 80, y: 220 }), ...nodes];
-    }
 
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const portsOf = new Map(nodes.map((n) => [n.id, new Set(outputPorts(n).map((p) => p.id))]));

@@ -438,14 +438,10 @@ export function Inspector({ node, skills, onChange, onDelete }: Props): JSX.Elem
             {config.kind === 'processor' && <ProcessorFields config={config} patch={patch} skills={skills}/>}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 
-            {node.kind !== 'trigger.outlook' && (
-                <>
-                    <div className="gap"/>
-                    <button className="danger" onClick={() => onDelete(node.id)}>
-                        Delete node
-                    </button>
-                </>
-            )}
+            <div className="gap"/>
+            <button className="danger" onClick={() => onDelete(node.id)}>
+                Delete node
+            </button>
         </div>
     );
 }

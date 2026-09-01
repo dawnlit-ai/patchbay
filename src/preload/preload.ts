@@ -47,7 +47,7 @@ const api: Api = {
         start: () => ipcRenderer.invoke(IPC.engineStart),
         stop: () => ipcRenderer.invoke(IPC.engineStop),
         status: () => ipcRenderer.invoke(IPC.engineStatus),
-        testRun: (flowId, email) => ipcRenderer.invoke(IPC.engineTestRun, flowId, email),
+        testRun: (flowId, nodeId, email) => ipcRenderer.invoke(IPC.engineTestRun, flowId, nodeId, email),
         cancel: (runId) => ipcRenderer.invoke(IPC.engineCancel, runId),
     },
     window: {

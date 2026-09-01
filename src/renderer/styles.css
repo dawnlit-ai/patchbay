@@ -544,6 +544,22 @@ code {
     position: relative;
 }
 
+/* Says what to do with a canvas that has nothing on it. Never takes the pointer:
+   the drop target is the pane underneath. */
+.canvas-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.canvas-empty > .empty {
+    max-width: 330px;
+    line-height: 1.5;
+}
+
 /* The attribution stays — React Flow's licence asks for it. Just tone it down. */
 .react-flow__attribution {
     background: transparent;

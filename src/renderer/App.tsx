@@ -13,7 +13,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
 
-const PALETTE: NodeKind[] = ['categorizer', 'processor', 'terminal'];
+const PALETTE: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
 
 type Theme = 'light' | 'dark';
 
@@ -429,7 +429,7 @@ export function App(): JSX.Element {
                 {status?.lastError && <span className="badge err">{status.lastError}</span>}
                 <span className="status-pill">
                     <span className={`dot ${watching ? 'live' : ''}`}/>
-                    {watching ? `Watching ${status?.watching.length ?? 0} flow(s)` : 'Not watching'}
+                    {watching ? `Watching ${status?.watching.length ?? 0} mailbox(es)` : 'Not watching'}
                 </span>
                 <button className={watching ? '' : 'primary'} onClick={() => void toggleWatching()}>
                     {watching ? 'Stop' : 'Start watching'}
@@ -463,7 +463,8 @@ export function App(): JSX.Element {
 
                     <div className="section-title">How a run works</div>
                     <div className="side-note">
-                        The trigger starts one run per email. Each node hands the email out of
+                        Every trigger you place starts one run per email it sees, so a flow can
+                        watch several folders at once — or none. Each node hands the email out of
                         exactly one port, and the engine follows the edge attached to it. That
                         sequence is the run’s path — select a run below to light it up here.
                     </div>
@@ -551,10 +552,12 @@ export function App(): JSX.Element {
                 <TestRunDialog
                     flow={flow}
                     onClose={() => setTesting(false)}
-                    onRun={(email) => {
+                    onRun={(nodeId, email) => {
                         setTesting(false);
                         setSelectedRun(null);
-                        void window.api.engine.testRun(flow.id, email).catch((e: Error) => setError(e.message));
+                        void window.api.engine
+                            .testRun(flow.id, nodeId, email)
+                            .catch((e: Error) => setError(e.message));
                     }}
                 />
             )}
