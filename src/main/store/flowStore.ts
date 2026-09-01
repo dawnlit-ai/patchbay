@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { flowDir, flowsDir, watermarkFile, workspaceRoot } from '../paths';
+import { flowDir, flowsDir, flowSkillsDir, watermarkFile, workspaceRoot } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { getSkill, importSkillsFrom, isValidSkillName, listSkills, saveSkill } from './skillStore';
 import { emptyFlow, type Flow, type FlowNode, parseFlow } from '@shared/flow';
@@ -45,6 +45,23 @@ export function createFlow(name: string): Flow {
     // Its own library starts empty: the global one is already on the shelf, and a
     // flow-specific skill is something you decide to write, not inherit.
     return saveFlow(emptyFlow(randomUUID(), name));
+}
+
+/**
+ * Copy a flow into one of its own, taking the graph handed over — what is on
+ * screen, unwritten edits and all — rather than what the original's file holds.
+ * Its library comes too: those skills exist only inside that flow's directory,
+ * so a copy without them names skills it does not have. Global ticks need no
+ * such care, since that shelf is shared by every flow anyway.
+ *
+ * Node ids travel unchanged. They only have to be unique within a flow, and the
+ * edges name them — reminting would mean rewriting every edge to no end. The
+ * watcher's marks stay behind: a copy is a new flow, and starts as one.
+ */
+export function duplicateFlow(source: Flow, name: string): Flow {
+    const copy = saveFlow({ ...source, id: randomUUID(), name });
+    cpSync(flowSkillsDir(source.id), flowSkillsDir(copy.id), { recursive: true });
+    return copy;
 }
 
 /** Takes the flow's directory — its own skills and all — and the watcher's mark. */

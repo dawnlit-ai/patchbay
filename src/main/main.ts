@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, Menu } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC } from '@shared/ipc';
-import { getWatcher, hasUnsavedFlow, registerIpc } from './ipc';
+import { getWatcher, registerIpc } from './ipc';
 import { migrateToFlowDirectories } from './store/flowStore';
 import { seedGlobalLibrary } from './store/skillStore';
 import { workspaceRoot } from './paths';
@@ -42,21 +42,6 @@ function createWindow(): void {
     };
     win.on('maximize', sendMaximized);
     win.on('unmaximize', sendMaximized);
-
-    // With auto-save off the canvas can hold edits no file has yet, and closing
-    // would drop them without a word.
-    win.on('close', (event) => {
-        if (!hasUnsavedFlow()) return;
-        const choice = dialog.showMessageBoxSync(win, {
-            type: 'warning',
-            buttons: ['Cancel', 'Discard changes'],
-            defaultId: 0,
-            cancelId: 0,
-            message: 'This flow has unsaved changes.',
-            detail: 'Cancel and press Save (Ctrl+S), or close and lose the edits made since the last save.',
-        });
-        if (choice === 0) event.preventDefault();
-    });
 
     // Dropping the default menu also dropped its zoomIn/zoomOut/resetZoom roles,
     // which were what bound Ctrl+Plus, Ctrl+Minus and Ctrl+0. Rebind them on the

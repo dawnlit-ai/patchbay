@@ -13,16 +13,6 @@ import { runsDir } from './paths';
 
 let watcher: Watcher | null = null;
 
-/**
- * Set by the renderer while the canvas holds edits no file has yet — only
- * possible with auto-save off. The window asks before closing over them.
- */
-let unsavedFlow = false;
-
-export function hasUnsavedFlow(): boolean {
-    return unsavedFlow;
-}
-
 function broadcast(channel: string, payload: unknown): void {
     for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(channel, payload);
@@ -99,6 +89,7 @@ export function registerIpc(): void {
     handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
     handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));
     handle(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
+    handle(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
     handle(IPC.flowsRemove, (id: string) => flowStore.removeFlow(id));
     handle(IPC.flowsPickAndImport, async () => {
         const picked = await dialog.showOpenDialog({
@@ -119,9 +110,6 @@ export function registerIpc(): void {
         if (picked.canceled || !picked.filePath) return null;
         flowStore.exportFlowFile(flow, picked.filePath);
         return picked.filePath;
-    });
-    handle(IPC.flowsSetUnsaved, (unsaved: boolean) => {
-        unsavedFlow = unsaved;
     });
 
     handle(IPC.settingsGet, () => getSettings());

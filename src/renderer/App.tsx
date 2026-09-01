@@ -22,6 +22,18 @@ import { WindowControls } from './components/WindowControls';
 
 const PALETTE: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
 
+/** The three things the app asks a flow name for, and what each does with one. */
+type NamingMode = 'new' | 'rename' | 'duplicate';
+
+interface NamingSpec {
+    title: string;
+    confirmLabel: string;
+    /** Filled in and selected, so the common answer is one keystroke away. */
+    initial: string;
+
+    run(name: string): void;
+}
+
 type Theme = 'light' | 'dark';
 
 const THEME_KEY = 'patchbay.theme';
@@ -60,14 +72,12 @@ export function App(): JSX.Element {
     const [tab, setTab] = useState<'inspector' | 'skills' | 'settings'>('inspector');
     const [testing, setTesting] = useState(false);
     /** Which name the dialog is asking for, if it is open. */
-    const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
+    const [naming, setNaming] = useState<NamingMode | null>(null);
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
     const [question, setQuestion] = useState<Question | null>(null);
     const answering = useRef<((ok: boolean) => void) | null>(null);
     const [runsCollapsed, setRunsCollapsed] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    /** Edits made since the last write. Only visible when auto-save is off. */
-    const [dirty, setDirty] = useState(false);
     const [theme, setThemeState] = useState<Theme>(initialTheme);
     const [about, setAbout] = useState<AboutInfo | null>(null);
 
@@ -132,61 +142,40 @@ export function App(): JSX.Element {
 
     // ── Flow editing ───────────────────────────────────────────────────────
 
+    // Every edit is written for you. There is no draft state to lose, so nothing
+    // asks about unsaved changes and nothing has to be pressed to keep work.
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    /** What a save writes, wherever the request came from — button, key or timer. */
-    const latestFlow = useRef<Flow | null>(null);
-    useEffect(() => {
-        latestFlow.current = flow;
-    }, [flow]);
-
-    const autoSave = settings?.autoSaveFlows ?? true;
-    /** With auto-save on the debounce covers it, so the button stays quiet. */
-    const unsaved = dirty && !autoSave;
-
-    // Main asks before closing the window over edits no file has yet.
-    useEffect(() => {
-        void window.api.flows.setUnsaved(unsaved);
-    }, [unsaved]);
+    /** The flow a queued write would put on disk, or null once one has. */
+    const queued = useRef<Flow | null>(null);
 
     const writeFlow = useCallback((next: Flow) => {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = null;
-        setDirty(false);
+        queued.current = null;
         void window.api.flows.save(next).catch((e: Error) => {
             setError(e.message);
-            setDirty(true);
+            // Left queued unless a newer edit already took its place, so the next
+            // write — or leaving the flow — tries again.
+            queued.current ??= next;
         });
     }, []);
 
-    const saveNow = useCallback(() => {
-        if (latestFlow.current) writeFlow(latestFlow.current);
+    /** Write a queued edit now, rather than when its timer says so. */
+    const flushSave = useCallback(() => {
+        if (queued.current) writeFlow(queued.current);
     }, [writeFlow]);
 
     const updateFlow = useCallback(
         (next: Flow) => {
             setFlow(next);
             setFlows((prev) => prev.map((f) => (f.id === next.id ? next : f)));
-            setDirty(true);
-            if (!autoSave) return;
+            queued.current = next;
             // Debounced: dragging fires a change per frame, and each save is a file write.
             if (saveTimer.current) clearTimeout(saveTimer.current);
             saveTimer.current = setTimeout(() => writeFlow(next), 400);
         },
-        [autoSave, writeFlow],
+        [writeFlow],
     );
-
-    // Ctrl/Cmd+S saves whether or not auto-save is on — the habit costs nothing
-    // when the answer is "already saved".
-    useEffect(() => {
-        const onKeyDown = (e: KeyboardEvent): void => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-                e.preventDefault();
-                saveNow();
-            }
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [saveNow]);
 
     const selectedNode = useMemo(
         () => flow?.nodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -280,51 +269,55 @@ export function App(): JSX.Element {
     };
 
     /**
-     * Anything about to replace the flow on screen asks here first. Returns the
-     * list to pick the next flow from — reread from disk when the user chose to
-     * throw unsaved edits away, since the copy in memory still holds them — or
-     * null if they would rather stay where they are.
+     * A queued write belongs to the flow being left, so anything about to put
+     * another one on screen sends it out first. That is all leaving takes now:
+     * every edit reaches disk, so there is never a draft to ask about.
      */
-    const leaveFlow = async (): Promise<Flow[] | null> => {
-        if (!dirty) return flows;
-        // A pending debounce belongs to the flow being left, so flush it now.
-        if (autoSave) {
-            saveNow();
-            return flows;
-        }
-        const discard = await ask({
-            title: 'Unsaved changes',
-            message: `“${flow?.name ?? 'This flow'}” has unsaved changes. Discard them?`,
-            confirmLabel: 'Discard',
-        });
-        if (!discard) return null;
-        const fresh = await window.api.flows.list();
-        setFlows(fresh);
-        setDirty(false);
-        return fresh;
-    };
-
-    const selectFlow = async (id: string): Promise<void> => {
+    const selectFlow = (id: string): void => {
         if (id === flow?.id) return;
-        const list = await leaveFlow();
-        const next = list?.find((f) => f.id === id);
+        const next = flows.find((f) => f.id === id);
         if (!next) return;
+        flushSave();
         setFlow(next);
         setSelectedNodeId(null);
     };
 
     const newFlow = async (name: string): Promise<void> => {
-        if (!(await leaveFlow())) return;
-        const created = await window.api.flows.create(name);
-        setFlows((prev) => [...prev, created]);
-        setFlow(created);
-        setSelectedNodeId(null);
+        setError(null);
+        flushSave();
+        try {
+            const created = await window.api.flows.create(name);
+            setFlows((prev) => [...prev, created]);
+            setFlow(created);
+            setSelectedNodeId(null);
+        } catch (e) {
+            setError((e as Error).message);
+        }
     };
 
-    /** The name is part of the flow, so a rename follows the auto-save setting. */
+    /** The name is part of the flow, so a rename saves itself like any other edit. */
     const renameFlow = (name: string): void => {
         if (!flow || name === flow.name) return;
         updateFlow({ ...flow, name });
+    };
+
+    /**
+     * A copy of this flow, its own skill library included, opened in place of the
+     * original. The graph goes over as it stands on screen rather than as the file
+     * has it, so a copy taken mid-edit is the flow you were looking at.
+     */
+    const duplicateFlow = async (name: string): Promise<void> => {
+        if (!flow) return;
+        setError(null);
+        flushSave();
+        try {
+            const copy = await window.api.flows.duplicate(flow, name);
+            setFlows((prev) => [...prev, copy]);
+            setFlow(copy);
+            setSelectedNodeId(null);
+        } catch (e) {
+            setError((e as Error).message);
+        }
     };
 
     /** Nothing in the app undoes this, so it asks first. */
@@ -342,17 +335,17 @@ export function App(): JSX.Element {
         });
         if (!ok) return;
         setError(null);
-        // A queued auto-save belongs to the flow being deleted; left to fire, it
-        // would write the file straight back.
+        // A queued write belongs to the flow being deleted; left to fire, it would
+        // put the file straight back.
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = null;
+        queued.current = null;
         try {
             await window.api.flows.remove(flow.id);
             const list = await window.api.flows.list();
             setFlows(list);
             setFlow(list[0] ?? null);
             setSelectedNodeId(null);
-            setDirty(false);
             // The watcher reads flows from disk, so a deleted one drops out of the
             // count on its own — asking now just spares the pill the wait.
             setStatus(await window.api.engine.status());
@@ -366,11 +359,8 @@ export function App(): JSX.Element {
         try {
             const imported = await window.api.flows.pickAndImport();
             if (!imported) return;
-            // The file joins the library either way; only the switch to it waits on
-            // an answer about the edits already on screen.
-            const list = await leaveFlow();
-            setFlows((prev) => [...(list ?? prev).filter((f) => f.id !== imported.id), imported]);
-            if (!list) return;
+            flushSave();
+            setFlows((prev) => [...prev.filter((f) => f.id !== imported.id), imported]);
             setFlow(imported);
             setSelectedNodeId(null);
         } catch (e) {
@@ -412,6 +402,28 @@ export function App(): JSX.Element {
 
     const watching = status?.running === true;
 
+    /** What the one name dialog asks for, whichever of the three opened it. */
+    const namingModes: Record<NamingMode, NamingSpec> = {
+        new: {
+            title: 'New flow',
+            confirmLabel: 'Create',
+            initial: 'New flow',
+            run: (name) => void newFlow(name),
+        },
+        rename: {
+            title: 'Rename flow',
+            confirmLabel: 'Rename',
+            initial: flow.name,
+            run: renameFlow,
+        },
+        duplicate: {
+            title: 'Duplicate flow',
+            confirmLabel: 'Duplicate',
+            initial: `${flow.name} copy`,
+            run: (name) => void duplicateFlow(name),
+        },
+    };
+
     return (
         <div className="app">
             <div className="topbar">
@@ -422,7 +434,7 @@ export function App(): JSX.Element {
                     </span>
                 </span>
 
-                <select value={flow.id} onChange={(e) => void selectFlow(e.target.value)}>
+                <select value={flow.id} onChange={(e) => selectFlow(e.target.value)}>
                     {flows.map((f) => (
                         <option key={f.id} value={f.id}>
                             {f.name}
@@ -432,24 +444,19 @@ export function App(): JSX.Element {
                 <button className="ghost" title="Rename this flow" onClick={() => setNaming('rename')}>
                     ✎ Rename
                 </button>
+                <button
+                    className="ghost"
+                    title="Make a copy of this flow, its own skills included"
+                    onClick={() => setNaming('duplicate')}
+                >
+                    ⧉ Duplicate
+                </button>
                 <button className="danger" title="Delete this flow" onClick={() => void deleteFlow()}>
                     Delete
                 </button>
                 <button onClick={() => setNaming('new')}>New flow</button>
                 <button title="Open a flow file and add it to the library" onClick={() => void loadFlow()}>
                     Load…
-                </button>
-                <button
-                    className={unsaved ? 'primary' : ''}
-                    disabled={!unsaved}
-                    title={
-                        autoSave
-                            ? 'Edits save themselves — turn that off in Settings to save by hand.'
-                            : 'Save this flow (Ctrl+S)'
-                    }
-                    onClick={saveNow}
-                >
-                    {unsaved ? 'Save' : 'Saved'}
                 </button>
                 <button title="Write this flow out to a file" onClick={() => void exportFlow()}>
                     Export…
@@ -565,11 +572,7 @@ export function App(): JSX.Element {
                                 settings={settings}
                                 about={about}
                                 onSave={(next) => {
-                                    void window.api.settings.save(next).then((saved) => {
-                                        setSettings(saved);
-                                        // Switching auto-save on adopts the draft on screen.
-                                        if (saved.autoSaveFlows && dirty) saveNow();
-                                    });
+                                    void window.api.settings.save(next).then(setSettings);
                                 }}
                             />
                         )}
@@ -579,15 +582,14 @@ export function App(): JSX.Element {
 
             {naming && (
                 <NameDialog
-                    title={naming === 'new' ? 'New flow' : 'Rename flow'}
+                    title={namingModes[naming].title}
                     label="Flow name"
-                    initial={naming === 'new' ? 'New flow' : flow.name}
-                    confirmLabel={naming === 'new' ? 'Create' : 'Rename'}
+                    initial={namingModes[naming].initial}
+                    confirmLabel={namingModes[naming].confirmLabel}
                     onCancel={() => setNaming(null)}
                     onConfirm={(name) => {
                         setNaming(null);
-                        if (naming === 'new') void newFlow(name);
-                        else renameFlow(name);
+                        namingModes[naming].run(name);
                     }}
                 />
             )}
