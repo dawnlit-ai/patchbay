@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
+import { ConfirmDialog } from './ConfirmDialog';
 import { NameDialog } from './NameDialog';
 import type { SkillSummary } from '@shared/settings';
 
@@ -37,6 +38,8 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [naming, setNaming] = useState(false);
+    /** Which skill the delete question is about, if it is on screen. */
+    const [deleting, setDeleting] = useState<string | null>(null);
 
     useEffect(() => {
         if (!editing) return;
@@ -133,6 +136,19 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                 />
             )}
 
+            {deleting && (
+                <ConfirmDialog
+                    title="Delete skill"
+                    message={`Delete skill “${deleting}”? Its whole folder goes with it.`}
+                    confirmLabel="Delete"
+                    onCancel={() => setDeleting(null)}
+                    onConfirm={() => {
+                        void window.api.skills.remove(deleting).then(onRefresh);
+                        setDeleting(null);
+                    }}
+                />
+            )}
+
             {error && <div className="err-banner">{error}</div>}
 
             {skills.length === 0 && (
@@ -151,9 +167,7 @@ export function SkillLibrary({ skills, onRefresh }: Props): JSX.Element {
                         className="danger"
                         onClick={(e) => {
                             e.stopPropagation();
-                            if (window.confirm(`Delete skill "${skill.name}"?`)) {
-                                void window.api.skills.remove(skill.name).then(onRefresh);
-                            }
+                            setDeleting(skill.name);
                         }}
                     >
                         ✕

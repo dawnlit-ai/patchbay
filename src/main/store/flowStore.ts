@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { flowsDir } from '../paths';
+import { flowsDir, watermarkFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { emptyFlow, type Flow, parseFlow } from '@shared/flow';
 
@@ -38,9 +38,17 @@ export function createFlow(name: string): Flow {
     return saveFlow(emptyFlow(randomUUID(), name));
 }
 
+/** Takes the flow file and the watcher's mark for it — both are keyed by id. */
 export function removeFlow(id: string): void {
     const path = filePath(id);
     if (existsSync(path)) unlinkSync(path);
+    // Nothing will read this flow's watermark again: ids are minted fresh, so no
+    // later flow inherits it, and left behind it only grows the file.
+    const marks = readJson<Record<string, unknown>>(watermarkFile(), {});
+    if (id in marks) {
+        delete marks[id];
+        writeJson(watermarkFile(), marks);
+    }
 }
 
 // ── Files outside the workspace ──────────────────────────────────────────

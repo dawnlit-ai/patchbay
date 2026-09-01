@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { AboutInfo, EngineStatus, Settings, SkillSummary } from '@shared/settings';
+import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
 import { NameDialog } from './components/NameDialog';
@@ -52,6 +53,9 @@ export function App(): JSX.Element {
     const [testing, setTesting] = useState(false);
     /** Which name the dialog is asking for, if it is open. */
     const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
+    /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
+    const [question, setQuestion] = useState<Question | null>(null);
+    const answering = useRef<((ok: boolean) => void) | null>(null);
     const [runsCollapsed, setRunsCollapsed] = useState(false);
     const [error, setError] = useState<string | null>(null);
     /** Edits made since the last write. Only visible when auto-save is off. */
@@ -207,6 +211,24 @@ export function App(): JSX.Element {
 
     // ── Actions ────────────────────────────────────────────────────────────
 
+    /**
+     * Asks a yes/no question and resolves to the answer, the way `window.confirm`
+     * returned one. Through ConfirmDialog rather than the native box, which leaves
+     * the page unable to take focus again once it closes: clicks land nowhere and
+     * the flow `select` refuses to open until another window has had focus.
+     */
+    const ask = (next: Question): Promise<boolean> =>
+        new Promise((resolve) => {
+            answering.current = resolve;
+            setQuestion(next);
+        });
+
+    const answer = (ok: boolean): void => {
+        setQuestion(null);
+        answering.current?.(ok);
+        answering.current = null;
+    };
+
     const toggleWatching = async (): Promise<void> => {
         setError(null);
         try {
@@ -230,9 +252,12 @@ export function App(): JSX.Element {
             saveNow();
             return flows;
         }
-        if (!window.confirm(`“${flow?.name ?? 'This flow'}” has unsaved changes. Discard them?`)) {
-            return null;
-        }
+        const discard = await ask({
+            title: 'Unsaved changes',
+            message: `“${flow?.name ?? 'This flow'}” has unsaved changes. Discard them?`,
+            confirmLabel: 'Discard',
+        });
+        if (!discard) return null;
         const fresh = await window.api.flows.list();
         setFlows(fresh);
         setDirty(false);
@@ -262,6 +287,40 @@ export function App(): JSX.Element {
         updateFlow({ ...flow, name });
     };
 
+    /** Nothing in the app undoes this, so it asks first. */
+    const deleteFlow = async (): Promise<void> => {
+        if (!flow) return;
+        const ok = await ask({
+            title: 'Delete flow',
+            // Deleting the last flow is allowed: main seeds an empty one in its place,
+            // as on a fresh install. Said here so none appears unbidden.
+            message:
+                flows.length === 1
+                    ? `Delete “${flow.name}”? It is the only flow, so an empty one takes its place. This cannot be undone.`
+                    : `Delete “${flow.name}”? This cannot be undone.`,
+            confirmLabel: 'Delete',
+        });
+        if (!ok) return;
+        setError(null);
+        // A queued auto-save belongs to the flow being deleted; left to fire, it
+        // would write the file straight back.
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        try {
+            await window.api.flows.remove(flow.id);
+            const list = await window.api.flows.list();
+            setFlows(list);
+            setFlow(list[0] ?? null);
+            setSelectedNodeId(null);
+            setDirty(false);
+            // The watcher reads flows from disk, so a deleted one drops out of the
+            // count on its own — asking now just spares the pill the wait.
+            setStatus(await window.api.engine.status());
+        } catch (e) {
+            setError((e as Error).message);
+        }
+    };
+
     const loadFlow = async (): Promise<void> => {
         setError(null);
         try {
@@ -274,6 +333,23 @@ export function App(): JSX.Element {
             if (!list) return;
             setFlow(imported);
             setSelectedNodeId(null);
+        } catch (e) {
+            setError((e as Error).message);
+        }
+    };
+
+    const clearRuns = async (): Promise<void> => {
+        const ok = await ask({
+            title: 'Clear runs',
+            message: 'Delete every stored run? Their traces and saved files go too.',
+            confirmLabel: 'Delete',
+        });
+        if (!ok) return;
+        setError(null);
+        try {
+            await window.api.runs.clear();
+            setRuns([]);
+            setSelectedRun(null);
         } catch (e) {
             setError((e as Error).message);
         }
@@ -315,6 +391,9 @@ export function App(): JSX.Element {
                 </select>
                 <button className="ghost" title="Rename this flow" onClick={() => setNaming('rename')}>
                     ✎ Rename
+                </button>
+                <button className="danger" title="Delete this flow" onClick={() => void deleteFlow()}>
+                    Delete
                 </button>
                 <button onClick={() => setNaming('new')}>New flow</button>
                 <button title="Open a flow file and add it to the library" onClick={() => void loadFlow()}>
@@ -401,13 +480,7 @@ export function App(): JSX.Element {
                         collapsed={runsCollapsed}
                         onToggleCollapsed={() => setRunsCollapsed((v) => !v)}
                         onSelect={(id) => void window.api.runs.get(id).then(setSelectedRun)}
-                        onClear={() => {
-                            if (!window.confirm('Delete every stored run?')) return;
-                            void window.api.runs.clear().then(() => {
-                                setRuns([]);
-                                setSelectedRun(null);
-                            });
-                        }}
+                        onClear={() => void clearRuns()}
                         onReveal={() => void window.api.runs.revealFolder()}
                         onCancel={(runId) => void window.api.engine.cancel(runId)}
                     />
@@ -465,6 +538,10 @@ export function App(): JSX.Element {
                         else renameFlow(name);
                     }}
                 />
+            )}
+
+            {question && (
+                <ConfirmDialog {...question} onCancel={() => answer(false)} onConfirm={() => answer(true)}/>
             )}
 
             {testing && (
