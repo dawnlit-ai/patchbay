@@ -72,7 +72,7 @@ function toEnvelope(account: string, e: InboxEmail): EmailEnvelope {
         entryId: e.entryId,
         storeId: e.storeId,
         account,
-        folderPath: e.folderPath ?? '',
+        folderPath: e.folderPath,
     };
     return {
         ref,
@@ -81,7 +81,7 @@ function toEnvelope(account: string, e: InboxEmail): EmailEnvelope {
         senderEmail: e.senderEmail,
         receivedTime: e.receivedTime,
         bodyPreview: e.bodyPreview,
-        attachmentNames: e.attachmentNames ?? [],
+        attachmentNames: e.attachmentNames,
     };
 }
 
@@ -93,14 +93,14 @@ export async function readInbox(
 ): Promise<EmailEnvelope[]> {
     const b = await bridge();
     const emails = await serialize(() =>
-        b.readInboxEmails(account, lookbackDays, limit, folder || undefined),
+        b.readInboxEmails(account, { folder: folder || undefined, daysBack: lookbackDays, limit }),
     );
     return emails.map((e) => toEnvelope(account, e));
 }
 
 export async function readBody(ref: EmailRef, maxChars: number): Promise<EmailBodyResult> {
     const b = await bridge();
-    return serialize(() => b.readEmailBody(ref.entryId, ref.storeId, maxChars, false));
+    return serialize(() => b.readEmailBody(ref, { maxChars }));
 }
 
 export async function saveAttachments(
@@ -109,12 +109,14 @@ export async function saveAttachments(
     destDir: string,
 ): Promise<SavedAttachment[]> {
     const b = await bridge();
-    return serialize(() => b.saveEmailAttachments(ref.entryId, names, ref.storeId, destDir));
+    return serialize(() => b.saveEmailAttachments(ref, names, { destDir }));
 }
 
 export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmailsResult> {
     const b = await bridge();
-    return serialize(() => b.moveOutlookEmails(ref.account, [ref.entryId], folder, true));
+    return serialize(() =>
+        b.moveOutlookEmails(ref.account, [ref.entryId], folder, { createIfMissing: true }),
+    );
 }
 
 /**
