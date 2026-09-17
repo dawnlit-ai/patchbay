@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
     Background,
     BackgroundVariant,
@@ -27,7 +27,8 @@ import {
     type NodeKind,
     outputPorts,
 } from '@shared/flow';
-import type { Pass } from '@shared/trace';
+import type { EmailEnvelope, Pass } from '@shared/trace';
+import { EMAIL_DRAG_TYPE } from '../recentMail';
 
 /**
  * The canvas. The Flow object is the single source of truth: React Flow's node
@@ -44,6 +45,11 @@ export interface CanvasHighlight {
 interface NodeData extends Record<string, unknown> {
     flowNode: FlowNode;
     pass?: Pass;
+    /**
+     * While an email is being dragged: `ready` on every trigger it could start a
+     * run at, `over` on the one it would land on if let go now.
+     */
+    drop?: 'ready' | 'over';
 }
 
 interface EdgeData extends Record<string, unknown> {
@@ -51,13 +57,14 @@ interface EdgeData extends Record<string, unknown> {
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass } = data as NodeData;
+    const { flowNode, pass, drop } = data as NodeData;
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
 
     const classes = ['node', `kind-${meta.token}`];
     if (selected) classes.push('selected');
     if (pass) classes.push(pass.status === 'error' ? 'failed' : 'visited');
+    if (drop) classes.push(`drop-${drop}`);
 
     return (
         <div className={classes.join(' ')}>
@@ -186,31 +193,44 @@ export interface FlowCanvasProps {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
+    /** An email is being dragged out of the mail list, so the triggers say so. */
+    emailDrag: boolean;
 
     onChange(flow: Flow): void;
 
     onSelect(nodeId: string | null): void;
+
+    /** An email was dropped on a trigger: run it through the flow from there. */
+    onRunEmail(nodeId: string, email: EmailEnvelope): void;
 }
 
 export function FlowCanvas({
                                flow,
                                selectedNodeId,
                                highlight,
+                               emailDrag,
                                onChange,
                                onSelect,
+                               onRunEmail,
                            }: FlowCanvasProps): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
+    /** The trigger a dragged email is over. Only read while `emailDrag` holds. */
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
 
     const rfNodes: Node[] = useMemo(
         () =>
-            flow.nodes.map((n) => ({
-                id: n.id,
-                type: 'card',
-                position: n.position,
-                selected: n.id === selectedNodeId,
-                data: { flowNode: n, pass: highlight?.passes.get(n.id) } satisfies NodeData,
-            })),
-        [flow.nodes, selectedNodeId, highlight],
+            flow.nodes.map((n) => {
+                let drop: NodeData['drop'];
+                if (emailDrag && n.kind === 'trigger.outlook') drop = n.id === dropTarget ? 'over' : 'ready';
+                return {
+                    id: n.id,
+                    type: 'card',
+                    position: n.position,
+                    selected: n.id === selectedNodeId,
+                    data: { flowNode: n, pass: highlight?.passes.get(n.id), drop } satisfies NodeData,
+                };
+            }),
+        [flow.nodes, selectedNodeId, highlight, emailDrag, dropTarget],
     );
 
     const removeEdge = useCallback(
@@ -288,9 +308,44 @@ export function FlowCanvas({
         [flow, onChange],
     );
 
+    /**
+     * The trigger a drag event is over, if it is over one. Found from the element
+     * under the pointer rather than from coordinates, which would mean undoing the
+     * viewport's pan and zoom.
+     */
+    const triggerAt = useCallback(
+        (target: EventTarget): string | null => {
+            const id =
+                target instanceof Element ? target.closest('.react-flow__node')?.getAttribute('data-id') : null;
+            return id && flow.nodes.some((n) => n.id === id && n.kind === 'trigger.outlook') ? id : null;
+        },
+        [flow.nodes],
+    );
+
+    const onDragOver = useCallback(
+        (event: React.DragEvent) => {
+            event.preventDefault();
+            if (!event.dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
+                event.dataTransfer.dropEffect = 'move';
+                return;
+            }
+            // Anywhere but a trigger refuses the email, and the cursor says so.
+            const id = triggerAt(event.target);
+            setDropTarget(id);
+            event.dataTransfer.dropEffect = id ? 'copy' : 'none';
+        },
+        [triggerAt],
+    );
+
     const onDrop = useCallback(
         (event: React.DragEvent) => {
             event.preventDefault();
+            if (event.dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
+                setDropTarget(null);
+                const id = triggerAt(event.target);
+                if (id) onRunEmail(id, JSON.parse(event.dataTransfer.getData(EMAIL_DRAG_TYPE)) as EmailEnvelope);
+                return;
+            }
             const kind = event.dataTransfer.getData('application/flow-node') as NodeKind;
             if (!kind || !NODE_KIND_META[kind]) return;
             const bounds = wrapper.current?.getBoundingClientRect();
@@ -306,11 +361,11 @@ export function FlowCanvas({
             onChange({ ...flow, nodes: [...flow.nodes, node] });
             onSelect(id);
         },
-        [flow, onChange, onSelect],
+        [flow, onChange, onSelect, onRunEmail, triggerAt],
     );
 
     return (
-        <div className="canvas-wrap" ref={wrapper}>
+        <div className={`canvas-wrap${emailDrag ? ' email-drag' : ''}`} ref={wrapper}>
             <ReactFlow
                 nodes={rfNodes}
                 edges={rfEdges}
@@ -322,9 +377,11 @@ export function FlowCanvas({
                 onNodeClick={(_e, node) => onSelect(node.id)}
                 onPaneClick={() => onSelect(null)}
                 onDrop={onDrop}
-                onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
+                onDragOver={onDragOver}
+                // Moving from an element onto its child also fires a leave; only
+                // leaving the canvas altogether clears the target.
+                onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDropTarget(null);
                 }}
                 fitView
                 fitViewOptions={{ maxZoom: 1 }}

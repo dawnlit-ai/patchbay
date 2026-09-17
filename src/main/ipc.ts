@@ -77,9 +77,6 @@ function handleWindow(channel: string, fn: (win: BrowserWindow) => void): void {
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
-/** How far back the "Test run…" picker looks for a message to choose from. */
-const RECENT_LOOKBACK_DAYS = 7;
-
 const FLOW_FILTERS = [
     { name: 'Patchbay flow', extensions: ['json'] },
     { name: 'All files', extensions: ['*'] },
@@ -152,8 +149,8 @@ export function registerIpc(): void {
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>
         outlook.listFolders(account),
     );
-    handle(IPC.outlookRecent, (account: string, folder: string, limit: number) =>
-        outlook.readInbox(account, folder, RECENT_LOOKBACK_DAYS, limit),
+    handle(IPC.outlookRecent, (account: string, folder: string, days: number, limit: number) =>
+        outlook.readInbox(account, folder, days, limit),
     );
 
     handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));

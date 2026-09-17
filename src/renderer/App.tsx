@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
-import { type Run, type RunSummary, toSummary } from '@shared/trace';
+import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import {
     type AboutInfo,
     type AgentControlStatus,
@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
+import { MailList } from './components/MailList';
 import { NameDialog } from './components/NameDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SkillLibrary } from './components/SkillLibrary';
@@ -72,6 +73,8 @@ export function App(): JSX.Element {
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const [tab, setTab] = useState<'inspector' | 'skills' | 'settings'>('inspector');
     const [testing, setTesting] = useState(false);
+    /** An email is being dragged out of the mail list toward a trigger. */
+    const [emailDrag, setEmailDrag] = useState(false);
     /** Which name the dialog is asking for, if it is open. */
     const [naming, setNaming] = useState<NamingMode | null>(null);
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
@@ -413,6 +416,20 @@ export function App(): JSX.Element {
         }
     };
 
+    /**
+     * One email through the flow on screen, starting at the trigger named — picked
+     * in the Test run dialog, or dropped on the canvas. The engine reads the flow
+     * from disk, so a queued edit goes out first: a test straight after an edit
+     * runs the flow as it now looks. The runs panel opens to follow it.
+     */
+    const runEmail = (nodeId: string, email: EmailEnvelope): void => {
+        if (!flow) return;
+        flushSave();
+        setSelectedRun(null);
+        setRunsCollapsed(false);
+        void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
+    };
+
     /** Writes what is on screen, unsaved edits included. */
     const exportFlow = async (): Promise<void> => {
         if (!flow) return;
@@ -542,6 +559,8 @@ export function App(): JSX.Element {
                         exactly one port, and the engine follows the edge attached to it. That
                         sequence is the run’s path — select a run below to light it up here.
                     </div>
+
+                    <MailList flow={flow} onDragging={setEmailDrag}/>
                 </div>
 
                 <div className="center">
@@ -549,8 +568,10 @@ export function App(): JSX.Element {
                         flow={flow}
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
+                        emailDrag={emailDrag}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
+                        onRunEmail={runEmail}
                     />
                     <RunsPanel
                         runs={runs}
@@ -636,10 +657,7 @@ export function App(): JSX.Element {
                     onClose={() => setTesting(false)}
                     onRun={(nodeId, email) => {
                         setTesting(false);
-                        setSelectedRun(null);
-                        void window.api.engine
-                            .testRun(flow.id, nodeId, email)
-                            .catch((e: Error) => setError(e.message));
+                        runEmail(nodeId, email);
                     }}
                 />
             )}

@@ -70,8 +70,8 @@ export interface Api {
     outlook: {
         accounts(): Promise<string[]>;
         folders(account: string): Promise<InboxFolderOption[]>;
-        /** Recent mail, for picking a message to test a flow against. */
-        recent(account: string, folder: string, limit: number): Promise<EmailEnvelope[]>;
+        /** Recent mail, newest first, for picking a message to test a flow against. */
+        recent(account: string, folder: string, days: number, limit: number): Promise<EmailEnvelope[]>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every

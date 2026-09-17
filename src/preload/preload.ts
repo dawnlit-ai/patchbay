@@ -38,7 +38,8 @@ const api: Api = {
     outlook: {
         accounts: () => ipcRenderer.invoke(IPC.outlookAccounts),
         folders: (account) => ipcRenderer.invoke(IPC.outlookFolders, account),
-        recent: (account, folder, limit) => ipcRenderer.invoke(IPC.outlookRecent, account, folder, limit),
+        recent: (account, folder, days, limit) =>
+            ipcRenderer.invoke(IPC.outlookRecent, account, folder, days, limit),
     },
     skills: {
         list: (flowId) => ipcRenderer.invoke(IPC.skillsList, flowId),

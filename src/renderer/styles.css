@@ -414,6 +414,75 @@ code {
     font-size: 11.5px;
 }
 
+/* A heading with a small action of its own at the far end. */
+.section-title.with-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.section-title.with-action button {
+    padding: 1px 6px;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Spaces stacked controls that have no field label above them to do it. */
+.gap-below {
+    margin-bottom: 8px;
+}
+
+/* The filter takes what the range picker leaves, however narrow the panel. */
+.mail-tools input {
+    min-width: 0;
+}
+
+.mail-tools select {
+    width: auto;
+}
+
+/* An email waiting to be dragged onto a trigger. */
+.mail-row {
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel-2);
+    margin-bottom: 6px;
+    cursor: grab;
+}
+
+.mail-row:hover {
+    border-color: var(--accent);
+}
+
+.mail-row:active {
+    cursor: grabbing;
+}
+
+.mail-row .subject {
+    font-size: 12px;
+    font-weight: 550;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mail-row .meta {
+    display: flex;
+    gap: 6px;
+    color: var(--dim);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.mail-row .meta .from {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .tabs {
     display: flex;
     border-bottom: 1px solid var(--line);
@@ -722,6 +791,21 @@ code {
 
 .node.failed {
     box-shadow: 0 0 0 1px var(--err), 0 0 18px var(--err-soft);
+}
+
+/* An email in the air. The triggers it could start a run at stand out, the one
+   under the pointer most, and every other node steps back. */
+.canvas-wrap.email-drag .node:not(.drop-ready, .drop-over) {
+    opacity: 0.4;
+}
+
+.node.drop-ready {
+    border: 1px dashed var(--k);
+}
+
+.node.drop-over {
+    border-color: var(--k);
+    box-shadow: 0 0 0 2px var(--k), 0 0 22px color-mix(in srgb, var(--k) 40%, transparent);
 }
 
 .node-head {
