@@ -70,12 +70,18 @@ const api: Api = {
         clear: () => ipcRenderer.invoke(IPC.runsClear),
         revealFolder: () => ipcRenderer.invoke(IPC.runsReveal),
     },
+    log: {
+        list: () => ipcRenderer.invoke(IPC.logList),
+        clear: () => ipcRenderer.invoke(IPC.logClear),
+        revealFolder: () => ipcRenderer.invoke(IPC.logReveal),
+    },
     on: {
         runUpdated: (cb) => subscribe(IPC.evtRunUpdated, cb),
         engineStatus: (cb) => subscribe(IPC.evtEngineStatus, cb),
         windowMaximized: (cb) => subscribe(IPC.evtWindowMaximized, cb),
         agentControl: (cb) => subscribe(IPC.evtAgentControl, cb),
         workspaceChanged: (cb) => subscribe(IPC.evtWorkspaceChanged, cb),
+        logged: (cb) => subscribe(IPC.evtLogged, cb),
     },
 };
 

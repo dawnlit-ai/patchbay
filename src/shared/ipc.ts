@@ -6,6 +6,7 @@
 
 import type { Flow } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
+import type { LogEntry } from './log';
 import type {
     AboutInfo,
     AgentControlStatus,
@@ -124,6 +125,14 @@ export interface Api {
         clear(): Promise<void>;
         revealFolder(): Promise<void>;
     };
+    /** The console: what the app did outside any one run. */
+    log: {
+        /** What main still holds, oldest first. New entries arrive on `on.logged`. */
+        list(): Promise<LogEntry[]>;
+        /** Empties what the window is shown. The day's file keeps every line. */
+        clear(): Promise<void>;
+        revealFolder(): Promise<void>;
+    };
     /** Push channels. Each returns its own unsubscribe. */
     on: {
         runUpdated(cb: (run: Run) => void): () => void;
@@ -133,6 +142,7 @@ export interface Api {
         agentControl(cb: (status: AgentControlStatus) => void): () => void;
         /** An agent wrote to the workspace; what is on screen is now behind it. */
         workspaceChanged(cb: (change: WorkspaceChange) => void): () => void;
+        logged(cb: (entry: LogEntry) => void): () => void;
     };
 
     about(): Promise<AboutInfo>;
@@ -195,10 +205,15 @@ export const IPC = {
     runsClear: 'runs:clear',
     runsReveal: 'runs:reveal',
 
+    logList: 'log:list',
+    logClear: 'log:clear',
+    logReveal: 'log:reveal',
+
     // main → renderer
     evtRunUpdated: 'evt:runUpdated',
     evtEngineStatus: 'evt:engineStatus',
     evtWindowMaximized: 'evt:windowMaximized',
     evtAgentControl: 'evt:agentControl',
     evtWorkspaceChanged: 'evt:workspaceChanged',
+    evtLogged: 'evt:logged',
 } as const;

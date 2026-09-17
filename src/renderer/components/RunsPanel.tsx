@@ -71,9 +71,6 @@ function PassCard({ pass }: { pass: Pass }): JSX.Element {
 interface Props {
     runs: RunSummary[];
     selected: Run | null;
-    collapsed: boolean;
-
-    onToggleCollapsed(): void;
 
     onSelect(id: string): void;
 
@@ -84,45 +81,17 @@ interface Props {
     onCancel(runId: string): void;
 }
 
-export function RunsPanel({
-                              runs,
-                              selected,
-                              collapsed,
-                              onToggleCollapsed,
-                              onSelect,
-                              onClear,
-                              onReveal,
-                              onCancel,
-                          }: Props): JSX.Element {
-    if (collapsed) {
-        return (
-            <div className="runs collapsed">
-                <div className="panel-head">
-                    <strong>Runs</strong>
-                    <span className="badge">{runs.length}</span>
-                    <span className="spacer"/>
-                    <button className="ghost" onClick={onToggleCollapsed}>
-                        ▴ Show
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
+export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCancel }: Props): JSX.Element {
     return (
         <div className="runs">
             <div className="runs-list">
                 <div className="panel-head">
-                    <strong>Runs</strong>
                     <span className="spacer"/>
                     <button className="ghost" onClick={onReveal} title="Open the runs folder">
                         Folder
                     </button>
                     <button className="ghost" onClick={onClear}>
                         Clear
-                    </button>
-                    <button className="ghost" onClick={onToggleCollapsed}>
-                        ▾
                     </button>
                 </div>
                 {runs.length === 0 && (

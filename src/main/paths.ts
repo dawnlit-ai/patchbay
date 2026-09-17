@@ -60,3 +60,5 @@ export const runScratchDir = (runId: string): string => ensure('runs', runId + '
 export const settingsFile = (): string => join(workspaceRoot(), 'settings.json');
 export const watermarkFile = (): string => join(workspaceRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
+/** The console's files, one JSONL per day. */
+export const logsDir = (): string => ensure('logs');

@@ -5,6 +5,7 @@ import { getAgentControl, getWatcher, registerIpc } from './ipc';
 import { migrateToFlowDirectories } from './store/flowStore';
 import { seedGlobalLibrary } from './store/skillStore';
 import { workspaceRoot } from './paths';
+import { log } from './log';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -72,13 +73,13 @@ void app.whenReady().then(() => {
     // goes on every platform: off the window on Windows and Linux, out of the system
     // bar on macOS.
     Menu.setApplicationMenu(null);
-    workspaceRoot();
+    log.info('app', `Patchbay ${app.getVersion()} started`, { detail: `workspace: ${workspaceRoot()}` });
     // Flows used to be loose files sharing one library; a workspace written before
     // that changed is rearranged here, once, before anything reads it.
     const migrated = migrateToFlowDirectories();
-    if (migrated.length > 0) console.log(`Gave ${migrated.length} flow(s) a directory of their own`);
+    if (migrated.length > 0) log.info('app', `Gave ${migrated.length} flow(s) a directory of their own`);
     const seeded = seedGlobalLibrary();
-    if (seeded.length > 0) console.log(`Seeded the global skill library: ${seeded.join(', ')}`);
+    if (seeded.length > 0) log.info('app', `Seeded the global skill library: ${seeded.join(', ')}`);
     registerIpc();
     // Listens only if the workspace says so; a settings edit is what turns it on.
     getAgentControl().apply();

@@ -8,6 +8,7 @@ import type {
 } from '@dawnlit/outlook-bridge';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption } from '@shared/ipc';
+import { log } from '../log';
 
 /**
  * A thin seam over @dawnlit/outlook-bridge, which drives the real Outlook client
@@ -33,21 +34,45 @@ async function bridge(): Promise<BridgeModule> {
  */
 let chain: Promise<unknown> = Promise.resolve();
 
-function serialize<T>(work: () => Promise<T>): Promise<T> {
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
+
+/**
+ * Every call is timed into the console, and the wait in the queue is reported
+ * apart from the call itself: a call that was slow because another was slow is
+ * the queue doing its job, not Outlook struggling.
+ */
+function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
+    const queuedAt = Date.now();
+    const timed = async (): Promise<T> => {
+        const startedAt = Date.now();
+        const waited = startedAt - queuedAt;
+        const took = (): string =>
+            `${seconds(Date.now() - startedAt)}${waited >= 1000 ? `, after ${seconds(waited)} queued` : ''}`;
+        try {
+            const result = await work();
+            log.debug('outlook', `${label} (${took()})`);
+            return result;
+        } catch (e) {
+            log.warn('outlook', `${label} failed (${took()}): ${e instanceof Error ? e.message : String(e)}`);
+            throw e;
+        }
+    };
     // Each link swallows its predecessor's rejection, so one failed call does not
     // poison the queue behind it.
-    const next = chain.then(work, work);
+    const next = chain.then(timed, timed);
     chain = next.catch(() => undefined);
     return next;
 }
 
 export async function getAccounts(): Promise<string[]> {
-    return serialize(async () => (await bridge()).getOutlookAccounts());
+    return serialize('List accounts', async () => (await bridge()).getOutlookAccounts());
 }
 
 export async function listFolders(account: string): Promise<InboxFolderOption[]> {
     const b = await bridge();
-    const folders: InboxFolderInfo[] = await serialize(() => b.listInboxFolders(account));
+    const folders: InboxFolderInfo[] = await serialize(`List folders in ${account}`, () =>
+        b.listInboxFolders(account),
+    );
     const options: InboxFolderOption[] = [
         { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
     ];
@@ -92,7 +117,7 @@ export async function readInbox(
     limit: number,
 ): Promise<EmailEnvelope[]> {
     const b = await bridge();
-    const emails = await serialize(() =>
+    const emails = await serialize(`Read ${account}${folder ? `\\${folder}` : ' Inbox'}`, () =>
         b.readInboxEmails(account, { folder: folder || undefined, daysBack: lookbackDays, limit }),
     );
     return emails.map((e) => toEnvelope(account, e));
@@ -100,7 +125,7 @@ export async function readInbox(
 
 export async function readBody(ref: EmailRef, maxChars: number): Promise<EmailBodyResult> {
     const b = await bridge();
-    return serialize(() => b.readEmailBody(ref, { maxChars }));
+    return serialize(`Read a body in ${ref.account}`, () => b.readEmailBody(ref, { maxChars }));
 }
 
 export async function saveAttachments(
@@ -109,12 +134,14 @@ export async function saveAttachments(
     destDir: string,
 ): Promise<SavedAttachment[]> {
     const b = await bridge();
-    return serialize(() => b.saveEmailAttachments(ref, names, { destDir }));
+    return serialize(`Save ${names.length} attachment(s)`, () =>
+        b.saveEmailAttachments(ref, names, { destDir }),
+    );
 }
 
 export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmailsResult> {
     const b = await bridge();
-    return serialize(() =>
+    return serialize(`Move an email to ${folder}`, () =>
         b.moveOutlookEmails(ref.account, [ref.entryId], folder, { createIfMissing: true }),
     );
 }
@@ -129,7 +156,7 @@ export async function draftReply(
     replyAll: boolean,
 ): Promise<ReplyEmailResult> {
     const b = await bridge();
-    return serialize(() =>
+    return serialize(`Draft a reply in ${ref.account}`, () =>
         b.replyOutlookEmail({
             emailAccount: ref.account,
             entryId: ref.entryId,

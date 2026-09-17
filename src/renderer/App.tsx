@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
+import type { LogEntry } from '@shared/log';
 import {
     type AboutInfo,
     type AgentControlStatus,
@@ -12,6 +13,7 @@ import {
     type SkillSummary,
 } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
+import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
 import { MailList } from './components/MailList';
@@ -35,6 +37,23 @@ interface NamingSpec {
 
     run(name: string): void;
 }
+
+/** Matches what main keeps, so the window never holds lines main has let go. */
+const LOG_LIMIT = 2_000;
+
+/**
+ * Entries in `seq` order, each once. A push normally lands past the end; only the
+ * list fetched at boot can overlap pushes that arrived while it was on its way.
+ */
+function mergeLog(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
+    const last = current.at(-1)?.seq ?? 0;
+    const merged = incoming.every((e) => e.seq > last)
+        ? [...current, ...incoming]
+        : [...new Map([...current, ...incoming].map((e) => [e.seq, e])).values()].sort((a, b) => a.seq - b.seq);
+    return merged.length > LOG_LIMIT ? merged.slice(-LOG_LIMIT) : merged;
+}
+
+const isProblem = (entry: LogEntry): boolean => entry.level === 'warn' || entry.level === 'error';
 
 type Theme = 'light' | 'dark';
 
@@ -80,7 +99,15 @@ export function App(): JSX.Element {
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
     const [question, setQuestion] = useState<Question | null>(null);
     const answering = useRef<((ok: boolean) => void) | null>(null);
-    const [runsCollapsed, setRunsCollapsed] = useState(false);
+    const [dockCollapsed, setDockCollapsed] = useState(false);
+    const [dockTab, setDockTab] = useState<'runs' | 'console'>('runs');
+    const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+    const [consoleView, setConsoleView] = useState<ConsoleView>(DEFAULT_CONSOLE_VIEW);
+    /** Warnings and errors logged since the console was last on screen. */
+    const [unseenProblems, setUnseenProblems] = useState(0);
+    /** Read by the push listener, which is subscribed once and would see stale state. */
+    const consoleOnScreen = useRef(false);
+    consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
     const [error, setError] = useState<string | null>(null);
     const [theme, setThemeState] = useState<Theme>(initialTheme);
     const [about, setAbout] = useState<AboutInfo | null>(null);
@@ -133,6 +160,21 @@ export function App(): JSX.Element {
             refreshRuns();
         })();
     }, [refreshRuns]);
+
+    // Subscribed before the list is asked for, so nothing logged in between is lost;
+    // mergeLog drops whatever arrives both ways.
+    useEffect(() => {
+        const off = window.api.on.logged((entry) => {
+            setLogEntries((prev) => mergeLog(prev, [entry]));
+            if (isProblem(entry) && !consoleOnScreen.current) setUnseenProblems((n) => n + 1);
+        });
+        void window.api.log.list().then((listed) => {
+            setLogEntries((prev) => mergeLog(prev, listed));
+            // What went wrong before the window opened — a port already taken — counts too.
+            if (!consoleOnScreen.current) setUnseenProblems(listed.filter(isProblem).length);
+        });
+        return off;
+    }, []);
 
     // Live updates. An open run stays open and keeps filling in; otherwise the
     // newest becomes the one on screen, so a flow shows its work without a click.
@@ -399,6 +441,28 @@ export function App(): JSX.Element {
         }
     };
 
+    /** Brings a tab of the dock up, unfolding the dock if it was folded away. */
+    const showDock = (tab: 'runs' | 'console'): void => {
+        setDockTab(tab);
+        setDockCollapsed(false);
+        if (tab === 'console') setUnseenProblems(0);
+    };
+
+    const clearLog = (): void => {
+        void window.api.log.clear().then(() => setLogEntries([]));
+    };
+
+    /** A console line names the run it is about; this shows that run's trace. */
+    const openRunFromLog = async (runId: string): Promise<void> => {
+        const run = await window.api.runs.get(runId);
+        if (!run) {
+            setError('That run is no longer stored — the runs were cleared after it was logged.');
+            return;
+        }
+        setSelectedRun(run);
+        showDock('runs');
+    };
+
     const clearRuns = async (): Promise<void> => {
         const ok = await ask({
             title: 'Clear runs',
@@ -426,7 +490,7 @@ export function App(): JSX.Element {
         if (!flow) return;
         flushSave();
         setSelectedRun(null);
-        setRunsCollapsed(false);
+        showDock('runs');
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
@@ -517,7 +581,11 @@ export function App(): JSX.Element {
 
                 <span className="spacer"/>
 
-                {status?.lastError && <span className="badge err">{status.lastError}</span>}
+                {status?.lastError && (
+                    <span className="badge err link" title="Open the console" onClick={() => showDock('console')}>
+                        {status.lastError}
+                    </span>
+                )}
                 <span className="status-pill">
                     <span className={`dot ${watching ? 'live' : ''}`}/>
                     {watching ? `Watching ${status?.watching.length ?? 0} mailbox(es)` : 'Not watching'}
@@ -573,16 +641,54 @@ export function App(): JSX.Element {
                         onSelect={setSelectedNodeId}
                         onRunEmail={runEmail}
                     />
-                    <RunsPanel
-                        runs={runs}
-                        selected={selectedRun}
-                        collapsed={runsCollapsed}
-                        onToggleCollapsed={() => setRunsCollapsed((v) => !v)}
-                        onSelect={(id) => void window.api.runs.get(id).then(setSelectedRun)}
-                        onClear={() => void clearRuns()}
-                        onReveal={() => void window.api.runs.revealFolder()}
-                        onCancel={(runId) => void window.api.engine.cancel(runId)}
-                    />
+                    <div className={`dock${dockCollapsed ? ' collapsed' : ''}`}>
+                        <div className="dock-tabs">
+                            <button
+                                className={dockTab === 'runs' && !dockCollapsed ? 'active' : ''}
+                                onClick={() => showDock('runs')}
+                            >
+                                Runs <span className="badge">{runs.length}</span>
+                            </button>
+                            <button
+                                className={dockTab === 'console' && !dockCollapsed ? 'active' : ''}
+                                onClick={() => showDock('console')}
+                            >
+                                Console
+                                {unseenProblems > 0 && (
+                                    <span className="badge err" title="Warnings and errors you have not seen">
+                                        {unseenProblems}
+                                    </span>
+                                )}
+                            </button>
+                            <span className="spacer"/>
+                            <button
+                                className="ghost"
+                                onClick={() => (dockCollapsed ? showDock(dockTab) : setDockCollapsed(true))}
+                            >
+                                {dockCollapsed ? '▴ Show' : '▾'}
+                            </button>
+                        </div>
+                        {!dockCollapsed && dockTab === 'runs' && (
+                            <RunsPanel
+                                runs={runs}
+                                selected={selectedRun}
+                                onSelect={(id) => void window.api.runs.get(id).then(setSelectedRun)}
+                                onClear={() => void clearRuns()}
+                                onReveal={() => void window.api.runs.revealFolder()}
+                                onCancel={(runId) => void window.api.engine.cancel(runId)}
+                            />
+                        )}
+                        {!dockCollapsed && dockTab === 'console' && (
+                            <ConsolePanel
+                                entries={logEntries}
+                                view={consoleView}
+                                onView={setConsoleView}
+                                onClear={clearLog}
+                                onReveal={() => void window.api.log.revealFolder()}
+                                onOpenRun={(runId) => void openRunFromLog(runId)}
+                            />
+                        )}
+                    </div>
                 </div>
 
                 <div className="side right">

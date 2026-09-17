@@ -8,6 +8,7 @@ import type { EmailEnvelope, Run } from '@shared/trace';
 import type { EngineStatus } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
 import { executeRun } from './engine';
+import { log } from '../log';
 
 /**
  * Turns "an email arrived" into "a run happened". The bridge offers no push
@@ -29,6 +30,9 @@ type Watermarks = Record<string, Watermark>;
 const markKey = (flowId: string, nodeId: string): string => `${flowId}:${nodeId}`;
 
 const SEEN_LIMIT = 500;
+
+/** How a trigger is named in the console: which flow, which node. */
+const where = (flow: Flow, node: FlowNode): string => `${flow.name} / ${node.name}`;
 
 /** One trigger node, with the flow it belongs to and its config already narrowed. */
 interface WatchedTrigger {
@@ -72,20 +76,37 @@ export class Watcher {
         if (this.timer) return this.status();
         if (!getSettings().pollingEnabled) {
             this.lastError = 'Polling is switched off in Settings.';
+            log.warn('watcher', `Not watching: ${this.lastError}`);
             this.onStatus();
             return this.status();
         }
         this.lastError = undefined;
         // A fixed tick; each trigger's own pollSeconds decides when its turn comes.
         this.timer = setInterval(() => void this.poll(), 15_000);
+        const triggers = this.triggers();
+        const idle = triggers.filter((t) => t.config.account.trim() === '');
+        log.info('watcher', `Started watching ${triggers.length - idle.length} mailbox(es)`);
+        for (const { flow, node } of idle) {
+            log.warn('watcher', `${where(flow, node)} names no mailbox, so it is not polled`);
+        }
         void this.poll();
         this.onStatus();
         return this.status();
     }
 
     stop(): EngineStatus {
-        if (this.timer) clearInterval(this.timer);
+        if (this.timer) {
+            clearInterval(this.timer);
+            log.info('watcher', 'Stopped watching');
+        }
         this.timer = null;
+        // A polled email was marked seen when it was queued, so one dropped here is
+        // never picked up again. Worth a line each: only a test run brings it back.
+        for (const item of this.queue) {
+            log.warn('watcher', `Dropped from the queue, not run: "${item.email.subject}"`, {
+                detail: `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`,
+            });
+        }
         this.queue = [];
         this.onStatus();
         return this.status();
@@ -183,7 +204,8 @@ export class Watcher {
                     );
                     this.lastError = undefined;
                 } catch (e) {
-                    this.lastError = `${flow.name} / ${node.name}: ${e instanceof Error ? e.message : String(e)}`;
+                    this.lastError = `${where(flow, node)}: ${e instanceof Error ? e.message : String(e)}`;
+                    log.error('watcher', `Poll failed at ${this.lastError}`);
                     continue;
                 }
 
@@ -197,12 +219,30 @@ export class Watcher {
                     mark.primed = true;
                     marks[key] = mark;
                     changed = true;
+                    // The one poll that sees mail and starts nothing, on purpose — and
+                    // the first place to look when an email already there never ran.
+                    log.info(
+                        'watcher',
+                        `${where(flow, node)}: first look, so the ${emails.length} email(s) already there are marked seen and not run`,
+                        { detail: emails.map((e) => `${e.receivedTime}  ${e.subject}`).join('\n') || undefined },
+                    );
                     continue;
                 }
 
                 // Oldest first, so a backlog is processed in the order it arrived.
                 const fresh = emails.filter((e) => !seen.has(e.ref.entryId)).toReversed();
+                if (fresh.length === 0) {
+                    log.debug('watcher', `${where(flow, node)}: nothing new in ${emails.length} email(s)`);
+                } else if (fresh.length >= config.maxPerPoll) {
+                    // A poll reads only the newest few. When every one of them is new,
+                    // older mail may have arrived behind them, where no later poll looks.
+                    log.warn(
+                        'watcher',
+                        `${where(flow, node)}: all ${fresh.length} email(s) read were new, so more may have arrived than one poll takes. Raise Max / poll, or poll more often.`,
+                    );
+                }
                 for (const email of fresh) {
+                    log.info('watcher', `${where(flow, node)}: new email "${email.subject}" from ${email.senderEmail}`);
                     mark.seen.push(email.ref.entryId);
                     this.queue.push({
                         runId: randomUUID(),
@@ -246,18 +286,36 @@ export class Watcher {
                 const controller = new AbortController();
                 this.active.set(runId, controller);
                 this.onStatus();
+                const subject = `"${item.email.subject || '(no subject)'}"`;
+                const test = item.trigger === 'manual' ? ' (test)' : '';
+                log.info('run', `Started ${subject} in ${item.flow.name}${test}`, { runId });
                 try {
-                    await executeRun({
+                    const run = await executeRun({
                         runId,
                         flow: item.flow,
                         startNodeId: item.startNodeId,
                         email: item.email,
                         trigger: item.trigger,
                         signal: controller.signal,
-                        onUpdate: (run) => this.onRun(run),
+                        onUpdate: (update) => this.onRun(update),
                     });
+                    const tally = `${run.passes.length} pass(es) · $${run.totalCostUsd.toFixed(3)}`;
+                    if (run.status === 'failed') {
+                        log.error('run', `Failed ${subject}: ${run.error ?? 'no reason recorded'}`, {
+                            runId,
+                            detail: tally,
+                        });
+                    } else {
+                        // A path that ran off an unconnected port still completes, and
+                        // says so in `error`; that sentence is worth keeping here too.
+                        log.info('run', `Finished ${subject}: ${run.disposition ?? 'completed'} · ${tally}`, {
+                            runId,
+                            detail: run.error,
+                        });
+                    }
                 } catch (e) {
                     this.lastError = e instanceof Error ? e.message : String(e);
+                    log.error('run', `${subject} could not run: ${this.lastError}`, { runId });
                 } finally {
                     this.active.delete(runId);
                     this.onStatus();

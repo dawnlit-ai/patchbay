@@ -894,22 +894,65 @@ code {
     background: var(--accent-soft);
 }
 
-/* ── Runs panel ────────────────────────────────────────────────────────── */
+/* ── Dock: runs and console, under the canvas ─────────────────────────── */
 
-.runs {
-    height: 300px;
+/* Not `.bottom`: React Flow puts `bottom` on its own corner panels, the zoom
+   controls and minimap included, and would take this height with it. */
+.dock {
+    height: 320px;
     flex: none;
     display: flex;
+    flex-direction: column;
     border-top: 1px solid var(--line);
     background: var(--panel);
 }
 
-.runs.collapsed {
-    height: 38px;
+.dock.collapsed {
+    height: auto;
 }
 
-.runs.collapsed .panel-head {
-    width: 100%;
+.dock-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--line);
+}
+
+.dock.collapsed .dock-tabs {
+    border-bottom: none;
+}
+
+.dock-tabs > button:not(.ghost) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 8px 12px 6px;
+    border-bottom: 2px solid transparent;
+}
+
+.dock-tabs > button:not(.ghost):hover {
+    color: var(--text);
+    background: var(--panel-2);
+}
+
+.dock-tabs > button.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+}
+
+.badge.link {
+    cursor: pointer;
+}
+
+.runs {
+    flex: 1;
+    min-height: 0;
+    display: flex;
 }
 
 .runs-list {
@@ -1009,6 +1052,115 @@ code {
 .badge.run {
     color: var(--warn);
     border-color: var(--warn-line);
+}
+
+/* ── Console ───────────────────────────────────────────────────────────── */
+
+.console {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.console .panel-head .compact {
+    width: auto;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.console .panel-head input.compact {
+    width: 200px;
+}
+
+.console-lines {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.log-row {
+    padding: 1px 12px;
+    border-left: 2px solid transparent;
+}
+
+.log-row:hover {
+    background: var(--panel-2);
+}
+
+.log-row .head {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    cursor: default;
+}
+
+.log-row .head.expandable {
+    cursor: pointer;
+}
+
+.log-row .at {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    flex: none;
+}
+
+.log-row .level,
+.log-row .source {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--dim);
+    flex: none;
+}
+
+.log-row .level {
+    width: 38px;
+}
+
+.log-row .source {
+    width: 56px;
+}
+
+.log-row .message {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.log-row .message .dim {
+    color: var(--dim);
+}
+
+.log-row .head button {
+    flex: none;
+    padding: 0 6px;
+    font-size: 11px;
+}
+
+.log-row.level-debug .message {
+    color: var(--muted);
+}
+
+.log-row.level-warn {
+    border-left-color: var(--warn);
+}
+
+.log-row.level-warn .level,
+.log-row.level-warn .message {
+    color: var(--warn);
+}
+
+.log-row.level-error {
+    border-left-color: var(--err);
+}
+
+.log-row.level-error .level,
+.log-row.level-error .message {
+    color: var(--err);
 }
 
 /* ── Pass timeline ─────────────────────────────────────────────────────── */
@@ -1140,7 +1292,8 @@ code {
     font-style: italic;
 }
 
-.event pre {
+.event pre,
+.log-row pre {
     margin: 5px 0 2px;
     padding: 7px 9px;
     background: var(--code-bg);

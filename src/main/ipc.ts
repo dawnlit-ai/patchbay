@@ -10,7 +10,8 @@ import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
-import { runsDir } from './paths';
+import { logsDir, runsDir } from './paths';
+import { clearLog, logEntries, onLogged } from './log';
 
 let watcher: Watcher | null = null;
 
@@ -205,4 +206,9 @@ export function registerIpc(): void {
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));
     handle(IPC.runsClear, () => traceStore.clearRuns());
     handle(IPC.runsReveal, () => shell.openPath(runsDir()));
+
+    handle(IPC.logList, () => logEntries());
+    handle(IPC.logClear, () => clearLog());
+    handle(IPC.logReveal, () => shell.openPath(logsDir()));
+    onLogged((entry) => broadcast(IPC.evtLogged, entry));
 }
