@@ -76,6 +76,8 @@ export interface AboutInfo {
     developer: string;
     developerUrl: string;
     license: string;
+    /** The directory holding every flow, skill, run and log this install owns. */
+    workspace: string;
 }
 
 /**

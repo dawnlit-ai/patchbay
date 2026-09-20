@@ -1,50 +1,145 @@
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { flowDir, flowsDir, flowSkillsDir, watermarkFile, workspaceRoot } from '../paths';
+import {
+    FLOW_FILE,
+    flowDir,
+    flowDirAt,
+    flowDirNamed,
+    flowFile,
+    flowFolder,
+    flowsDir,
+    flowSkillsDir,
+    forgetFlowFolders,
+    watermarkFile,
+    workspaceRoot,
+} from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { getSkill, importSkillsFrom, isValidSkillName, listSkills, saveSkill } from './skillStore';
 import { emptyFlow, type Flow, type FlowNode, parseFlow } from '@shared/flow';
+import { toFolderName } from '@shared/naming';
+import type { FlowEntry } from '@shared/ipc';
 import { isGlobalRef, skillRef, type SkillScope } from '@shared/settings';
 
 /**
- * A flow is a directory rather than a file: `flows/<id>/flow.json` sits beside
- * the `.claude/skills` tree only this flow's Processors can reach, and that
- * directory is the cwd they run in. The global library is elsewhere and shared,
- * so nothing here touches it beyond what an export carries.
+ * A flow is a directory rather than a file: `flows/<folder>/flow.json` sits
+ * beside the `.claude/skills` tree only this flow's Processors can reach, and
+ * that directory is the cwd they run in. The global library is elsewhere and
+ * shared, so nothing here touches it beyond what an export carries.
+ *
+ * The folder is named after the flow and can be renamed — it is what the welcome
+ * window offers to open in the file manager. The flow's id is not: it is inside
+ * the file, and runs and watermarks are keyed by it.
  */
-
-const FLOW_FILE = 'flow.json';
-
-const filePath = (id: string): string => join(flowDir(id), FLOW_FILE);
 
 export function listFlows(): Flow[] {
     const dir = flowsDir();
-    const flows = readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => readJson<Flow | null>(join(dir, entry.name, FLOW_FILE), null))
-        .filter((f): f is Flow => f !== null);
-
-    // A fresh install starts with one empty flow, rather than an empty list and
-    // nothing to drag a node onto.
-    if (flows.length === 0) return [createFlow('My first flow')];
-    return flows.toSorted((a, b) => a.name.localeCompare(b.name));
+    const byId = new Map<string, Flow>();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const flow = readJson<Flow | null>(join(dir, entry.name, FLOW_FILE), null);
+        // A directory copied in the file manager carries the id it was copied from.
+        // Only one of the two can answer to that id, and it is the one `flowFolder`
+        // resolves to, so the list holds it rather than both.
+        if (flow && !byId.has(flow.id)) byId.set(flow.id, flow);
+    }
+    return [...byId.values()].toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getFlow(id: string): Flow | null {
-    return readJson<Flow | null>(filePath(id), null);
+    return readJson<Flow | null>(flowFile(id), null);
 }
 
 export function saveFlow(flow: Flow): Flow {
     const next: Flow = { ...flow, updatedAt: new Date().toISOString() };
-    writeJson(filePath(next.id), next);
+    writeJson(flowFile(next.id), next);
     return next;
 }
+
+/**
+ * Change what a flow is called, taking the graph as the file has it. Its own
+ * call rather than a save of the whole flow, because a rename is something the
+ * other window has to be told about and an ordinary canvas edit is not.
+ */
+export function renameFlow(id: string, name: string): Flow {
+    const flow = getFlow(id);
+    if (!flow) throw new Error('That flow is no longer in the workspace.');
+    return saveFlow({ ...flow, name });
+}
+
+// ── Where a flow lives ───────────────────────────────────────────────────
+
+/** A flow with the directory it sits in — what the welcome window lists. */
+export function entryFor(flow: Flow): FlowEntry {
+    const folder = flowFolder(flow.id);
+    return { flow, folder, path: flowDirAt(folder) };
+}
+
+export function listFlowEntries(): FlowEntry[] {
+    return listFlows().map(entryFor);
+}
+
+export function flowLocation(flowId: string): string {
+    return flowDir(flowId);
+}
+
+/** Folder names, lowercased: two of the three filesystems we run on ignore case. */
+function takenFolders(): Set<string> {
+    return new Set(
+        readdirSync(flowsDir(), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name.toLowerCase()),
+    );
+}
+
+/** That name, or the first numbered variant of it no directory already holds. */
+function freeFolder(wanted: string, except?: string): string {
+    const taken = takenFolders();
+    if (except) taken.delete(except.toLowerCase());
+    let name = wanted;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${wanted}-${n}`;
+    return name;
+}
+
+/**
+ * Write a flow that has no directory yet into one named after it. Every way a
+ * flow is born — new, copied, imported — comes through here, so a folder is
+ * never missing and never collides with one already in the workspace.
+ */
+function createIn(flow: Flow, folderFrom: string): Flow {
+    const dir = flowDirNamed(freeFolder(toFolderName(folderFrom)));
+    const next: Flow = { ...flow, updatedAt: new Date().toISOString() };
+    writeJson(join(dir, FLOW_FILE), next);
+    forgetFlowFolders();
+    return next;
+}
+
+/**
+ * Give a flow's directory another name. The id inside it is untouched, so every
+ * run already recorded, every watermark and every reference an agent holds go on
+ * meaning what they meant — only the path moves.
+ */
+export function setFlowFolder(flowId: string, requested: string): FlowEntry {
+    const flow = getFlow(flowId);
+    if (!flow) throw new Error('That flow is no longer in the workspace.');
+    const current = flowFolder(flowId);
+    const wanted = toFolderName(requested);
+    if (wanted !== current) {
+        if (freeFolder(wanted, current) !== wanted) {
+            throw new Error(`Another flow's folder is already called “${wanted}”.`);
+        }
+        renameSync(flowDir(flowId), flowDirAt(wanted));
+        forgetFlowFolders();
+    }
+    return entryFor(flow);
+}
+
+// ── Making and unmaking ──────────────────────────────────────────────────
 
 export function createFlow(name: string): Flow {
     // Its own library starts empty: the global one is already on the shelf, and a
     // flow-specific skill is something you decide to write, not inherit.
-    return saveFlow(emptyFlow(randomUUID(), name));
+    return createIn(emptyFlow(randomUUID(), name), name);
 }
 
 /**
@@ -59,7 +154,7 @@ export function createFlow(name: string): Flow {
  * watcher's marks stay behind: a copy is a new flow, and starts as one.
  */
 export function duplicateFlow(source: Flow, name: string): Flow {
-    const copy = saveFlow({ ...source, id: randomUUID(), name });
+    const copy = createIn({ ...source, id: randomUUID(), name }, name);
     cpSync(flowSkillsDir(source.id), flowSkillsDir(copy.id), { recursive: true });
     return copy;
 }
@@ -67,6 +162,7 @@ export function duplicateFlow(source: Flow, name: string): Flow {
 /** Takes the flow's directory — its own skills and all — and the watcher's mark. */
 export function removeFlow(id: string): void {
     rmSync(flowDir(id), { recursive: true, force: true });
+    forgetFlowFolders();
     // Nothing will read this flow's watermarks again: ids are minted fresh, so no
     // later flow inherits them, and left behind they only grow the file. There is
     // one per trigger, so the flow's share of the file is taken by prefix.
@@ -120,7 +216,8 @@ export function importFlowFile(path: string): Flow {
     if (typeof raw !== 'object' || raw === null || !Array.isArray((raw as { nodes?: unknown }).nodes)) {
         throw new Error(`${label} does not look like a Patchbay flow.`);
     }
-    const flow = saveFlow(parseFlow(raw, randomUUID(), label.replace(/\.json$/i, '') || 'Imported flow'));
+    const parsed = parseFlow(raw, randomUUID(), label.replace(/\.json$/i, '') || 'Imported flow');
+    const flow = createIn(parsed, parsed.name);
 
     for (const skill of bundledSkills(raw)) {
         // A global skill is only written where the name is free: this install's
@@ -199,6 +296,7 @@ export function migrateToFlowDirectories(): string[] {
         renameSync(join(dir, entry.name), join(target, FLOW_FILE));
         moved.push(id);
     }
+    if (moved.length > 0) forgetFlowFolders();
 
     const shared = join(workspaceRoot(), '.claude', 'skills');
     if (!existsSync(shared)) return moved;
@@ -216,4 +314,28 @@ export function migrateToFlowDirectories(): string[] {
     }
 
     return moved;
+}
+
+/**
+ * Those directories were named by the flow's id, and an id is a UUID — so the
+ * project location the welcome window shows was thirty-six characters of
+ * nothing. Name each one after its flow instead, once. A directory already
+ * called something else is left alone: only the app's own naming is being undone.
+ */
+export function adoptFolderNames(): string[] {
+    const renamed: string[] = [];
+    for (const flow of listFlows()) {
+        const folder = flowFolder(flow.id);
+        if (folder !== flow.id) continue;
+        const wanted = freeFolder(toFolderName(flow.name));
+        try {
+            renameSync(flowDirAt(folder), flowDirAt(wanted));
+        } catch {
+            // A directory the OS will not move stays where it is and still works.
+            continue;
+        }
+        forgetFlowFolders();
+        renamed.push(wanted);
+    }
+    return renamed;
 }

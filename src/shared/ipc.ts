@@ -26,6 +26,18 @@ export interface WorkspaceChange {
     skills: boolean;
 }
 
+/**
+ * A flow and the directory it sits in — what the welcome window lists. The
+ * folder is the user's to rename; the id inside the flow is not.
+ */
+export interface FlowEntry {
+    flow: Flow;
+    /** The directory's own name, under `flows/`. */
+    folder: string;
+    /** Absolute path to it — shown as the project location, and opened from there. */
+    path: string;
+}
+
 export interface InboxFolderOption {
     folderPath: string;
     /** Path relative to the Inbox — what a trigger stores. */
@@ -38,6 +50,8 @@ export interface InboxFolderOption {
 export interface Api {
     flows: {
         list(): Promise<Flow[]>;
+        /** Every flow with the directory it lives in, for the welcome window. */
+        entries(): Promise<FlowEntry[]>;
         get(id: string): Promise<Flow | null>;
         save(flow: Flow): Promise<Flow>;
         create(name: string): Promise<Flow>;
@@ -46,7 +60,21 @@ export interface Api {
          * and the skill library belonging to the flow it came from.
          */
         duplicate(flow: Flow, name: string): Promise<Flow>;
+        /**
+         * Change the flow's name only, leaving the graph on disk as it stands. Its
+         * own call because the other window is told about it, which an ordinary
+         * canvas save — one of many, and only ever about the flow on screen — is not.
+         */
+        rename(flowId: string, name: string): Promise<Flow>;
         remove(id: string): Promise<void>;
+        /**
+         * Rename the flow's directory. The flow's id is untouched, so runs already
+         * recorded and the watcher's marks go on pointing at it — only the path
+         * moves. Refused while a run is in flight, since that directory is its cwd.
+         */
+        setFolder(flowId: string, folder: string): Promise<FlowEntry>;
+        /** Show the flow's directory in the file manager. */
+        revealFolder(flowId: string): Promise<void>;
         /** Ask for a flow file, then add what it holds to the library as a new flow. */
         pickAndImport(): Promise<Flow | null>;
         /**
@@ -118,6 +146,13 @@ export interface Api {
         toggleMaximize(): Promise<void>;
         close(): Promise<void>;
         isMaximized(): Promise<boolean>;
+        /**
+         * Put this flow on a canvas: in the project window if one is open, else in
+         * a new one. The welcome window closes behind it, having done its job.
+         */
+        openFlow(flowId: string): Promise<void>;
+        /** Bring the welcome window up — the list of flows, and what to do with one. */
+        showWelcome(): Promise<void>;
     };
     runs: {
         list(limit: number): Promise<RunSummary[]>;
@@ -139,6 +174,8 @@ export interface Api {
         engineStatus(cb: (status: EngineStatus) => void): () => void;
         /** Whether the window is maximised, so the button can offer the opposite. */
         windowMaximized(cb: (maximized: boolean) => void): () => void;
+        /** The welcome window chose a flow, and this window is the one to show it. */
+        openFlow(cb: (flowId: string) => void): () => void;
         agentControl(cb: (status: AgentControlStatus) => void): () => void;
         /** An agent wrote to the workspace; what is on screen is now behind it. */
         workspaceChanged(cb: (change: WorkspaceChange) => void): () => void;
@@ -146,6 +183,9 @@ export interface Api {
     };
 
     about(): Promise<AboutInfo>;
+
+    /** Show the workspace — flows, skills, runs and logs — in the file manager. */
+    revealWorkspace(): Promise<void>;
 
     /** Put text on the clipboard — a token is not something to retype. */
     copyText(text: string): Promise<void>;
@@ -160,14 +200,19 @@ export interface Api {
 export const IPC = {
     about: 'app:about',
     openDeveloperSite: 'app:openDeveloperSite',
+    revealWorkspace: 'app:revealWorkspace',
     copyText: 'app:copyText',
 
     flowsList: 'flows:list',
+    flowsEntries: 'flows:entries',
     flowsGet: 'flows:get',
     flowsSave: 'flows:save',
     flowsCreate: 'flows:create',
     flowsDuplicate: 'flows:duplicate',
+    flowsRename: 'flows:rename',
     flowsRemove: 'flows:remove',
+    flowsSetFolder: 'flows:setFolder',
+    flowsReveal: 'flows:reveal',
     flowsPickAndImport: 'flows:pickAndImport',
     flowsPickAndExport: 'flows:pickAndExport',
 
@@ -199,6 +244,8 @@ export const IPC = {
     windowToggleMaximize: 'window:toggleMaximize',
     windowClose: 'window:close',
     windowIsMaximized: 'window:isMaximized',
+    windowOpenFlow: 'window:openFlow',
+    windowShowWelcome: 'window:showWelcome',
 
     runsList: 'runs:list',
     runsGet: 'runs:get',
@@ -213,6 +260,7 @@ export const IPC = {
     evtRunUpdated: 'evt:runUpdated',
     evtEngineStatus: 'evt:engineStatus',
     evtWindowMaximized: 'evt:windowMaximized',
+    evtOpenFlow: 'evt:openFlow',
     evtAgentControl: 'evt:agentControl',
     evtWorkspaceChanged: 'evt:workspaceChanged',
     evtLogged: 'evt:logged',

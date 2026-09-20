@@ -203,18 +203,21 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'list_flows',
         {
             title: 'List flows',
-            description: 'Every flow in this install, with its id, its size and when it was last written.',
+            description:
+                'Every flow in this install, with its id, its size, when it was last written and the directory it lives in — which is the working directory its nodes run in.',
             inputSchema: {},
             annotations: { readOnlyHint: true },
         },
         () =>
             json(
-                flowStore.listFlows().map((flow) => ({
+                flowStore.listFlowEntries().map(({ flow, folder, path }) => ({
                     id: flow.id,
                     name: flow.name,
                     updatedAt: flow.updatedAt,
                     nodeCount: flow.nodes.length,
                     edgeCount: flow.edges.length,
+                    folder,
+                    path,
                 })),
             ),
     );

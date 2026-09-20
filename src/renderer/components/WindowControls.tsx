@@ -24,7 +24,12 @@ function Glyph({ d }: { d: string }): JSX.Element {
     );
 }
 
-export function WindowControls(): JSX.Element {
+interface Props {
+    /** False where the window has a size of its own to keep — the welcome window. */
+    maximize?: boolean;
+}
+
+export function WindowControls({ maximize = true }: Props): JSX.Element {
     const [maximized, setMaximized] = useState(false);
 
     // The window can be maximised and restored without these buttons — a drag to
@@ -40,13 +45,15 @@ export function WindowControls(): JSX.Element {
             <button title="Minimise" aria-label="Minimise" onClick={() => void window.api.window.minimize()}>
                 <Glyph d={ICON.minimize}/>
             </button>
-            <button
-                title={maximized ? 'Restore' : 'Maximise'}
-                aria-label={maximized ? 'Restore' : 'Maximise'}
-                onClick={() => void window.api.window.toggleMaximize()}
-            >
-                <Glyph d={maximized ? ICON.restore : ICON.maximize}/>
-            </button>
+            {maximize && (
+                <button
+                    title={maximized ? 'Restore' : 'Maximise'}
+                    aria-label={maximized ? 'Restore' : 'Maximise'}
+                    onClick={() => void window.api.window.toggleMaximize()}
+                >
+                    <Glyph d={maximized ? ICON.restore : ICON.maximize}/>
+                </button>
+            )}
             <button className="close" title="Close" aria-label="Close" onClick={() => void window.api.window.close()}>
                 <Glyph d={ICON.close}/>
             </button>

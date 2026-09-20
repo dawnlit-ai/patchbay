@@ -17,26 +17,15 @@ import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './componen
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
 import { MailList } from './components/MailList';
-import { NameDialog } from './components/NameDialog';
+import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SkillLibrary } from './components/SkillLibrary';
 import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
+import { useTheme } from './theme';
 
 const PALETTE: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
-
-/** The three things the app asks a flow name for, and what each does with one. */
-type NamingMode = 'new' | 'rename' | 'duplicate';
-
-interface NamingSpec {
-    title: string;
-    confirmLabel: string;
-    /** Filled in and selected, so the common answer is one keystroke away. */
-    initial: string;
-
-    run(name: string): void;
-}
 
 /** Matches what main keeps, so the window never holds lines main has let go. */
 const LOG_LIMIT = 2_000;
@@ -55,35 +44,22 @@ function mergeLog(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
 
 const isProblem = (entry: LogEntry): boolean => entry.level === 'warn' || entry.level === 'error';
 
-type Theme = 'light' | 'dark';
-
-const THEME_KEY = 'patchbay.theme';
-
-/** Light unless the user has chosen otherwise; the choice is per machine. */
-function readTheme(): Theme {
-    try {
-        return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
-    } catch {
-        return 'light';
-    }
+/** Where the open flow is kept, for the rename dialog and the topbar's tooltip. */
+interface Place {
+    folder: string;
+    path: string;
 }
 
-/**
- * The stylesheet keys every colour off this attribute, so setting it is the whole
- * of switching themes. Done before React renders rather than in an effect: the
- * canvas reads the same tokens as it draws, and an effect would leave it a frame
- * behind.
- */
-function applyTheme(theme: Theme): void {
-    document.documentElement.dataset.theme = theme;
+interface Props {
+    /** The flow this window was opened for. Another arrives on `on.openFlow`. */
+    initialFlowId: string;
 }
 
-const initialTheme = readTheme();
-applyTheme(initialTheme);
-
-export function App(): JSX.Element {
-    const [flows, setFlows] = useState<Flow[]>([]);
+export function App({ initialFlowId }: Props): JSX.Element {
     const [flow, setFlow] = useState<Flow | null>(null);
+    const [place, setPlace] = useState<Place | null>(null);
+    /** Only for the Skills tab, which says what moving one would mean elsewhere. */
+    const [flowCount, setFlowCount] = useState(1);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[]>([]);
     const [settings, setSettings] = useState<Settings | null>(null);
@@ -94,8 +70,8 @@ export function App(): JSX.Element {
     const [testing, setTesting] = useState(false);
     /** An email is being dragged out of the mail list toward a trigger. */
     const [emailDrag, setEmailDrag] = useState(false);
-    /** Which name the dialog is asking for, if it is open. */
-    const [naming, setNaming] = useState<NamingMode | null>(null);
+    /** Open while the flow's name — and possibly its folder — is being changed. */
+    const [renaming, setRenaming] = useState(false);
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
     const [question, setQuestion] = useState<Question | null>(null);
     const answering = useRef<((ok: boolean) => void) | null>(null);
@@ -109,20 +85,10 @@ export function App(): JSX.Element {
     const consoleOnScreen = useRef(false);
     consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
     const [error, setError] = useState<string | null>(null);
-    const [theme, setThemeState] = useState<Theme>(initialTheme);
+    const [theme, setTheme] = useTheme();
     const [about, setAbout] = useState<AboutInfo | null>(null);
     /** The app's own MCP server, so Settings can show whether it is listening. */
     const [agentControl, setAgentControl] = useState<AgentControlStatus | null>(null);
-
-    const setTheme = useCallback((next: Theme) => {
-        applyTheme(next);
-        setThemeState(next);
-        try {
-            localStorage.setItem(THEME_KEY, next);
-        } catch {
-            // A machine that refuses storage still themes correctly for this session.
-        }
-    }, []);
 
     /** Every library belongs to a flow, so switching flows swaps the list. */
     const flowId = flow?.id ?? null;
@@ -140,26 +106,43 @@ export function App(): JSX.Element {
         void window.api.runs.list(100).then(setRuns);
     }, []);
 
+    /**
+     * Read one flow out of the workspace, with the directory it sits in. A flow
+     * that is not there any more was deleted from the welcome window or by an
+     * agent, and this window has nothing left to show: the start page comes back
+     * and takes its place.
+     */
+    const readFlow = useCallback(async (wantedId: string) => {
+        const entries = await window.api.flows.entries();
+        setFlowCount(entries.length);
+        const found = entries.find((entry) => entry.flow.id === wantedId);
+        if (!found) {
+            await window.api.window.showWelcome();
+            void window.api.window.close();
+            return;
+        }
+        setFlow(found.flow);
+        setPlace({ folder: found.folder, path: found.path });
+    }, []);
+
     // ── Boot ───────────────────────────────────────────────────────────────
 
     useEffect(() => {
         void (async () => {
-            const [loadedFlows, loadedSettings, loadedStatus, loadedAbout, loadedAgent] = await Promise.all([
-                window.api.flows.list(),
+            const [loadedSettings, loadedStatus, loadedAbout, loadedAgent] = await Promise.all([
                 window.api.settings.get(),
                 window.api.engine.status(),
                 window.api.about(),
                 window.api.agentControl.status(),
             ]);
             setAbout(loadedAbout);
-            setFlows(loadedFlows);
-            setFlow(loadedFlows[0] ?? null);
             setSettings(loadedSettings);
             setStatus(loadedStatus);
             setAgentControl(loadedAgent);
+            await readFlow(initialFlowId);
             refreshRuns();
         })();
-    }, [refreshRuns]);
+    }, [initialFlowId, readFlow, refreshRuns]);
 
     // Subscribed before the list is asked for, so nothing logged in between is lost;
     // mergeLog drops whatever arrives both ways.
@@ -218,30 +201,53 @@ export function App(): JSX.Element {
     }, [writeFlow]);
 
     /**
+     * The welcome window lists this flow while it is open here, and can rename or
+     * copy it from that list. So the debounce does not outlive this window losing
+     * focus: by the time another window is being clicked in, what it reads off
+     * disk is what is on the canvas.
+     */
+    useEffect(() => {
+        window.addEventListener('blur', flushSave);
+        return () => window.removeEventListener('blur', flushSave);
+    }, [flushSave]);
+
+    /**
      * An agent driving the app through its MCP server writes to the same files
-     * this window does, so the moment it does, what is on screen is behind. An
-     * edit of ours still in the queue goes out first; then the library is re-read
-     * and the flow on screen becomes whatever the store now holds under its id —
-     * or the first one left, if the agent deleted it.
+     * this window does, and so does the welcome window — the moment either does,
+     * what is on screen is behind. An edit of ours still in the queue goes out
+     * first; then the flow on screen becomes whatever the store now holds under
+     * its id.
      */
     useEffect(
         () =>
             window.api.on.workspaceChanged((change) => {
                 if (change.skills) refreshSkills();
-                if (!change.flows) return;
+                if (!change.flows || !flowId) return;
                 flushSave();
-                void window.api.flows.list().then((list) => {
-                    setFlows(list);
-                    setFlow((current) => list.find((f) => f.id === current?.id) ?? list[0] ?? null);
-                });
+                void readFlow(flowId);
             }),
-        [flushSave, refreshSkills],
+        [flowId, flushSave, readFlow, refreshSkills],
+    );
+
+    /** The welcome window picked another flow, and this is the window to show it. */
+    useEffect(
+        () =>
+            window.api.on.openFlow((nextId) => {
+                if (nextId === flowId) return;
+                // The hash is what this window was opened with and what a reload reads,
+                // so it follows the flow rather than naming the one it started on.
+                history.replaceState(null, '', `#flow=${encodeURIComponent(nextId)}`);
+                flushSave();
+                setSelectedNodeId(null);
+                setSelectedRun(null);
+                void readFlow(nextId);
+            }),
+        [flowId, flushSave, readFlow],
     );
 
     const updateFlow = useCallback(
         (next: Flow) => {
             setFlow(next);
-            setFlows((prev) => prev.map((f) => (f.id === next.id ? next : f)));
             queued.current = next;
             // Debounced: dragging fires a change per frame, and each save is a file write.
             if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -317,7 +323,7 @@ export function App(): JSX.Element {
      * Asks a yes/no question and resolves to the answer, the way `window.confirm`
      * returned one. Through ConfirmDialog rather than the native box, which leaves
      * the page unable to take focus again once it closes: clicks land nowhere and
-     * the flow `select` refuses to open until another window has had focus.
+     * a `select` refuses to open until another window has had focus.
      */
     const ask = (next: Question): Promise<boolean> =>
         new Promise((resolve) => {
@@ -342,100 +348,22 @@ export function App(): JSX.Element {
     };
 
     /**
-     * A queued write belongs to the flow being left, so anything about to put
-     * another one on screen sends it out first. That is all leaving takes now:
-     * every edit reaches disk, so there is never a draft to ask about.
+     * Both halves go through main rather than through the canvas's own save: the
+     * welcome window may be listing this flow while it is renamed, and it is told
+     * about these. Any edit still in the queue goes out first, so the rename lands
+     * on the graph as it stands here. Moving the folder is the half that can be
+     * refused — while a run is using it as a working directory, it says so.
      */
-    const selectFlow = (id: string): void => {
-        if (id === flow?.id) return;
-        const next = flows.find((f) => f.id === id);
-        if (!next) return;
-        flushSave();
-        setFlow(next);
-        setSelectedNodeId(null);
-    };
-
-    const newFlow = async (name: string): Promise<void> => {
-        setError(null);
-        flushSave();
-        try {
-            const created = await window.api.flows.create(name);
-            setFlows((prev) => [...prev, created]);
-            setFlow(created);
-            setSelectedNodeId(null);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
-    /** The name is part of the flow, so a rename saves itself like any other edit. */
-    const renameFlow = (name: string): void => {
-        if (!flow || name === flow.name) return;
-        updateFlow({ ...flow, name });
-    };
-
-    /**
-     * A copy of this flow, its own skill library included, opened in place of the
-     * original. The graph goes over as it stands on screen rather than as the file
-     * has it, so a copy taken mid-edit is the flow you were looking at.
-     */
-    const duplicateFlow = async (name: string): Promise<void> => {
+    const renameFlow = async (name: string, folder: string | null): Promise<void> => {
         if (!flow) return;
         setError(null);
         flushSave();
         try {
-            const copy = await window.api.flows.duplicate(flow, name);
-            setFlows((prev) => [...prev, copy]);
-            setFlow(copy);
-            setSelectedNodeId(null);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
-    /** Nothing in the app undoes this, so it asks first. */
-    const deleteFlow = async (): Promise<void> => {
-        if (!flow) return;
-        const ok = await ask({
-            title: 'Delete flow',
-            // Deleting the last flow is allowed: main seeds an empty one in its place,
-            // as on a fresh install. Said here so none appears unbidden.
-            message:
-                flows.length === 1
-                    ? `Delete “${flow.name}”? It is the only flow, so an empty one takes its place. This cannot be undone.`
-                    : `Delete “${flow.name}”? This cannot be undone.`,
-            confirmLabel: 'Delete',
-        });
-        if (!ok) return;
-        setError(null);
-        // A queued write belongs to the flow being deleted; left to fire, it would
-        // put the file straight back.
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = null;
-        queued.current = null;
-        try {
-            await window.api.flows.remove(flow.id);
-            const list = await window.api.flows.list();
-            setFlows(list);
-            setFlow(list[0] ?? null);
-            setSelectedNodeId(null);
-            // The watcher reads flows from disk, so a deleted one drops out of the
-            // count on its own — asking now just spares the pill the wait.
-            setStatus(await window.api.engine.status());
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
-    const loadFlow = async (): Promise<void> => {
-        setError(null);
-        try {
-            const imported = await window.api.flows.pickAndImport();
-            if (!imported) return;
-            flushSave();
-            setFlows((prev) => [...prev.filter((f) => f.id !== imported.id), imported]);
-            setFlow(imported);
-            setSelectedNodeId(null);
+            if (name !== flow.name) setFlow(await window.api.flows.rename(flow.id, name));
+            if (folder !== null && folder !== place?.folder) {
+                const moved = await window.api.flows.setFolder(flow.id, folder);
+                setPlace({ folder: moved.folder, path: moved.path });
+            }
         } catch (e) {
             setError((e as Error).message);
         }
@@ -511,66 +439,28 @@ export function App(): JSX.Element {
 
     const watching = status?.running === true;
 
-    /** What the one name dialog asks for, whichever of the three opened it. */
-    const namingModes: Record<NamingMode, NamingSpec> = {
-        new: {
-            title: 'New flow',
-            confirmLabel: 'Create',
-            initial: 'New flow',
-            run: (name) => void newFlow(name),
-        },
-        rename: {
-            title: 'Rename flow',
-            confirmLabel: 'Rename',
-            initial: flow.name,
-            run: renameFlow,
-        },
-        duplicate: {
-            title: 'Duplicate flow',
-            confirmLabel: 'Duplicate',
-            initial: `${flow.name} copy`,
-            run: (name) => void duplicateFlow(name),
-        },
-    };
-
     return (
         <div className="app">
             <div className="topbar">
-                <span className="brand">
-                    <span className="name">Patchbay</span>
-                    <span className="by">
-                        by <b>Dawnlit</b>
-                    </span>
-                </span>
-
-                <select value={flow.id} onChange={(e) => selectFlow(e.target.value)}>
-                    {flows.map((f) => (
-                        <option key={f.id} value={f.id}>
-                            {f.name}
-                        </option>
-                    ))}
-                </select>
-                <button className="ghost" title="Rename this flow" onClick={() => setNaming('rename')}>
-                    ✎ Rename
-                </button>
                 <button
                     className="ghost"
-                    title="Make a copy of this flow, its own skills included"
-                    onClick={() => setNaming('duplicate')}
+                    title="Back to your flows — the list, and everything you can do to one"
+                    onClick={() => void window.api.window.showWelcome()}
                 >
-                    ⧉ Duplicate
+                    ☰ Flows
                 </button>
-                <button className="danger" title="Delete this flow" onClick={() => void deleteFlow()}>
-                    Delete
+                <button
+                    className="flow-name"
+                    title={place ? `Rename this flow · ${place.path}` : 'Rename this flow'}
+                    onClick={() => setRenaming(true)}
+                >
+                    {flow.name}
                 </button>
-                <button onClick={() => setNaming('new')}>New flow</button>
-                <button title="Open a flow file and add it to the library" onClick={() => void loadFlow()}>
-                    Load…
-                </button>
+
+                <button onClick={() => setTesting(true)}>Test run…</button>
                 <button title="Write this flow out to a file" onClick={() => void exportFlow()}>
                     Export…
                 </button>
-                <button onClick={() => setTesting(true)}>Test run…</button>
                 <button
                     className="ghost"
                     title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
@@ -717,7 +607,7 @@ export function App(): JSX.Element {
                                 flowId={flow.id}
                                 flowName={flow.name}
                                 skills={skills}
-                                otherFlowCount={flows.length - 1}
+                                otherFlowCount={flowCount - 1}
                                 onRefresh={refreshSkills}
                                 onMoved={relabelSkill}
                             />
@@ -739,16 +629,15 @@ export function App(): JSX.Element {
                 </div>
             </div>
 
-            {naming && (
-                <NameDialog
-                    title={namingModes[naming].title}
-                    label="Flow name"
-                    initial={namingModes[naming].initial}
-                    confirmLabel={namingModes[naming].confirmLabel}
-                    onCancel={() => setNaming(null)}
-                    onConfirm={(name) => {
-                        setNaming(null);
-                        namingModes[naming].run(name);
+            {renaming && (
+                <RenameFlowDialog
+                    name={flow.name}
+                    folder={place?.folder ?? ''}
+                    path={place?.path ?? ''}
+                    onCancel={() => setRenaming(false)}
+                    onConfirm={(result) => {
+                        setRenaming(false);
+                        void renameFlow(result.name, result.folder);
                     }}
                 />
             )}

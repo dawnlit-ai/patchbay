@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { type InboxFolderOption, IPC } from '@shared/ipc';
 import type { Flow } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
@@ -10,14 +10,16 @@ import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
-import { logsDir, runsDir } from './paths';
+import { logsDir, runsDir, workspaceRoot } from './paths';
+import { openFlow, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 
 let watcher: Watcher | null = null;
 
-function broadcast(channel: string, payload: unknown): void {
+function broadcast(channel: string, payload: unknown, except?: WebContents): void {
     for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send(channel, payload);
+        if (win.isDestroyed() || win.webContents === except) continue;
+        win.webContents.send(channel, payload);
     }
 }
 
@@ -65,6 +67,27 @@ function handle<T extends unknown[], R>(
 }
 
 /**
+ * A write that changes which flows exist, or where one lives. Two windows show
+ * the same workspace now — the start page and the canvas — so whichever did not
+ * make the change is told to re-read it, exactly as both are told about an
+ * agent's writes. The window that asked already has the answer in its reply.
+ */
+function handleFlowWrite<T extends unknown[], R>(
+    channel: string,
+    fn: (...args: T) => R | Promise<R>,
+): void {
+    ipcMain.handle(channel, async (event, ...args) => {
+        try {
+            const result = await fn(...(args as T));
+            broadcast(IPC.evtWorkspaceChanged, { flows: true, skills: false }, event.sender);
+            return result;
+        } catch (e) {
+            throw new Error(e instanceof Error ? e.message : String(e));
+        }
+    });
+}
+
+/**
  * Acts on the window the call came from rather than whichever one holds focus, so
  * a title-bar button always moves the bar that was clicked.
  */
@@ -98,18 +121,34 @@ export function registerIpc(): void {
             developer: 'Dawnlit',
             developerUrl: DEVELOPER_URL,
             license: 'AGPL-3.0-or-later',
+            workspace: workspaceRoot(),
         }),
     );
     handle(IPC.openDeveloperSite, () => shell.openExternal(DEVELOPER_URL));
+    handle(IPC.revealWorkspace, () => shell.openPath(workspaceRoot()));
     handle(IPC.copyText, (text: string) => clipboard.writeText(text));
 
     handle(IPC.flowsList, () => flowStore.listFlows());
+    handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
     handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
     handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));
-    handle(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
-    handle(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
-    handle(IPC.flowsRemove, (id: string) => flowStore.removeFlow(id));
-    handle(IPC.flowsPickAndImport, async () => {
+    handleFlowWrite(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
+    handleFlowWrite(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
+    handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
+    handleFlowWrite(IPC.flowsRemove, (id: string) => flowStore.removeFlow(id));
+    handleFlowWrite(IPC.flowsSetFolder, (id: string, folder: string) => {
+        // The directory being renamed is the working directory of anything running
+        // in it. Moving it mid-run pulls the ground out from under an agent that
+        // is writing files there, so the answer is "not now" rather than "sorry".
+        if (getWatcher().status().activeRunIds.length > 0) {
+            throw new Error(
+                'A run is in progress. That folder is the directory it is running in, so it cannot be renamed until the run finishes.',
+            );
+        }
+        return flowStore.setFlowFolder(id, folder);
+    });
+    handle(IPC.flowsReveal, (id: string) => shell.openPath(flowStore.flowLocation(id)));
+    handleFlowWrite(IPC.flowsPickAndImport, async () => {
         const picked = await dialog.showOpenDialog({
             title: 'Open a flow',
             filters: FLOW_FILTERS,
@@ -197,6 +236,8 @@ export function registerIpc(): void {
         else win.maximize();
     });
     handleWindow(IPC.windowClose, (win) => win.close());
+    handle(IPC.windowOpenFlow, (flowId: string) => openFlow(flowId));
+    handle(IPC.windowShowWelcome, () => showWelcome());
     ipcMain.handle(
         IPC.windowIsMaximized,
         (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,

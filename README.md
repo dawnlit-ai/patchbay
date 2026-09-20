@@ -29,6 +29,25 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
 
+## The welcome window
+
+The app opens on a start page rather than a canvas, because "which flow?" is a question the canvas cannot draw an
+answer to. It lists every flow this install holds — its size, when it was last edited, whether a trigger in it is
+being polled — and is a window of its own, sized for a list rather than for the canvas it hands over to.
+
+From it you can open a flow, start a new one, duplicate one, rename one, export or delete one, and open a flow file
+somebody sent you. Each flow shows the **project folder** it lives in, with a button that opens that folder in
+Finder or Explorer — it holds the flow's own file and the skills only that flow can reach, and it is the working
+directory its Processors run in.
+
+Renaming asks a second question: should the folder follow the name? It is offered ticked when the folder is still the
+one the app chose, and left alone when you have named it yourself. Either way the flow's **id** does not move — runs
+already recorded, the watcher's marks and anything an agent holds go on pointing at the same flow. Only the path
+changes, and a rename is refused outright while a run is using that directory.
+
+**☰ Flows** in the canvas's top bar brings the start page back. One canvas window at a time: opening another flow
+swaps the one on screen, so the runs and the console below it always belong to the flow above them.
+
 ## The run log
 
 Every email produces a `Run`, and every node it touches produces a `Pass`:
@@ -125,7 +144,8 @@ flow, wire it, write a skill, read it back — and prints a line per check.
 
 ## First run
 
-1. **Start watching** is off. Click the trigger node and choose a mailbox — the account list comes from your Outlook
+1. The welcome window opens with no flows the first time. **New flow** gives you a canvas and a folder of its own.
+   Drag an **Outlook Trigger** onto the canvas and choose a mailbox — the account list comes from your Outlook
    client.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
@@ -145,7 +165,7 @@ the Skills tab switches between them:
 
 ```
 <userData>/workspace/global/skills/<name>/SKILL.md            shared by every flow
-<userData>/workspace/flows/<flow-id>/.claude/skills/<name>/SKILL.md   this flow only
+<userData>/workspace/flows/<folder>/.claude/skills/<name>/SKILL.md   this flow only
 ```
 
 **Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
