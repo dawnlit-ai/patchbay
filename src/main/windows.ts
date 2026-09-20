@@ -1,13 +1,13 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
-import { IPC } from '@shared/ipc';
+import { IPC, type OpenWhere } from '@shared/ipc';
 
 /**
- * Two windows, one renderer build. The welcome window is the app's start page —
- * the flows this install holds, and everything you can do to one without opening
- * it. The project window is the canvas for the flow you chose, and it is the only
- * one of the two that needs the room, which is why they are separate windows
- * rather than a screen the canvas has to make space for.
+ * Two kinds of window, one renderer build. The welcome window is the app's start
+ * page — the flows this install holds, and everything you can do to one without
+ * opening it. A canvas window holds one flow being drawn, and there may be
+ * several of them: the canvas is the half that wants the desk, which is why the
+ * start page is a window rather than a screen it has to make room for.
  *
  * Which is which is the hash the window loads with, read before React renders,
  * so neither paints the other's layout first.
@@ -21,14 +21,26 @@ const ZOOM_STEP = 0.5;
 const ZOOM_MIN = -3;
 const ZOOM_MAX = 6;
 
+/** How far a second canvas sits from the one it was opened beside. */
+const CASCADE_STEP = 34;
+
+/** A canvas window, and the flow on it. */
+interface Project {
+    win: BrowserWindow;
+    flowId: string;
+}
+
 let welcome: BrowserWindow | null = null;
-let project: BrowserWindow | null = null;
+/** Every canvas open, the one used most recently first. */
+const projects: Project[] = [];
 
 interface Frame {
     width: number;
     height: number;
     minWidth: number;
     minHeight: number;
+    x?: number;
+    y?: number;
     resizable?: boolean;
     maximizable?: boolean;
 }
@@ -93,6 +105,43 @@ function raise(win: BrowserWindow): void {
     win.focus();
 }
 
+/**
+ * Keeps the list in the order the windows were last used, so the canvas the
+ * welcome window offers to take over is the one whoever is choosing was just
+ * looking at, rather than whichever opened first.
+ */
+function track(project: Project): void {
+    projects.unshift(project);
+    project.win.on('focus', () => {
+        const at = projects.indexOf(project);
+        if (at <= 0) return;
+        projects.splice(at, 1);
+        projects.unshift(project);
+    });
+    project.win.on('closed', () => {
+        const at = projects.indexOf(project);
+        if (at !== -1) projects.splice(at, 1);
+    });
+}
+
+/**
+ * Where a second canvas goes. Left to itself Electron centres a window, which
+ * puts it exactly on top of the one it was opened beside — from the front, a
+ * second window and nothing happening look the same. So it steps off the last
+ * canvas, and is pushed back inside that display rather than over its edge.
+ */
+function beside(frame: Frame): Frame {
+    const from = projects[0]?.win;
+    if (!from || from.isDestroyed() || from.isMaximized() || from.isFullScreen()) return frame;
+    const bounds = from.getBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    return {
+        ...frame,
+        x: Math.max(area.x, Math.min(bounds.x + CASCADE_STEP, area.x + area.width - frame.width)),
+        y: Math.max(area.y, Math.min(bounds.y + CASCADE_STEP, area.y + area.height - frame.height)),
+    };
+}
+
 /** The start page: opened at launch, and again whenever a flow is asked for. */
 export function showWelcome(): void {
     if (welcome && !welcome.isDestroyed()) {
@@ -109,25 +158,38 @@ export function showWelcome(): void {
 }
 
 /**
- * Put a flow on the canvas. One project window at a time: the canvas, the runs
- * and the console are one workspace's worth of state, and a second copy of them
- * would be two windows disagreeing about what just ran. So an open one switches
- * flows in place, and the start window closes behind it either way.
+ * Put a flow on a canvas. A flow already on one raises that window instead of
+ * opening a second copy: two canvases on one graph would be two editors of one
+ * file, each saving over the other. Otherwise `where` decides — the canvas last
+ * used takes this flow in place of its own, or a new one opens beside it — and
+ * with no canvas open at all there is nothing to decide. The runs and the
+ * console are the whole workspace's, so either answer shows the same ones.
  */
-export function openFlow(flowId: string): void {
-    if (project && !project.isDestroyed()) {
-        project.webContents.send(IPC.evtOpenFlow, flowId);
-        raise(project);
+export function openFlow(flowId: string, where: OpenWhere = 'current'): void {
+    const already = projects.find((p) => p.flowId === flowId);
+    const current = projects[0];
+    if (already) {
+        raise(already.win);
+    } else if (where === 'current' && current) {
+        // The window keeps its place in the list; only the flow on it changes.
+        current.flowId = flowId;
+        current.win.webContents.send(IPC.evtOpenFlow, flowId);
+        raise(current.win);
     } else {
-        project = make({ width: 1560, height: 980, minWidth: 1100, minHeight: 700 });
-        project.on('closed', () => {
-            project = null;
-        });
-        load(project, `flow=${encodeURIComponent(flowId)}`);
+        // `beside` reads the canvas in front, so it is asked before the new one
+        // takes that place.
+        const win = make(beside({ width: 1560, height: 980, minWidth: 1100, minHeight: 700 }));
+        track({ win, flowId });
+        load(win, `flow=${encodeURIComponent(flowId)}`);
     }
     // Closed after the canvas exists, so the app is never momentarily windowless —
     // which on Windows and Linux is what quitting looks like.
     if (welcome && !welcome.isDestroyed()) welcome.close();
+}
+
+/** The flow on each canvas, the window last used first. */
+export function openFlows(): string[] {
+    return projects.map((p) => p.flowId);
 }
 
 export function anyWindowOpen(): boolean {

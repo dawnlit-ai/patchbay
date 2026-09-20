@@ -27,6 +27,12 @@ export interface WorkspaceChange {
 }
 
 /**
+ * Which canvas a flow opens on when one is already up: the window last used,
+ * whose flow it replaces, or a second window beside it.
+ */
+export type OpenWhere = 'current' | 'new';
+
+/**
  * A flow and the directory it sits in — what the welcome window lists. The
  * folder is the user's to rename; the id inside the flow is not.
  */
@@ -142,10 +148,18 @@ export interface Api {
         close(): Promise<void>;
         isMaximized(): Promise<boolean>;
         /**
-         * Put this flow on a canvas: in the project window if one is open, else in
-         * a new one. The welcome window closes behind it, having done its job.
+         * Put this flow on a canvas. `where` decides between the canvas last used
+         * and a second one; with no canvas open at all it is a new one either way,
+         * and a flow already on one raises that window rather than opening it
+         * twice. The welcome window closes behind it, having done its job.
          */
-        openFlow(flowId: string): Promise<void>;
+        openFlow(flowId: string, where?: OpenWhere): Promise<void>;
+        /**
+         * The flow on each canvas window, the one last used first. Empty when the
+         * welcome window is alone — which is what makes opening one a question
+         * worth asking, or not.
+         */
+        openFlows(): Promise<string[]>;
         /** Bring the welcome window up — the list of flows, and what to do with one. */
         showWelcome(): Promise<void>;
     };
@@ -239,6 +253,7 @@ export const IPC = {
     windowClose: 'window:close',
     windowIsMaximized: 'window:isMaximized',
     windowOpenFlow: 'window:openFlow',
+    windowOpenFlows: 'window:openFlows',
     windowShowWelcome: 'window:showWelcome',
 
     runsList: 'runs:list',

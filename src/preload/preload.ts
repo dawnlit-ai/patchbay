@@ -83,7 +83,8 @@ const api: Api = {
         toggleMaximize: () => call(IPC.windowToggleMaximize),
         close: () => call(IPC.windowClose),
         isMaximized: () => call(IPC.windowIsMaximized),
-        openFlow: (flowId) => call(IPC.windowOpenFlow, flowId),
+        openFlow: (flowId, where) => call(IPC.windowOpenFlow, flowId, where),
+        openFlows: () => call(IPC.windowOpenFlows),
         showWelcome: () => call(IPC.windowShowWelcome),
     },
     runs: {

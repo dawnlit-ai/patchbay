@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
-import { type InboxFolderOption, IPC } from '@shared/ipc';
+import { type InboxFolderOption, IPC, type OpenWhere } from '@shared/ipc';
 import type { Flow } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
@@ -11,7 +11,7 @@ import * as outlook from './outlook/bridge';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
-import { openFlow, showWelcome } from './windows';
+import { openFlow, openFlows, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 
 let watcher: Watcher | null = null;
@@ -220,7 +220,8 @@ export function registerIpc(): void {
         else win.maximize();
     });
     handleWindow(IPC.windowClose, (win) => win.close());
-    handle(IPC.windowOpenFlow, (flowId: string) => openFlow(flowId));
+    handle(IPC.windowOpenFlow, (flowId: string, where?: OpenWhere) => openFlow(flowId, where));
+    handle(IPC.windowOpenFlows, () => openFlows());
     handle(IPC.windowShowWelcome, () => showWelcome());
     ipcMain.handle(
         IPC.windowIsMaximized,

@@ -45,8 +45,11 @@ one the app chose, and left alone when you have named it yourself. Either way th
 already recorded, the watcher's marks and anything an agent holds go on pointing at the same flow. Only the path
 changes, and a rename is refused outright while a run is using that directory.
 
-**☰ Flows** in the canvas's top bar brings the start page back. One canvas window at a time: opening another flow
-swaps the one on screen, so the runs and the console below it always belong to the flow above them.
+**☰ Flows** in the canvas's top bar brings the start page back. Opening a flow while a canvas is already up on a
+different one asks where it should go: in that window, in place of the flow on it, or in a second canvas beside it.
+A flow already open raises the window holding it rather than drawing it twice — two canvases on one graph would be
+two editors of one file — and with no canvas up there is nothing to ask. The runs and the console belong to the
+workspace rather than to the flow above them, so every canvas shows all of both, each run named for the flow it ran.
 
 ## The run log
 

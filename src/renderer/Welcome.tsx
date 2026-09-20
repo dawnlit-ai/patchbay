@@ -6,6 +6,7 @@ import type { AboutInfo, EngineStatus } from '@shared/settings';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { NameDialog } from './components/NameDialog';
+import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { WindowControls } from './components/WindowControls';
 import { useTheme } from './theme';
@@ -23,6 +24,8 @@ type Sort = 'recent' | 'name';
 
 type Dialog =
     | { kind: 'new' }
+    /** A flow chosen while a canvas is up on another: which window it lands on. */
+    | { kind: 'open'; flow: Flow; current: string }
     | { kind: 'duplicate'; entry: FlowEntry }
     | { kind: 'rename'; entry: FlowEntry }
     | { kind: 'delete'; entry: FlowEntry };
@@ -146,14 +149,32 @@ export function Welcome(): JSX.Element {
         }
     };
 
-    /** Hands the flow to the canvas window, which this one then makes way for. */
-    const open = (flowId: string): void => {
-        void window.api.window.openFlow(flowId);
+    /**
+     * Hands the flow to a canvas, which this window then makes way for. Which
+     * canvas is a question only when one is up on a different flow, and it is
+     * asked rather than guessed: taking that window over and drawing both flows
+     * at once are both ordinary things to want. A flow already on a canvas raises
+     * the window holding it, and with nothing open there is nothing to ask.
+     */
+    const open = async (flow: Flow): Promise<void> => {
+        const canvases = await window.api.window.openFlows();
+        const current = canvases[0];
+        if (current === undefined || canvases.includes(flow.id)) {
+            await window.api.window.openFlow(flow.id);
+            return;
+        }
+        setDialog({
+            kind: 'open',
+            flow,
+            // The list is re-read whenever this window is looked at, so the flow on
+            // that canvas is in it; a flow deleted from under us is the exception.
+            current: entries?.find((e) => e.flow.id === current)?.flow.name ?? 'Another flow',
+        });
     };
 
     /** A flow you just made is one you meant to draw, so it opens on the canvas. */
     const create = (name: string): Promise<void> =>
-        attempt(async () => open((await window.api.flows.create(name)).id));
+        attempt(async () => open(await window.api.flows.create(name)));
 
     const duplicate = (entry: FlowEntry, name: string): Promise<void> =>
         attempt(async () => {
@@ -186,7 +207,7 @@ export function Welcome(): JSX.Element {
     const importFlow = (): Promise<void> =>
         attempt(async () => {
             const imported = await window.api.flows.pickAndImport();
-            if (imported) open(imported.id);
+            if (imported) await open(imported);
         });
 
     // ── Keyboard ───────────────────────────────────────────────────────────
@@ -205,7 +226,7 @@ export function Welcome(): JSX.Element {
      * same list opens on the row itself now, where a right-click asked for it.
      */
     const actions = (entry: FlowEntry): MenuItem[] => [
-        { label: 'Open', onSelect: () => open(entry.flow.id) },
+        { label: 'Open', onSelect: () => void open(entry.flow) },
         { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
         { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
         { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
@@ -316,7 +337,7 @@ export function Welcome(): JSX.Element {
                                 tabIndex={0}
                                 className={`flow-row${entry === selected ? ' active' : ''}`}
                                 onClick={() => setSelectedId(entry.flow.id)}
-                                onDoubleClick={() => open(entry.flow.id)}
+                                onDoubleClick={() => void open(entry.flow)}
                                 onContextMenu={(e) => {
                                     e.preventDefault();
                                     setSelectedId(entry.flow.id);
@@ -331,7 +352,7 @@ export function Welcome(): JSX.Element {
                                     });
                                 }}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter') open(entry.flow.id);
+                                    if (e.key === 'Enter') void open(entry.flow);
                                     else if (e.key === 'ArrowDown') move(entry, 1);
                                     else if (e.key === 'ArrowUp') move(entry, -1);
                                     else return;
@@ -379,6 +400,19 @@ export function Welcome(): JSX.Element {
                     onConfirm={(name) => {
                         setDialog(null);
                         void create(name);
+                    }}
+                />
+            )}
+
+            {dialog?.kind === 'open' && (
+                <OpenWhereDialog
+                    name={dialog.flow.name}
+                    current={dialog.current}
+                    onCancel={() => setDialog(null)}
+                    onChoose={(where) => {
+                        const { flow } = dialog;
+                        setDialog(null);
+                        void window.api.window.openFlow(flow.id, where);
                     }}
                 />
             )}
