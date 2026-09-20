@@ -1,11 +1,12 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
-import type {
-    AboutInfo,
-    AgentControlSettings,
-    AgentControlStatus,
-    McpServerSetting,
-    Settings,
+import {
+    type AboutInfo,
+    type AgentControlSettings,
+    type AgentControlStatus,
+    CONCURRENT_RUNS_RANGE,
+    type McpServerSetting,
+    type Settings,
 } from '@shared/settings';
 
 interface Props {
@@ -88,6 +89,22 @@ export function SettingsPanel({
                     onChange={(e) => patch({ pollingEnabled: e.target.checked })}
                 />
                 Allow flows to watch mailboxes
+            </label>
+
+            <label className="field">
+                <span>Runs at once</span>
+                <input
+                    type="number"
+                    min={CONCURRENT_RUNS_RANGE.min}
+                    max={CONCURRENT_RUNS_RANGE.max}
+                    value={draft.maxConcurrentRuns}
+                    onChange={(e) => patch({ maxConcurrentRuns: Number(e.target.value) })}
+                />
+                <div className="hint">
+                    How many runs may be under way together. Different flows overlap; one flow always takes
+                    its own mail in order, an email at a time. Every Outlook call still queues, so a high
+                    number mostly buys overlap between flows that are thinking rather than reading mail.
+                </div>
             </label>
 
             <div className="section-title">MCP servers</div>

@@ -22,6 +22,13 @@ export interface AgentControlSettings {
 
 export const DEFAULT_AGENT_CONTROL_PORT = 8787;
 
+/**
+ * What the concurrency cap may be set to. A run is mostly spent waiting on
+ * Claude, so several overlap comfortably; past a handful they mostly queue
+ * behind one another at Outlook, whose client takes one caller at a time.
+ */
+export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
+
 export interface Settings {
     /**
      * The `claude` executable the Agent SDK drives. Empty resolves the SDK's own
@@ -41,6 +48,11 @@ export interface Settings {
     defaultModel: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
+    /**
+     * How many runs may be under way at once. Runs of different flows overlap;
+     * one flow never runs twice at once, whatever this is set to.
+     */
+    maxConcurrentRuns: number;
     /** The app's own MCP server, for an agent driving Patchbay from outside it. */
     agentControl: AgentControlSettings;
 }
@@ -52,6 +64,7 @@ export function defaultSettings(): Settings {
         mcpServers: [],
         defaultModel: 'claude-opus-5',
         pollingEnabled: true,
+        maxConcurrentRuns: 3,
         agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
     };
 }

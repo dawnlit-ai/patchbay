@@ -5,7 +5,7 @@ import { getFlow, listFlows } from '../store/flowStore';
 import { getSettings } from '../store/settingsStore';
 import { findTriggers, type Flow, type FlowNode, triggerConfig, type TriggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { EngineStatus } from '@shared/settings';
+import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
 import { executeRun } from './engine';
 import { log } from '../log';
@@ -13,8 +13,9 @@ import { log } from '../log';
 /**
  * Turns "an email arrived" into "a run happened". The bridge offers no push
  * notification, so arrival means polling and remembering the message ids already
- * seen. Runs execute one at a time — an agent run takes minutes and drives the
- * same Outlook client the user is reading mail in.
+ * seen. Several runs execute at once, up to the cap in Settings, but never two of
+ * one flow: a flow's directory is the working directory of every run of it, and
+ * its mail is handled in the order it arrived.
  */
 
 interface Watermark {
@@ -41,6 +42,12 @@ interface WatchedTrigger {
     config: TriggerConfig;
 }
 
+/** A run under way: what stops it, and the flow whose turn it holds. */
+interface ActiveRun {
+    controller: AbortController;
+    flowId: string;
+}
+
 interface QueueItem {
     /**
      * Minted here rather than at execution, so whoever queued the run has its id
@@ -57,9 +64,8 @@ interface QueueItem {
 export class Watcher {
     private timer: NodeJS.Timeout | null = null;
     private queue: QueueItem[] = [];
-    private draining = false;
     private polling = false;
-    private active = new Map<string, AbortController>();
+    private active = new Map<string, ActiveRun>();
     private lastPollAt?: string;
     private lastError?: string;
     private lastPollPerTrigger = new Map<string, number>();
@@ -131,7 +137,15 @@ export class Watcher {
     }
 
     cancel(runId: string): void {
-        this.active.get(runId)?.abort();
+        this.active.get(runId)?.controller.abort();
+    }
+
+    /**
+     * Whether a run of this flow is under way. Its directory is the working
+     * directory of that run, so whoever wants to move one asks first.
+     */
+    isFlowRunning(flowId: string): boolean {
+        return this.active.values().some((run) => run.flowId === flowId);
     }
 
     // ── Polling ────────────────────────────────────────────────────────────
@@ -149,7 +163,7 @@ export class Watcher {
         if (!triggerConfig(node)) throw new Error(`No trigger ${nodeId} in ${flow.name}`);
         const runId = randomUUID();
         this.queue.push({ runId, flow, startNodeId: nodeId, email, trigger: 'manual' });
-        void this.drain();
+        this.pump();
         return runId;
     }
 
@@ -265,7 +279,7 @@ export class Watcher {
             if (changed) writeJson(watermarkFile(), marks);
             this.lastPollAt = new Date().toISOString();
             this.onStatus();
-            void this.drain();
+            this.pump();
         } finally {
             this.polling = false;
         }
@@ -273,56 +287,87 @@ export class Watcher {
 
     // ── Execution ──────────────────────────────────────────────────────────
 
-    private async drain(): Promise<void> {
-        if (this.draining) return;
-        this.draining = true;
+    /**
+     * How many runs may be under way at once. A run spends most of its life
+     * waiting on Claude, so several flows overlap comfortably; the cap is what
+     * keeps a morning's backlog from starting an agent per email.
+     */
+    private limit(): number {
+        const { min, max } = CONCURRENT_RUNS_RANGE;
+        const wanted = Math.trunc(getSettings().maxConcurrentRuns);
+        return Number.isFinite(wanted) ? Math.min(max, Math.max(min, wanted)) : min;
+    }
+
+    /**
+     * Start whatever the cap allows. Queue order is kept per flow rather than
+     * across the whole queue: an item whose flow is already running is passed
+     * over rather than holding up the ones behind it, which is the point of the
+     * cap — otherwise one slow flow would still be every other flow's queue.
+     */
+    private pump(): void {
+        let started = false;
+        while (this.active.size < this.limit()) {
+            const busy = new Set(this.active.values().map((run) => run.flowId));
+            const next = this.queue.findIndex((item) => !busy.has(item.flow.id));
+            // Everything left belongs to a flow that is running; its turn comes
+            // when that run finishes and pumps again.
+            if (next === -1) break;
+
+            const item = this.queue[next];
+            if (!item) break;
+            this.queue.splice(next, 1);
+
+            const controller = new AbortController();
+            // Registered here rather than inside `execute`, so the next turn of
+            // this loop counts the run and the cap holds.
+            this.active.set(item.runId, { controller, flowId: item.flow.id });
+            void this.execute(item, controller);
+            started = true;
+        }
+        if (started) this.onStatus();
+    }
+
+    /** One run, start to finish. Never throws: the caller is nobody. */
+    private async execute(item: QueueItem, controller: AbortController): Promise<void> {
+        // The id came with the item, so `cancel` can find the controller from the
+        // moment the run starts — and whoever queued it already has it.
+        const runId = item.runId;
+        const subject = `"${item.email.subject || '(no subject)'}"`;
+        const test = item.trigger === 'manual' ? ' (test)' : '';
+        log.info('run', `Started ${subject} in ${item.flow.name}${test}`, { runId });
         try {
-            while (this.queue.length > 0) {
-                const item = this.queue.shift();
-                if (!item) break;
-                // The id came with the item, so `cancel` can find the controller from
-                // the moment the run starts — and whoever queued it already has it.
-                const runId = item.runId;
-                const controller = new AbortController();
-                this.active.set(runId, controller);
-                this.onStatus();
-                const subject = `"${item.email.subject || '(no subject)'}"`;
-                const test = item.trigger === 'manual' ? ' (test)' : '';
-                log.info('run', `Started ${subject} in ${item.flow.name}${test}`, { runId });
-                try {
-                    const run = await executeRun({
-                        runId,
-                        flow: item.flow,
-                        startNodeId: item.startNodeId,
-                        email: item.email,
-                        trigger: item.trigger,
-                        signal: controller.signal,
-                        onUpdate: (update) => this.onRun(update),
-                    });
-                    const tally = `${run.passes.length} pass(es) · $${run.totalCostUsd.toFixed(3)}`;
-                    if (run.status === 'failed') {
-                        log.error('run', `Failed ${subject}: ${run.error ?? 'no reason recorded'}`, {
-                            runId,
-                            detail: tally,
-                        });
-                    } else {
-                        // A path that ran off an unconnected port still completes, and
-                        // says so in `error`; that sentence is worth keeping here too.
-                        log.info('run', `Finished ${subject}: ${run.disposition ?? 'completed'} · ${tally}`, {
-                            runId,
-                            detail: run.error,
-                        });
-                    }
-                } catch (e) {
-                    this.lastError = e instanceof Error ? e.message : String(e);
-                    log.error('run', `${subject} could not run: ${this.lastError}`, { runId });
-                } finally {
-                    this.active.delete(runId);
-                    this.onStatus();
-                }
+            const run = await executeRun({
+                runId,
+                flow: item.flow,
+                startNodeId: item.startNodeId,
+                email: item.email,
+                trigger: item.trigger,
+                signal: controller.signal,
+                onUpdate: (update) => this.onRun(update),
+            });
+            const tally = `${run.passes.length} pass(es) · $${run.totalCostUsd.toFixed(3)}`;
+            if (run.status === 'failed') {
+                log.error('run', `Failed ${subject}: ${run.error ?? 'no reason recorded'}`, {
+                    runId,
+                    detail: tally,
+                });
+            } else {
+                // A path that ran off an unconnected port still completes, and says
+                // so in `error`; that sentence is worth keeping here too.
+                log.info('run', `Finished ${subject}: ${run.disposition ?? 'completed'} · ${tally}`, {
+                    runId,
+                    detail: run.error,
+                });
             }
+        } catch (e) {
+            this.lastError = e instanceof Error ? e.message : String(e);
+            log.error('run', `${subject} could not run: ${this.lastError}`, { runId });
         } finally {
-            this.draining = false;
+            this.active.delete(runId);
+            this.onStatus();
+            // A turn is free now — this flow's next email, or whatever the cap was
+            // holding back.
+            this.pump();
         }
     }
 }

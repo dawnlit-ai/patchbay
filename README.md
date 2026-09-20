@@ -281,12 +281,15 @@ canvas interaction is translated straight back into a `Flow` edit. There is no s
 **Ports are derived from config, not stored.** Editing a categorizer's categories moves its ports with it, and the
 engine treats an edge leaving a port that no longer exists as a dead end it reports, rather than a silent stall.
 
-**Runs execute one at a time, and every Outlook call is queued.** Outlook's COM automation is single-threaded — a second
-script asking for the client while one is mid-call blocks until the first finishes, and if that one is slow the second
-burns its whole timeout waiting. (This is not theoretical: two processes talking to Outlook at once is what produced the
-first `powershell run exceeded its 120000ms
-budget` during development.) So the poller, the inspector's folder lookup and a skill's `read_email` all funnel through
-one queue in `main/outlook/bridge.ts`.
+**Flows run in parallel, and every Outlook call is queued.** Up to *Runs at once* runs are under way together — three
+by default, from Settings — and never two of one flow: a flow's directory is the working directory of every run of it,
+and its mail is handled in the order it arrived. So one long agent run holds up the rest of its own flow's mail and
+nothing else. What does not parallelise is Outlook. Its COM automation is single-threaded — a second script asking for
+the client while one is mid-call blocks until the first finishes, and if that one is slow the second burns its whole
+timeout waiting. (This is not theoretical: two processes talking to Outlook at once is what produced the first
+`powershell run exceeded its 120000ms budget` during development.) So the poller, the inspector's folder lookup and a
+skill's `read_email` all funnel through one queue in `main/outlook/bridge.ts`: overlapping runs overlap while they are
+thinking, and take turns the moment they touch the mailbox.
 
 ## Costs
 

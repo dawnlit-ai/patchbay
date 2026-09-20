@@ -134,9 +134,10 @@ export function registerIpc(): void {
         // The directory being renamed is the working directory of anything running
         // in it. Moving it mid-run pulls the ground out from under an agent that
         // is writing files there, so the answer is "not now" rather than "sorry".
-        if (getWatcher().status().activeRunIds.length > 0) {
+        // Only this flow's own runs count: another flow's is in another directory.
+        if (getWatcher().isFlowRunning(id)) {
             throw new Error(
-                'A run is in progress. That folder is the directory it is running in, so it cannot be renamed until the run finishes.',
+                'A run of this flow is in progress. That folder is the directory it is running in, so it cannot be renamed until the run finishes.',
             );
         }
         return flowStore.setFlowFolder(id, folder);
