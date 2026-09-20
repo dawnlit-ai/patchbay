@@ -209,7 +209,6 @@ export function Welcome(): JSX.Element {
         { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
         { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
         { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
-        { label: 'Export…', onSelect: () => void attempt(() => window.api.flows.pickAndExport(entry.flow)) },
         { label: 'Delete', separator: true, danger: true, onSelect: () => setDialog({ kind: 'delete', entry }) },
     ];
 

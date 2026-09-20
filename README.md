@@ -35,7 +35,7 @@ The app opens on a start page rather than a canvas, because "which flow?" is a q
 answer to. It lists every flow this install holds — its size, when it was last edited, whether a trigger in it is
 being polled — and is a window of its own, sized for a list rather than for the canvas it hands over to.
 
-From it you can open a flow, start a new one, duplicate one, rename one, export or delete one, and open a flow file
+From it you can open a flow, start a new one, duplicate one, rename one, delete one, and open a flow file
 somebody sent you. Each flow shows the **project folder** it lives in, with a button that opens that folder in
 Finder or Explorer — it holds the flow's own file and the skills only that flow can reach, and it is the working
 directory its Processors run in.
@@ -170,7 +170,7 @@ the Skills tab switches between them:
 
 **Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
 skills land. **Flow** skills sit inside the flow's own directory — which is also the working directory its nodes run in
-— so only that flow sees them, they are deleted with it, and they travel with it when you export. The two may hold the
+— so only that flow sees them, and they are deleted with it. The two may hold the
 same name without either shadowing the other: a Processor stores a global tick as `global:<name>` and its own as the
 bare name.
 
@@ -183,9 +183,9 @@ Drag a skill onto the other tab to **move** it between the libraries. The open f
 (`global:x` ↔ `x`); a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name
 already there replaces it, so both are asked about first.
 
-**Import…** pulls a folder of existing skills into whichever library is showing. **Export…** writes the flow's own
-skills, plus the global ones its Processors actually tick, into the flow file; importing that file restores the flow's
-own and adds any global skill whose name is still free — it never rewrites a global skill this install already has.
+**Import…** pulls a folder of existing skills into whichever library is showing. A flow file may carry skills of its
+own: opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites
+a global skill this install already has.
 
 Under the hood the flow's library is discovered as project skills from the run's working directory, and the global one
 is handed over as a local plugin — which is what lets a run load skills from outside its own directory. That is where

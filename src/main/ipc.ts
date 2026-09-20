@@ -106,12 +106,6 @@ const FLOW_FILTERS = [
     { name: 'All files', extensions: ['*'] },
 ];
 
-/** The flow's name, made safe to hand a file dialog as a suggestion. */
-function flowFileName(name: string): string {
-    const safe = name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
-    return safe || 'flow';
-}
-
 export function registerIpc(): void {
     handle(
         IPC.about,
@@ -158,17 +152,6 @@ export function registerIpc(): void {
         if (picked.canceled || !path) return null;
         return flowStore.importFlowFile(path);
     });
-    handle(IPC.flowsPickAndExport, async (flow: Flow) => {
-        const picked = await dialog.showSaveDialog({
-            title: 'Save flow to file',
-            defaultPath: `${flowFileName(flow.name)}.json`,
-            filters: FLOW_FILTERS,
-        });
-        if (picked.canceled || !picked.filePath) return null;
-        flowStore.exportFlowFile(flow, picked.filePath);
-        return picked.filePath;
-    });
-
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => {
         // The token is minted here and only ever shown in the window, so the stored

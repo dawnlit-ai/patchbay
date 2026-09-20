@@ -77,11 +77,6 @@ export interface Api {
         revealFolder(flowId: string): Promise<void>;
         /** Ask for a flow file, then add what it holds to the library as a new flow. */
         pickAndImport(): Promise<Flow | null>;
-        /**
-         * Ask where to put it, then write the flow there — its skill library
-         * included, so the file runs wherever it lands. Resolves to the path.
-         */
-        pickAndExport(flow: Flow): Promise<string | null>;
     };
     settings: {
         get(): Promise<Settings>;
@@ -214,7 +209,6 @@ export const IPC = {
     flowsSetFolder: 'flows:setFolder',
     flowsReveal: 'flows:reveal',
     flowsPickAndImport: 'flows:pickAndImport',
-    flowsPickAndExport: 'flows:pickAndExport',
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',

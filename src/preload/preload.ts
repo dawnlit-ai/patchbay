@@ -46,7 +46,6 @@ const api: Api = {
         setFolder: (flowId, folder) => call(IPC.flowsSetFolder, flowId, folder),
         revealFolder: (flowId) => call(IPC.flowsReveal, flowId),
         pickAndImport: () => call(IPC.flowsPickAndImport),
-        pickAndExport: (flow) => call(IPC.flowsPickAndExport, flow),
     },
     settings: {
         get: () => call(IPC.settingsGet),

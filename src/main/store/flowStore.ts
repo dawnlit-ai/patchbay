@@ -176,7 +176,7 @@ export function removeFlow(id: string): void {
 
 // ── Files outside the workspace ──────────────────────────────────────────
 
-/** What a flow file carries beside the graph, so an export can be run elsewhere. */
+/** What a flow file may carry beside the graph, so it can be run elsewhere. */
 interface BundledSkill {
     name: string;
     scope: SkillScope;
@@ -227,29 +227,6 @@ export function importFlowFile(path: string): Flow {
         saveSkill(skill.scope, flow.id, skill.name, skill.content);
     }
     return flow;
-}
-
-/**
- * Write a flow out in the app's own format, so the copy imports cleanly. Every
- * skill it names goes in the same file — its own, and the global ones it ticks —
- * because a graph naming skills the other end lacks is a flow that cannot run.
- * Only each `SKILL.md` travels; anything else in a skill folder stays behind.
- */
-export function exportFlowFile(flow: Flow, path: string): void {
-    const ticked = new Set(
-        flow.nodes.flatMap((node) => (node.config.kind === 'processor' ? node.config.skills : [])),
-    );
-    const wanted = [
-        // The whole of this flow's own library, since it exists only for this flow,
-        // and just the global skills the graph actually reaches for.
-        ...listSkills('flow', flow.id),
-        ...listSkills('global', flow.id).filter((s) => ticked.has(skillRef('global', s.name))),
-    ];
-    const skills = wanted.flatMap((summary): BundledSkill[] => {
-        const detail = getSkill(summary.scope, flow.id, summary.name);
-        return detail ? [{ name: summary.name, scope: summary.scope, content: detail.content }] : [];
-    });
-    writeJson(path, { ...flow, skills });
 }
 
 // ── Workspaces written by an earlier version ─────────────────────────────

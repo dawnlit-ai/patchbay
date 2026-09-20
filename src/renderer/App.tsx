@@ -422,17 +422,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
-    /** Writes what is on screen, unsaved edits included. */
-    const exportFlow = async (): Promise<void> => {
-        if (!flow) return;
-        setError(null);
-        try {
-            await window.api.flows.pickAndExport(flow);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
     if (!flow || !settings) {
         return <div className="empty loading">Loading…</div>;
     }
@@ -458,9 +447,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 </button>
 
                 <button onClick={() => setTesting(true)}>Test run…</button>
-                <button title="Write this flow out to a file" onClick={() => void exportFlow()}>
-                    Export…
-                </button>
                 <button
                     className="ghost"
                     title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
