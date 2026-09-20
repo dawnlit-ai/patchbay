@@ -458,6 +458,7 @@ button.wide {
 }
 
 .flow-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -471,6 +472,9 @@ button.wide {
 
 .flow-row:hover {
     border-color: var(--accent);
+    /* Over its neighbours, so the path it reveals is not painted on by the
+       rows drawn after it. */
+    z-index: 1;
 }
 
 .flow-row.active {
@@ -510,43 +514,113 @@ button.wide {
     margin-top: 2px;
 }
 
-/* Where it is kept, at the end of its row: recognisable, and out of the way. */
-.flow-row .folder {
+/* The project folder, at the end of its row: recognisable, and out of the way.
+   Two parts, so that a path too long for the space loses its middle: the
+   folders above give way, and the one the flow is named for stays. */
+.flow-row .where {
     flex: none;
-    max-width: 40%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: flex;
+    max-width: 45%;
     font-family: var(--mono);
     font-size: 10.5px;
     color: var(--dim);
 }
 
-/* What can be done to the flow the list has selected, and where it lives. */
-.flow-detail {
+.flow-row .where .dir {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flow-row .where .base {
     flex: none;
+    white-space: nowrap;
+}
+
+/* The whole path, for as long as the pointer is on the shortened one. It hangs
+   below the row, aligned with the path it belongs to and widening leftward from
+   there, so that what it covers is the row beneath — which the pointer has just
+   left — and never the name of the row being pointed at. Shortening the path is
+   for the list's sake; nobody reading one wants the middle taken out. */
+.flow-row .where .full {
+    display: none;
+    /* Measured from the row and not from the path itself, which is only a line
+       high and halfway up it: this clears the row and sits in the gap below. */
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 12px;
+    z-index: 3;
+    /* It is there to be read, not pointed at: the row it covers stays as
+       reachable as it was, and moving down the list opens each path in turn. */
+    pointer-events: none;
+    width: max-content;
+    max-width: min(560px, calc(100vw - 48px));
+    white-space: normal;
+    overflow-wrap: anywhere;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    box-shadow: var(--shadow);
+}
+
+.flow-row .where:hover .full {
+    display: block;
+}
+
+/* ── Context menu ──────────────────────────────────────────────────────── */
+
+/* Nothing to see: it is there to catch the press, the scroll or the second
+   right-click that dismisses the menu, before any of them reach the page. */
+.menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+/* What can be done to the thing that was right-clicked. */
+.menu {
+    position: fixed;
+    min-width: 186px;
+    max-width: 280px;
+    padding: 5px;
     display: flex;
     flex-direction: column;
-    gap: 9px;
-    padding: 11px 14px;
-    border-top: 1px solid var(--line);
-    background: var(--panel-2);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
 }
 
-.flow-detail .label {
-    display: block;
-    color: var(--dim);
-    font-size: 10.5px;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-    margin-bottom: 4px;
+.menu button {
+    width: 100%;
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 12.5px;
+    background: none;
+    border-color: transparent;
 }
 
-.detail-actions {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    flex-wrap: wrap;
+.menu button:hover:not(:disabled),
+.menu button:focus-visible {
+    background: var(--accent-soft);
+    border-color: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+.menu button.danger:hover:not(:disabled),
+.menu button.danger:focus-visible {
+    background: var(--err-soft);
+}
+
+/* Set apart from the group above it, the way a system menu does. */
+.menu .sep {
+    height: 1px;
+    margin: 4px 7px;
+    background: var(--line-soft);
 }
 
 /* ── Side panels ───────────────────────────────────────────────────────── */

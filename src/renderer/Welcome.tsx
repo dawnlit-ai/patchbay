@@ -4,6 +4,7 @@ import { findTriggers, type Flow } from '@shared/flow';
 import type { FlowEntry } from '@shared/ipc';
 import type { AboutInfo, EngineStatus } from '@shared/settings';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { NameDialog } from './components/NameDialog';
 import { RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { WindowControls } from './components/WindowControls';
@@ -47,12 +48,37 @@ function shape(flow: Flow): string {
     return triggers === 0 ? `${nodes} · no trigger` : `${nodes} · ${triggers} trigger${triggers === 1 ? '' : 's'}`;
 }
 
+/**
+ * Where a flow lives, shortened so that a row stays a row. The folders above it
+ * give way first and its own folder — the half that tells one flow from another
+ * — is always there, which is what a plain end-of-line ellipsis would eat.
+ *
+ * Pointing at the path gives it back whole, on a panel hung below it: over the
+ * row beneath, which the pointer has left, rather than over this row's own name.
+ */
+function Where({ path }: { path: string }): JSX.Element {
+    // The separator goes with the half that is kept, so what is left reads as a
+    // path with its middle taken out rather than two pieces set side by side.
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return (
+        <code className="where">
+            <span className="dir">{path.slice(0, Math.max(0, cut))}</span>
+            <span className="base">{path.slice(Math.max(0, cut))}</span>
+            {/* The same path a second time, for the eye only: the two halves
+                above already read as the whole thing to anything listening. */}
+            <span className="full" aria-hidden="true">{path}</span>
+        </code>
+    );
+}
+
 export function Welcome(): JSX.Element {
     const [entries, setEntries] = useState<FlowEntry[] | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>('recent');
     const [dialog, setDialog] = useState<Dialog | null>(null);
+    /** The flow a right-click landed on, and where it landed. */
+    const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -173,6 +199,20 @@ export function Welcome(): JSX.Element {
         rows.current.get(next.flow.id)?.focus();
     };
 
+    /**
+     * Everything that can be done to one flow. It was a strip of buttons under
+     * the list, which had to be read against whichever row was selected; the
+     * same list opens on the row itself now, where a right-click asked for it.
+     */
+    const actions = (entry: FlowEntry): MenuItem[] => [
+        { label: 'Open', onSelect: () => open(entry.flow.id) },
+        { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
+        { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
+        { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
+        { label: 'Export…', onSelect: () => void attempt(() => window.api.flows.pickAndExport(entry.flow)) },
+        { label: 'Delete', separator: true, danger: true, onSelect: () => setDialog({ kind: 'delete', entry }) },
+    ];
+
     const nothingYet = entries !== null && entries.length === 0;
 
     return (
@@ -193,7 +233,8 @@ export function Welcome(): JSX.Element {
                         <h1>Your flows</h1>
                         <p>
                             A flow is a canvas, a mailbox it watches and a folder on disk that holds its own
-                            skills. Open one to draw it, or start something new.
+                            skills. Double-click one to draw it, right-click it for everything else, or start
+                            something new.
                         </p>
                     </div>
 
@@ -277,6 +318,19 @@ export function Welcome(): JSX.Element {
                                 className={`flow-row${entry === selected ? ' active' : ''}`}
                                 onClick={() => setSelectedId(entry.flow.id)}
                                 onDoubleClick={() => open(entry.flow.id)}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setSelectedId(entry.flow.id);
+                                    // The menu key and Shift+F10 raise this event too,
+                                    // with no pointer behind it: that menu belongs to
+                                    // the row itself, under its own left edge.
+                                    const box = e.currentTarget.getBoundingClientRect();
+                                    setMenu({
+                                        entry,
+                                        x: e.clientX || box.left + 16,
+                                        y: e.clientY || box.bottom - 6,
+                                    });
+                                }}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') open(entry.flow.id);
                                     else if (e.key === 'ArrowDown') move(entry, 1);
@@ -298,58 +352,22 @@ export function Welcome(): JSX.Element {
                                         {shape(entry.flow)} · edited {ago(entry.flow.updatedAt)}
                                     </div>
                                 </div>
-                                <code className="folder" title={entry.path}>
-                                    {entry.folder}
-                                </code>
+                                <Where path={entry.path}/>
                             </div>
                         ))}
                     </div>
-
-                    {selected && (
-                        <div className="flow-detail">
-                            <div className="where">
-                                <span className="label">Project folder</span>
-                                <code className="path" title={selected.path}>
-                                    {selected.path}
-                                </code>
-                            </div>
-                            <div className="detail-actions">
-                                <button className="primary" onClick={() => open(selected.flow.id)}>
-                                    Open
-                                </button>
-                                <button
-                                    title="Show this flow's folder in the file manager"
-                                    onClick={() => void window.api.flows.revealFolder(selected.flow.id)}
-                                >
-                                    Open folder
-                                </button>
-                                <button onClick={() => setDialog({ kind: 'rename', entry: selected })}>
-                                    Rename…
-                                </button>
-                                <button
-                                    title="A copy of this flow, its own skills included"
-                                    onClick={() => setDialog({ kind: 'duplicate', entry: selected })}
-                                >
-                                    Duplicate…
-                                </button>
-                                <button
-                                    title="Write this flow out to a file, skills and all"
-                                    onClick={() => void attempt(() => window.api.flows.pickAndExport(selected.flow))}
-                                >
-                                    Export…
-                                </button>
-                                <span className="spacer"/>
-                                <button
-                                    className="danger"
-                                    onClick={() => setDialog({ kind: 'delete', entry: selected })}
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {menu && (
+                <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    label={menu.entry.flow.name}
+                    items={actions(menu.entry)}
+                    onClose={() => setMenu(null)}
+                />
+            )}
 
             {dialog?.kind === 'new' && (
                 <NameDialog
