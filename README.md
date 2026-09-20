@@ -91,7 +91,8 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
 
 - **Windows or macOS with a desktop Outlook client** — this drives the real client over COM/AppleScript, not Microsoft
   Graph. No app registration, no cloud permissions. (macOS needs *legacy* Outlook.)
-- **Node 24+**
+- **Node 24+** — the version Electron 44 itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
+  `engine-strict`, which makes an older Node refuse the install rather than fail somewhere later.
 - **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
   `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login.
 

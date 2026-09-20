@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
-import { resolve } from 'node:path';
+import { alias } from './vite.shared.mjs';
 
 // Electron Forge's preload config asks for a single chunk through rollup's
 // `output.inlineDynamicImports`, which rolldown now warns is deprecated on every
@@ -19,9 +19,7 @@ const preferCodeSplittingFlag = (): Plugin => ({
 
 export default defineConfig({
     plugins: [preferCodeSplittingFlag()],
-    resolve: {
-        alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
-    },
+    resolve: { alias },
     build: {
         rollupOptions: {
             external: ['electron', /^node:/],

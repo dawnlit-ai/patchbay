@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
+import { alias } from './vite.shared.mjs';
 
 export default defineConfig({
     root: resolve(import.meta.dirname, 'src/renderer'),
     plugins: [react()],
-    resolve: {
-        alias: { '@shared': resolve(import.meta.dirname, 'src/shared') },
-    },
+    resolve: { alias },
     build: {
         // Electron Forge hands us a relative `.vite/renderer/<name>` outDir, which the
         // renderer root above would otherwise resolve to src/renderer/.vite/... — out
