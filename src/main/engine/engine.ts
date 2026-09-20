@@ -1,5 +1,5 @@
 import { type Flow, type FlowNode, outputPorts } from '@shared/flow';
-import type { EmailEnvelope, Pass, Run, TraceEvent } from '@shared/trace';
+import { type EmailEnvelope, now, type Pass, type Run, type TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
 import { indexRun, saveRun } from '../store/traceStore';
@@ -33,7 +33,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         id: runId,
         flowId: flow.id,
         flowName: flow.name,
-        startedAt: new Date().toISOString(),
+        startedAt: now(),
         status: 'running',
         trigger,
         email,
@@ -50,7 +50,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
 
     const finish = (status: Run['status'], error?: string): Run => {
         run.status = status;
-        run.endedAt = new Date().toISOString();
+        run.endedAt = now();
         if (error) run.error = error;
         saveRun(run);
         indexRun(run);
@@ -75,7 +75,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
 
         const node: FlowNode = current;
         const events: TraceEvent[] = [];
-        const startedAt = new Date().toISOString();
+        const startedAt = now();
         seq += 1;
 
         /** The half of a pass that is the same however the node ended. */
@@ -85,7 +85,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             nodeKind: node.kind,
             nodeName: node.name,
             startedAt,
-            endedAt: new Date().toISOString(),
+            endedAt: now(),
             events,
             ...outcome,
         });

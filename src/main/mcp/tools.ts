@@ -2,19 +2,20 @@ import { app } from 'electron';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+    connectNodes,
     type Flow,
     type FlowNode,
     makeNode,
+    mintNodeId,
     NODE_KINDS,
     type NodeConfig,
-    type NodeKind,
     outputPorts,
     parseFlow,
     triggerConfig,
 } from '@shared/flow';
 import { SKILL_SCOPES, type SkillScope } from '@shared/settings';
 import type { WorkspaceChange } from '@shared/ipc';
-import type { EmailEnvelope, Run } from '@shared/trace';
+import { type EmailEnvelope, type Run, truncate } from '@shared/trace';
 import type { Watcher } from '../engine/watcher';
 import * as outlook from '../outlook/bridge';
 import * as flowStore from '../store/flowStore';
@@ -141,10 +142,7 @@ function describeRun(run: Run, includeEvents: boolean) {
             events: includeEvents
                 ? pass.events.map((event) => ({
                     ...event,
-                    detail:
-                        event.detail && event.detail.length > MAX_DETAIL_CHARS
-                            ? `${event.detail.slice(0, MAX_DETAIL_CHARS)}\n… (${event.detail.length - MAX_DETAIL_CHARS} more characters)`
-                            : event.detail,
+                    detail: event.detail === undefined ? undefined : truncate(event.detail, MAX_DETAIL_CHARS),
                 }))
                 : [],
         })),
@@ -168,16 +166,6 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     const flow = flowStore.saveFlow(parseFlow(edited, before.id, before.name));
     host.changed({ flows: true, skills: false });
     return { flow, droppedEdges: edited.edges.length - flow.edges.length };
-}
-
-/** Matches the ids the canvas mints when a node is dragged on: `processor-4f2ab1`. */
-function mintNodeId(flow: Flow, kind: NodeKind): string {
-    const stem = kind.split('.')[0] ?? 'node';
-    let id = `${stem}-${Math.random().toString(36).slice(2, 8)}`;
-    while (flow.nodes.some((n) => n.id === id)) {
-        id = `${stem}-${Math.random().toString(36).slice(2, 8)}`;
-    }
-    return id;
 }
 
 /** `flowId` is read only for a flow's own library; the global one is shared. */
@@ -391,9 +379,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                         `"${source.name}" has no port "${port}". It has: ${ports.map((p) => p.id).join(', ') || '(none — it ends the path)'}`,
                     );
                 }
-                const edges = current.edges.filter((e) => !(e.source === from && e.sourceHandle === port));
-                edges.push({ id: `${from}:${port}->${to}`, source: from, sourceHandle: port, target: to });
-                return { ...current, edges };
+                return connectNodes(current, from, port, to);
             });
             return json(describeFlow(flow));
         },

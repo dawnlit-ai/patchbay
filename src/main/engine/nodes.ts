@@ -1,6 +1,12 @@
-import type { CategorizerConfig, FlowNode, ProcessorConfig, TerminalConfig, TriggerConfig, } from '@shared/flow';
-import { UNMATCHED_PORT } from '@shared/flow';
-import type { EmailEnvelope, PassCost, TraceEvent } from '@shared/trace';
+import {
+    type CategorizerConfig,
+    type FlowNode,
+    type ProcessorConfig,
+    type TerminalConfig,
+    type TriggerConfig,
+    UNMATCHED_PORT,
+} from '@shared/flow';
+import { type EmailEnvelope, emailHeader, now, type PassCost, type TraceEvent } from '@shared/trace';
 import { runClaude } from '../claude/runner';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
 import { getSettings } from '../store/settingsStore';
@@ -31,14 +37,9 @@ export interface NodeOutcome {
     error?: string;
 }
 
-const now = (): string => new Date().toISOString();
-
 function emailContext(email: EmailEnvelope, body: string | undefined): string {
     return [
-        `From: ${email.senderName} <${email.senderEmail}>`,
-        `Subject: ${email.subject}`,
-        `Received: ${email.receivedTime}`,
-        `Attachments: ${email.attachmentNames.join(', ') || '(none)'}`,
+        ...emailHeader(email),
         '',
         body ? `--- Body ---\n${body}` : `--- Preview (body not fetched) ---\n${email.bodyPreview}`,
     ].join('\n');

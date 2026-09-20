@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { LOG_LEVELS, type LogEntry, type LogLevel, type LogSource } from '@shared/log';
+import { time } from '../format';
 
 /**
  * The console. Where the runs panel answers "why did this email go there", this
@@ -33,8 +34,6 @@ export const DEFAULT_CONSOLE_VIEW: ConsoleView = { minLevel: 'info', source: '',
 
 /** Within this many pixels of the end counts as reading the newest lines. */
 const STICK_PX = 24;
-
-const time = (iso: string): string => new Date(iso).toLocaleTimeString();
 
 function LogRow({ entry, onOpenRun }: { entry: LogEntry; onOpenRun(runId: string): void }): JSX.Element {
     const [open, setOpen] = useState(false);

@@ -55,8 +55,7 @@ export interface InboxFolderOption {
 
 export interface Api {
     flows: {
-        list(): Promise<Flow[]>;
-        /** Every flow with the directory it lives in, for the welcome window. */
+        /** Every flow with the directory it lives in — what both windows list. */
         entries(): Promise<FlowEntry[]>;
         get(id: string): Promise<Flow | null>;
         save(flow: Flow): Promise<Flow>;
@@ -212,7 +211,6 @@ export const IPC = {
     revealWorkspace: 'app:revealWorkspace',
     copyText: 'app:copyText',
 
-    flowsList: 'flows:list',
     flowsEntries: 'flows:entries',
     flowsGet: 'flows:get',
     flowsSave: 'flows:save',

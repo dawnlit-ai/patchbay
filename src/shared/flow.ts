@@ -244,6 +244,41 @@ export function makeNode(kind: NodeKind, id: string, position: { x: number; y: n
     return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
 }
 
+/** Enough tail to tell two of a kind apart without becoming the name itself. */
+export const shortId = (): string => Math.random().toString(36).slice(2, 8);
+
+/**
+ * An id for a new node that this flow does not already hold: `processor-4f2ab1`.
+ * The canvas mints one when a node is dragged on and an agent's `add_node`
+ * mints the same shape, so a flow reads the same however it was built.
+ */
+export function mintNodeId(flow: Flow, kind: NodeKind): string {
+    const stem = kind.split('.')[0] ?? 'node';
+    let id = `${stem}-${shortId()}`;
+    while (flow.nodes.some((n) => n.id === id)) id = `${stem}-${shortId()}`;
+    return id;
+}
+
+/** What an edge is called: derived from its ends, so one wire is never two. */
+export const edgeId = (source: string, sourceHandle: string, target: string): string =>
+    `${source}:${sourceHandle}->${target}`;
+
+/**
+ * Run an edge from one node's output port to another node's input, replacing
+ * whatever that port already led to — one edge per port, because a decision
+ * leading two places would make the recorded path ambiguous. The port is not
+ * checked here: the canvas only offers real ones, the agent tools say which
+ * exist before calling, and `parseFlow` drops an edge that names one that does
+ * not.
+ */
+export function connectNodes(flow: Flow, source: string, sourceHandle: string, target: string): Flow {
+    const kept = flow.edges.filter((e) => !(e.source === source && e.sourceHandle === sourceHandle));
+    return {
+        ...flow,
+        edges: [...kept, { id: edgeId(source, sourceHandle, target), source, sourceHandle, target }],
+    };
+}
+
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
     return { id, name, nodes: [], edges: [], updatedAt: new Date().toISOString() };
@@ -373,10 +408,10 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
             const targetNode = byId.get(target);
             if (!portsOf.get(source)?.has(sourceHandle)) return [];
             if (!targetNode || !hasInput(targetNode.kind)) return [];
-            const edgeId = str(e.id, '') || `${source}:${sourceHandle}->${target}`;
-            if (takenEdges.has(edgeId)) return [];
-            takenEdges.add(edgeId);
-            return [{ id: edgeId, source, sourceHandle, target }];
+            const id = str(e.id, '') || edgeId(source, sourceHandle, target);
+            if (takenEdges.has(id)) return [];
+            takenEdges.add(id);
+            return [{ id, source, sourceHandle, target }];
         },
     );
 

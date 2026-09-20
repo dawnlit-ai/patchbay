@@ -1,11 +1,8 @@
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { Modal } from './Modal';
 
-/**
- * Asks for one line of text. Electron implements neither `window.prompt` nor a
- * replacement — it throws "prompt() is not supported." — so every name the app
- * asks for comes through here.
- */
+/** Asks for one line of text — every name the app asks for comes through here. */
 
 interface Props {
     title: string;
@@ -36,31 +33,30 @@ export function NameDialog({ title, label, initial, confirmLabel, hint, onCancel
     };
 
     return (
-        <div className="modal-backdrop" onClick={onCancel}>
-            <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
-                <header>{title}</header>
-                <div className="content">
-                    <label className="field">
-                        <span>{label}</span>
-                        <input
-                            ref={input}
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') submit();
-                                if (e.key === 'Escape') onCancel();
-                            }}
-                        />
-                        {hint && <div className="hint">{hint}</div>}
-                    </label>
-                </div>
-                <footer>
+        <Modal
+            title={title}
+            onClose={onCancel}
+            footer={
+                <>
                     <button onClick={onCancel}>Cancel</button>
                     <button className="primary" disabled={!trimmed} onClick={submit}>
                         {confirmLabel}
                     </button>
-                </footer>
-            </div>
-        </div>
+                </>
+            }
+        >
+            <label className="field">
+                <span>{label}</span>
+                <input
+                    ref={input}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') submit();
+                    }}
+                />
+                {hint && <div className="hint">{hint}</div>}
+            </label>
+        </Modal>
     );
 }

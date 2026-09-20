@@ -19,10 +19,12 @@ import {
     ReactFlow,
 } from '@xyflow/react';
 import {
+    connectNodes,
     type Flow,
     type FlowNode,
     hasInput,
     makeNode,
+    mintNodeId,
     NODE_KIND_META,
     type NodeKind,
     outputPorts,
@@ -291,19 +293,7 @@ export function FlowCanvas({
         (connection: Connection) => {
             if (!connection.source || !connection.target || !connection.sourceHandle) return;
             if (connection.source === connection.target) return;
-            const id = `${connection.source}:${connection.sourceHandle}->${connection.target}`;
-            // One edge per output port: a decision leading two places would make the
-            // recorded path ambiguous.
-            const edges = flow.edges.filter(
-                (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
-            );
-            edges.push({
-                id,
-                source: connection.source,
-                sourceHandle: connection.sourceHandle,
-                target: connection.target,
-            });
-            onChange({ ...flow, edges });
+            onChange(connectNodes(flow, connection.source, connection.sourceHandle, connection.target));
         },
         [flow, onChange],
     );
@@ -353,7 +343,7 @@ export function FlowCanvas({
 
             // Approximate placement: the node is immediately draggable, and skipping
             // the viewport transform keeps this free of a provider wrapper.
-            const id = `${kind.split('.')[0]}-${Math.random().toString(36).slice(2, 8)}`;
+            const id = mintNodeId(flow, kind);
             const node = makeNode(kind, id, {
                 x: event.clientX - bounds.left - 116,
                 y: event.clientY - bounds.top - 40,

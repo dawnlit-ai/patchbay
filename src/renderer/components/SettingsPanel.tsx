@@ -8,6 +8,7 @@ import {
     type McpServerSetting,
     type Settings,
 } from '@shared/settings';
+import { time } from '../format';
 
 interface Props {
     settings: Settings;
@@ -200,7 +201,7 @@ export function SettingsPanel({
                         <span className="spacer"/>
                         {agentControl.lastRequestAt && (
                             <span className="hint fixed">
-                                Last call {new Date(agentControl.lastRequestAt).toLocaleTimeString()}
+                                Last call {time(agentControl.lastRequestAt)}
                             </span>
                         )}
                     </div>

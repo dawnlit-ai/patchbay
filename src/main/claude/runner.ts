@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { McpServerConfig, Options, SdkPluginConfig, SettingSource, } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, SdkPluginConfig, SettingSource } from '@anthropic-ai/claude-agent-sdk';
 import type { EffortLevel } from '@shared/flow';
-import type { PassCost, TraceEvent } from '@shared/trace';
+import { now, type PassCost, type TraceEvent, truncate } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
 
 /**
@@ -47,12 +47,6 @@ export interface ClaudeRunResult {
     text: string;
     cost: PassCost;
     error?: string;
-}
-
-const now = (): string => new Date().toISOString();
-
-function truncate(value: string, max = 4_000): string {
-    return value.length <= max ? value : `${value.slice(0, max)}\n… (${value.length - max} more characters)`;
 }
 
 /**

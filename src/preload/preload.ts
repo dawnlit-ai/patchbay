@@ -35,7 +35,6 @@ const api: Api = {
     revealWorkspace: () => call(IPC.revealWorkspace),
     copyText: (text) => call(IPC.copyText, text),
     flows: {
-        list: () => call(IPC.flowsList),
         entries: () => call(IPC.flowsEntries),
         get: (id) => call(IPC.flowsGet, id),
         save: (flow) => call(IPC.flowsSave, flow),

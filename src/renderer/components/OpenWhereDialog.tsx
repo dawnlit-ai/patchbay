@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useRef } from 'react';
 import type { OpenWhere } from '@shared/ipc';
+import { Modal } from './Modal';
 
 /**
  * Which canvas a flow should open on. Asked only when there is something to
@@ -29,28 +30,22 @@ export function OpenWhereDialog({ name, current, onCancel, onChoose }: Props): J
     }, []);
 
     return (
-        <div className="modal-backdrop" onClick={onCancel}>
-            <div
-                className="modal narrow"
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => {
-                    if (e.key === 'Escape') onCancel();
-                }}
-            >
-                <header>Open “{name}”</header>
-                <div className="content">
-                    “{current}” is on the canvas already. Open this flow in that window instead, or in a
-                    second one beside it? Both canvases watch the same workspace, and the runs and the
-                    console below each of them show all of it either way.
-                </div>
-                <footer>
+        <Modal
+            title={`Open “${name}”`}
+            onClose={onCancel}
+            footer={
+                <>
                     <button onClick={onCancel}>Cancel</button>
                     <button onClick={() => onChoose('current')}>In that window</button>
                     <button ref={fresh} className="primary" onClick={() => onChoose('new')}>
                         In a new window
                     </button>
-                </footer>
-            </div>
-        </div>
+                </>
+            }
+        >
+            “{current}” is on the canvas already. Open this flow in that window instead, or in a
+            second one beside it? Both canvases watch the same workspace, and the runs and the
+            console below each of them show all of it either way.
+        </Modal>
     );
 }

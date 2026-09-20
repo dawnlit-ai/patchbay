@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk';
-import type { EmailEnvelope, TraceEvent } from '@shared/trace';
+import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
 import type { ProcessorConfig } from '@shared/flow';
 import * as outlook from '../outlook/bridge';
 
@@ -25,8 +25,6 @@ export interface EmailToolContext {
     onEvent(event: TraceEvent): void;
 }
 
-const now = (): string => new Date().toISOString();
-
 function ok(text: string) {
     return { content: [{ type: 'text' as const, text }] };
 }
@@ -50,21 +48,12 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             'Read the full body of the email this run is about, plus its sender, subject and attachment names. Call this before deciding anything — the preview in the prompt is truncated.',
             { maxChars: z.number().int().min(500).max(200_000).optional() },
             async ({ maxChars }) => {
-                const result = await outlook.readBody(email.ref, maxChars ?? 50_000);
+                const limit = maxChars ?? 50_000;
+                const result = await outlook.readBody(email.ref, limit);
                 log('read_email', `${result.bodyLength} characters, ${result.attachmentCount} attachment(s)`);
-                return ok(
-                    [
-                        `From: ${result.senderName} <${result.senderEmail}>`,
-                        `Subject: ${result.subject}`,
-                        `Received: ${result.receivedTime}`,
-                        `Attachments: ${result.attachmentNames.join(', ') || '(none)'}`,
-                        result.truncated ? `(body truncated at ${maxChars ?? 50_000} characters)` : '',
-                        '',
-                        result.body,
-                    ]
-                        .filter(Boolean)
-                        .join('\n'),
-                );
+                const header = emailHeader(result);
+                if (result.truncated) header.push(`(body truncated at ${limit} characters)`);
+                return ok([...header, '', result.body].join('\n'));
             },
             { annotations: { readOnlyHint: true } },
         ),

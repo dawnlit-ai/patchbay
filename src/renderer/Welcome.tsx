@@ -9,6 +9,8 @@ import { NameDialog } from './components/NameDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { WindowControls } from './components/WindowControls';
+import { useErrorBanner } from './errorBanner';
+import { ago } from './format';
 import { useTheme } from './theme';
 
 /**
@@ -29,19 +31,6 @@ type Dialog =
     | { kind: 'duplicate'; entry: FlowEntry }
     | { kind: 'rename'; entry: FlowEntry }
     | { kind: 'delete'; entry: FlowEntry };
-
-function ago(iso: string): string {
-    const ms = Date.now() - new Date(iso).getTime();
-    if (!Number.isFinite(ms)) return 'never';
-    const minutes = Math.floor(ms / 60_000);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes} min ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-    return new Date(iso).toLocaleDateString();
-}
 
 /** What the graph amounts to, for someone deciding which flow this is. */
 function shape(flow: Flow): string {
@@ -84,7 +73,7 @@ export function Welcome(): JSX.Element {
     const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const { error, attempt } = useErrorBanner();
     const [theme, setTheme] = useTheme();
     const rows = useRef(new Map<string, HTMLDivElement>());
 
@@ -139,15 +128,6 @@ export function Welcome(): JSX.Element {
     const selected = shown.find((e) => e.flow.id === selectedId) ?? shown[0] ?? null;
 
     // ── Actions ────────────────────────────────────────────────────────────
-
-    const attempt = async (what: () => Promise<unknown>): Promise<void> => {
-        setError(null);
-        try {
-            await what();
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
 
     /**
      * Hands the flow to a canvas, which this window then makes way for. Which

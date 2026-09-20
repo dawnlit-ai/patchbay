@@ -53,17 +53,19 @@ export function getAgentControl(): AgentControl {
  * Wraps a handler so a thrown error crosses the IPC boundary as a readable
  * message rather than Electron's internal invoke stack trace.
  */
-function handle<T extends unknown[], R>(
-    channel: string,
-    fn: (...args: T) => R | Promise<R>,
-): void {
-    ipcMain.handle(channel, async (_event, ...args) => {
+function readable<T extends unknown[], R>(fn: (...args: T) => R | Promise<R>) {
+    return async (...args: T): Promise<R> => {
         try {
-            return await fn(...(args as T));
+            return await fn(...args);
         } catch (e) {
             throw new Error(e instanceof Error ? e.message : String(e));
         }
-    });
+    };
+}
+
+function handle<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
+    const run = readable(fn);
+    ipcMain.handle(channel, (_event, ...args) => run(...(args as T)));
 }
 
 /**
@@ -72,18 +74,12 @@ function handle<T extends unknown[], R>(
  * make the change is told to re-read it, exactly as both are told about an
  * agent's writes. The window that asked already has the answer in its reply.
  */
-function handleFlowWrite<T extends unknown[], R>(
-    channel: string,
-    fn: (...args: T) => R | Promise<R>,
-): void {
+function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
+    const run = readable(fn);
     ipcMain.handle(channel, async (event, ...args) => {
-        try {
-            const result = await fn(...(args as T));
-            broadcast(IPC.evtWorkspaceChanged, { flows: true, skills: false }, event.sender);
-            return result;
-        } catch (e) {
-            throw new Error(e instanceof Error ? e.message : String(e));
-        }
+        const result = await run(...(args as T));
+        broadcast(IPC.evtWorkspaceChanged, { flows: true, skills: false }, event.sender);
+        return result;
     });
 }
 
@@ -122,7 +118,6 @@ export function registerIpc(): void {
     handle(IPC.revealWorkspace, () => shell.openPath(workspaceRoot()));
     handle(IPC.copyText, (text: string) => clipboard.writeText(text));
 
-    handle(IPC.flowsList, () => flowStore.listFlows());
     handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
     handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
     handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));

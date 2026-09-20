@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
 import type { Pass, Run, RunSummary, TraceEvent } from '@shared/trace';
+import { time } from '../format';
 
 /**
  * The run log. The list is the audit trail; the detail is the "why" — each pass
@@ -11,8 +12,6 @@ function statusBadge(status: string): JSX.Element {
     const cls = status === 'completed' ? 'ok' : status === 'failed' ? 'err' : 'run';
     return <span className={`badge ${cls}`}>{status}</span>;
 }
-
-const time = (iso: string): string => new Date(iso).toLocaleTimeString();
 
 function EventRow({ event }: { event: TraceEvent }): JSX.Element {
     const [open, setOpen] = useState(false);

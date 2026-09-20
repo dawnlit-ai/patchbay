@@ -12,7 +12,7 @@ import {
 import { join } from 'node:path';
 import { flowSkillsDir, globalPluginDir, globalSkillsDir } from '../paths';
 import { getSettings } from './settingsStore';
-import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary, } from '@shared/settings';
+import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary } from '@shared/settings';
 
 /**
  * Skills live in one of two libraries, both directories of `<name>/SKILL.md`

@@ -10,6 +10,7 @@ import {
     NODE_KIND_META,
     type NodeConfig,
     type ProcessorConfig,
+    shortId,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -215,7 +216,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                     patch({
                         categories: [
                             ...categories,
-                            { id: Math.random().toString(36).slice(2, 8), label: 'New category', description: '' },
+                            { id: shortId(), label: 'New category', description: '' },
                         ],
                     })
                 }

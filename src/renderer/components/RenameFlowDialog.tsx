@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { toFolderName } from '@shared/naming';
+import { Modal } from './Modal';
 
 /**
  * Renaming a flow asks a second question, because a flow is also a directory on
@@ -51,74 +52,73 @@ export function RenameFlowDialog({ name, folder, path, onCancel, onConfirm }: Pr
         if (trimmed) onConfirm({ name: trimmed, folder: moveFolder ? resolved : null });
     };
 
-    const keys = (e: { key: string }): void => {
+    const onEnter = (e: { key: string }): void => {
         if (e.key === 'Enter') submit();
-        if (e.key === 'Escape') onCancel();
     };
 
     return (
-        <div className="modal-backdrop" onClick={onCancel}>
-            <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
-                <header>Rename flow</header>
-                <div className="content">
-                    <label className="field">
-                        <span>Flow name</span>
-                        <input
-                            ref={input}
-                            value={value}
-                            onChange={(e) => {
-                                setValue(e.target.value);
-                                if (!folderEdited.current) setFolderValue(toFolderName(e.target.value));
-                            }}
-                            onKeyDown={keys}
-                        />
-                    </label>
-
-                    <label className="check">
-                        <input
-                            type="checkbox"
-                            checked={moveFolder}
-                            onChange={(e) => setMoveFolder(e.target.checked)}
-                        />
-                        <span>Rename the project folder to match</span>
-                    </label>
-
-                    {moveFolder && (
-                        <label className="field">
-                            <span>Folder name</span>
-                            <input
-                                value={folderValue}
-                                onChange={(e) => {
-                                    folderEdited.current = true;
-                                    setFolderValue(e.target.value);
-                                }}
-                                onKeyDown={keys}
-                            />
-                            <div className="hint">
-                                {moving ? (
-                                    <>
-                                        Moves to <code>{resolved}</code>. Letters, numbers and dashes only — anything
-                                        else is folded into one. The flow keeps its runs and its place in the watcher;
-                                        only the path changes.
-                                    </>
-                                ) : (
-                                    <>Already called <code>{folder}</code>, so nothing moves.</>
-                                )}
-                            </div>
-                        </label>
-                    )}
-
-                    <div className="hint block">
-                        <code>{path}</code>
-                    </div>
-                </div>
-                <footer>
+        <Modal
+            title="Rename flow"
+            onClose={onCancel}
+            footer={
+                <>
                     <button onClick={onCancel}>Cancel</button>
                     <button className="primary" disabled={!trimmed} onClick={submit}>
                         Rename
                     </button>
-                </footer>
+                </>
+            }
+        >
+            <label className="field">
+                <span>Flow name</span>
+                <input
+                    ref={input}
+                    value={value}
+                    onChange={(e) => {
+                        setValue(e.target.value);
+                        if (!folderEdited.current) setFolderValue(toFolderName(e.target.value));
+                    }}
+                    onKeyDown={onEnter}
+                />
+            </label>
+
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={moveFolder}
+                    onChange={(e) => setMoveFolder(e.target.checked)}
+                />
+                <span>Rename the project folder to match</span>
+            </label>
+
+            {moveFolder && (
+                <label className="field">
+                    <span>Folder name</span>
+                    <input
+                        value={folderValue}
+                        onChange={(e) => {
+                            folderEdited.current = true;
+                            setFolderValue(e.target.value);
+                        }}
+                        onKeyDown={onEnter}
+                    />
+                    <div className="hint">
+                        {moving ? (
+                            <>
+                                Moves to <code>{resolved}</code>. Letters, numbers and dashes only — anything
+                                else is folded into one. The flow keeps its runs and its place in the watcher;
+                                only the path changes.
+                            </>
+                        ) : (
+                            <>Already called <code>{folder}</code>, so nothing moves.</>
+                        )}
+                    </div>
+                </label>
+            )}
+
+            <div className="hint block">
+                <code>{path}</code>
             </div>
-        </div>
+        </Modal>
     );
 }

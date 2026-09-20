@@ -23,6 +23,7 @@ import { SkillLibrary } from './components/SkillLibrary';
 import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
+import { useErrorBanner } from './errorBanner';
 import { useTheme } from './theme';
 
 const PALETTE: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
@@ -84,7 +85,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     /** Read by the push listener, which is subscribed once and would see stale state. */
     const consoleOnScreen = useRef(false);
     consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
-    const [error, setError] = useState<string | null>(null);
+    const { error, attempt, report: setError } = useErrorBanner();
     const [theme, setTheme] = useTheme();
     const [about, setAbout] = useState<AboutInfo | null>(null);
     /** The app's own MCP server, so Settings can show whether it is listening. */
@@ -337,15 +338,10 @@ export function App({ initialFlowId }: Props): JSX.Element {
         answering.current = null;
     };
 
-    const toggleWatching = async (): Promise<void> => {
-        setError(null);
-        try {
-            const next = status?.running ? await window.api.engine.stop() : await window.api.engine.start();
-            setStatus(next);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
+    const toggleWatching = (): Promise<void> =>
+        attempt(async () => {
+            setStatus(status?.running ? await window.api.engine.stop() : await window.api.engine.start());
+        });
 
     /**
      * Both halves go through main rather than through the canvas's own save: the
@@ -354,20 +350,16 @@ export function App({ initialFlowId }: Props): JSX.Element {
      * on the graph as it stands here. Moving the folder is the half that can be
      * refused — while a run is using it as a working directory, it says so.
      */
-    const renameFlow = async (name: string, folder: string | null): Promise<void> => {
-        if (!flow) return;
-        setError(null);
-        flushSave();
-        try {
+    const renameFlow = (name: string, folder: string | null): Promise<void> =>
+        attempt(async () => {
+            if (!flow) return;
+            flushSave();
             if (name !== flow.name) setFlow(await window.api.flows.rename(flow.id, name));
             if (folder !== null && folder !== place?.folder) {
                 const moved = await window.api.flows.setFolder(flow.id, folder);
                 setPlace({ folder: moved.folder, path: moved.path });
             }
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
+        });
 
     /** Brings a tab of the dock up, unfolding the dock if it was folded away. */
     const showDock = (tab: 'runs' | 'console'): void => {
@@ -398,14 +390,11 @@ export function App({ initialFlowId }: Props): JSX.Element {
             confirmLabel: 'Delete',
         });
         if (!ok) return;
-        setError(null);
-        try {
+        await attempt(async () => {
             await window.api.runs.clear();
             setRuns([]);
             setSelectedRun(null);
-        } catch (e) {
-            setError((e as Error).message);
-        }
+        });
     };
 
     /**

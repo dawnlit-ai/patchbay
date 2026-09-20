@@ -26,6 +26,37 @@ export interface EmailEnvelope {
     body?: string;
 }
 
+/** The moment a record is stamped with. One spelling, everywhere it happens. */
+export const now = (): string => new Date().toISOString();
+
+/**
+ * A long detail, cut down with a note of how much is not shown. A prompt or a
+ * tool payload can run to megabytes, and neither the trace file nor the agent
+ * reading it back wants the whole of one.
+ */
+export function truncate(value: string, max = 4_000): string {
+    return value.length <= max ? value : `${value.slice(0, max)}\n… (${value.length - max} more characters)`;
+}
+
+/**
+ * The lines that introduce an email wherever the app writes one out — the prompt
+ * a node builds around it, and the result `read_email` hands back.
+ */
+export function emailHeader(email: {
+    senderName: string;
+    senderEmail: string;
+    subject: string;
+    receivedTime: string;
+    attachmentNames: string[];
+}): string[] {
+    return [
+        `From: ${email.senderName} <${email.senderEmail}>`,
+        `Subject: ${email.subject}`,
+        `Received: ${email.receivedTime}`,
+        `Attachments: ${email.attachmentNames.join(', ') || '(none)'}`,
+    ];
+}
+
 export type TraceEventType =
     | 'note'
     | 'prompt'
@@ -82,7 +113,7 @@ export interface Run {
     /** How the run was started, so a manual test is never mistaken for a poll. */
     trigger: 'poll' | 'manual';
     email: EmailEnvelope;
-    /** Node ids in visit order — the highlighted path on the canvas. */
+    /** Node ids in visit order: the path this email took, as one line. */
     path: string[];
     /** Edge ids traversed, so the canvas can light the exact connections used. */
     edgePath: string[];
