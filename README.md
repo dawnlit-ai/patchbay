@@ -14,8 +14,9 @@ why an email went where it did.
 A **flow** is a graph with one trigger and any number of branches:
 
 ```
-Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (skill) ─┬─ Done  ─▶ Terminal
-                               │                                     └─ Error ─▶ Terminal
+Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (skill) ─┬─ Done         ─▶ Terminal
+                               │                                     ├─ Needs review ─▶ Terminal (needs-review)
+                               │                                     └─ Error        ─▶ Terminal
                                ├─ "Rate quote"   ─▶ Process (skill) ──▶ …
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
@@ -23,7 +24,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
 - **Outlook Trigger** — polls a mailbox folder through the real Outlook client and starts one run per new email.
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
-- **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email.
+- **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
+  by *Needs review* when it finished but a person has to decide or check something, or by *Error*.
 - **Terminal** — ends a path, records a disposition, optionally files the email.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
@@ -202,16 +204,22 @@ the `global:` prefix comes from.
 
 Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled:
 
-| Tool              | Always | What it does                             |
-|-------------------|--------|------------------------------------------|
-| `read_email`      | ✅     | Full body, sender, attachment names      |
-| `record_note`     | ✅     | Writes a note into the run trace         |
-| `save_attachment` | opt-in | Saves into the run folder, returns paths |
-| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook    |
-| `move_email`      | opt-in | Files the email into an Inbox subfolder  |
+| Tool              | Always | What it does                                                                  |
+|-------------------|--------|-------------------------------------------------------------------------------|
+| `read_email`      | ✅     | The sender's own text, sender, attachment names — and the quoted thread on request |
+| `record_note`     | ✅     | Writes a note into the run trace                                              |
+| `save_attachment` | opt-in | Saves into the run folder, returns paths                                      |
+| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email       |
+| `move_email`      | opt-in | Files the email into an Inbox subfolder                                       |
 
 There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
-here sends mail.** A drafted reply waits in Outlook for a person.
+here sends mail.** A drafted reply waits in Outlook for a person. `read_email` does hand back this email's own entry id,
+so a record a skill writes elsewhere can link back to the message it came from.
+
+`draft_reply` can reply with a template email kept in the mailbox (a `Templates` folder by default), found by subject:
+it keeps the one `[[SECTION]]` asked for, fills its `{{PLACEHOLDERS}}`, and puts the named Outlook signature in
+`{{SIGNATURE}}`. The operator's own wording goes out as they wrote it, and a template that cannot be filled completely
+fails the call rather than drafting half a reply.
 
 ## Letting an agent drive it
 

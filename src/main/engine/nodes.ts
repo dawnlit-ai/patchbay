@@ -145,6 +145,9 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
 
 // ── Processor ────────────────────────────────────────────────────────────
 
+/** How each outcome the agent may report leaves the node. */
+const PORT_FOR_OUTCOME: Record<string, string> = { done: 'done', 'needs-review': 'review', failed: 'error' };
+
 async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
     const actions: string[] = [];
     const server = createEmailToolServer({
@@ -209,7 +212,12 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         jsonSchema: {
             type: 'object',
             properties: {
-                outcome: { type: 'string', enum: ['done', 'needs-review', 'failed'] },
+                outcome: {
+                    type: 'string',
+                    enum: ['done', 'needs-review', 'failed'],
+                    description:
+                        'done: handled, nothing left for a person. needs-review: a person has to decide or check something — say what in the summary. failed: something broke.',
+                },
                 summary: { type: 'string' },
                 actions: { type: 'array', items: { type: 'string' } },
             },
@@ -238,7 +246,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     const stated = (answer.actions ?? []).join('; ');
 
     return {
-        outPort: answer.outcome === 'failed' ? 'error' : 'done',
+        outPort: PORT_FOR_OUTCOME[answer.outcome ?? ''] ?? 'done',
         summary: `${answer.summary ?? 'Processed'}${performed}${stated ? ` — ${stated}` : ''}`,
         cost: result.cost,
     };

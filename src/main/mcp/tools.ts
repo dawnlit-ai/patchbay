@@ -73,7 +73,7 @@ rather than a fan-out. The four node kinds:
                     and Claude picks exactly one, with an "unmatched" port for
                     the rest.
 - processor       — runs Claude with the skills it ticks, scoped to one email.
-                    Ports: "done" and "error".
+                    Ports: "done", "review" (it needs a person) and "error".
 - terminal        — ends the path and records how the email came out.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually

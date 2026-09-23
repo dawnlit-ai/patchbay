@@ -45,15 +45,36 @@ export function createEmailToolServer(ctx: EmailToolContext) {
     const tools: SdkMcpToolDefinition<any>[] = [
         tool(
             'read_email',
-            'Read the full body of the email this run is about, plus its sender, subject and attachment names. Call this before deciding anything — the preview in the prompt is truncated.',
-            { maxChars: z.number().int().min(500).max(200_000).optional() },
-            async ({ maxChars }) => {
+            'Read the email this run is about: its sender, subject, attachment names and the sender\'s own text, with the quoted thread below it left off unless `includeQuoted` asks for it — so a figure from an earlier message is never mistaken for this sender\'s. Also gives the email\'s Outlook reference, for a record that should link back to it. Call this before deciding anything — the preview in the prompt is truncated.',
+            {
+                maxChars: z.number().int().min(500).max(200_000).optional(),
+                includeQuoted: z.boolean().optional(),
+            },
+            async ({ maxChars, includeQuoted }) => {
                 const limit = maxChars ?? 50_000;
-                const result = await outlook.readBody(email.ref, limit);
-                log('read_email', `${result.bodyLength} characters, ${result.attachmentCount} attachment(s)`);
-                const header = emailHeader(result);
-                if (result.truncated) header.push(`(body truncated at ${limit} characters)`);
-                return ok([...header, '', result.body].join('\n'));
+                const withQuoted = includeQuoted === true;
+                const result = await outlook.readBody(email.ref, limit, withQuoted);
+                log(
+                    'read_email',
+                    `${result.bodyLength} characters${withQuoted ? ` + ${result.quotedLength} quoted` : ''}, ${result.attachmentCount} attachment(s)`,
+                );
+                const lines = [
+                    ...emailHeader(result),
+                    `Outlook reference: mailbox ${email.ref.account}, folder ${email.ref.folderPath}, entryId ${email.ref.entryId}, storeId ${email.ref.storeId}`,
+                ];
+                if (result.truncated) lines.push(`(body truncated at ${limit} characters)`);
+                lines.push('', result.body);
+                if (withQuoted) {
+                    const cut = result.quotedLength > result.quotedOriginal.length
+                        ? ` (first ${result.quotedOriginal.length} of ${result.quotedLength} characters)`
+                        : '';
+                    lines.push(
+                        '',
+                        `--- Quoted thread${cut} ---`,
+                        result.quotedOriginal || '(no quoted thread found below the reply)',
+                    );
+                }
+                return ok(lines.join('\n'));
             },
             { annotations: { readOnlyHint: true } },
         ),
@@ -96,15 +117,29 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tools.push(
             tool(
                 'draft_reply',
-                'Leave a reply to this email in Outlook as an UNSENT draft, for a person to review and send. This never sends. Write real HTML for the body.',
+                'Leave a reply to this email in Outlook as an UNSENT draft, for a person to review and send. This never sends. Either write the body as real HTML in `htmlBody`, or reply with a template email saved in this mailbox: `templateSubject` names it, `templateSection` keeps one of its [[SECTION]] variants, `templatePlaceholders` fills its {{PLACEHOLDERS}} with HTML, and `signatureName` puts that Outlook signature in its {{SIGNATURE}} (or below the text when it has none). A template the call cannot fill completely fails rather than drafting a half-filled reply.',
                 {
-                    htmlBody: z.string().min(1),
+                    htmlBody: z.string().min(1).optional(),
+                    templateSubject: z.string().min(1).optional(),
+                    templateFolder: z.string().min(1).optional(),
+                    templateSection: z.string().min(1).optional(),
+                    templatePlaceholders: z.record(z.string(), z.string()).optional(),
+                    signatureName: z.string().min(1).optional(),
                     replyAll: z.boolean().optional(),
                 },
-                async ({ htmlBody, replyAll }) => {
-                    const result = await outlook.draftReply(email.ref, htmlBody, replyAll === true);
-                    ctx.actions.push(`drafted a reply to ${result.repliedToSender}`);
-                    log(`draft_reply → ${result.to}`, htmlBody);
+                async ({ replyAll, ...content }) => {
+                    if (!content.htmlBody && !content.templateSubject) {
+                        return fail('Give the reply a body: `htmlBody`, or a `templateSubject` to reply with.');
+                    }
+                    const result = await outlook.draftReply(email.ref, { ...content, replyAll: replyAll === true });
+                    const from = content.templateSubject
+                        ? ` from template ${content.templateSubject}${content.templateSection ? ` [${content.templateSection}]` : ''}`
+                        : '';
+                    ctx.actions.push(`drafted a reply to ${result.repliedToSender}${from}`);
+                    log(
+                        `draft_reply → ${result.to}${from}`,
+                        content.htmlBody ?? JSON.stringify(content.templatePlaceholders ?? {}, null, 2),
+                    );
                     return ok(
                         `Draft saved (not sent). To: ${result.to}; subject: ${result.subject}; original sender: ${result.repliedToSender}`,
                     );

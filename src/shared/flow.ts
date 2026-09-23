@@ -127,6 +127,7 @@ export function outputPorts(node: FlowNode): Port[] {
         case 'processor':
             return [
                 { id: 'done', label: 'Done', tone: 'flow' },
+                { id: 'review', label: 'Needs review', tone: 'fallback' },
                 { id: 'error', label: 'Error', tone: 'error' },
             ];
         case 'terminal':

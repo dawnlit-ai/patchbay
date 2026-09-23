@@ -3,6 +3,7 @@ import type {
     InboxEmail,
     InboxFolderInfo,
     MoveEmailsResult,
+    ReplyEmailParams,
     ReplyEmailResult,
     SavedAttachment,
 } from '@dawnlit/outlook-bridge';
@@ -123,9 +124,16 @@ export async function readInbox(
     return emails.map((e) => toEnvelope(account, e));
 }
 
-export async function readBody(ref: EmailRef, maxChars: number): Promise<EmailBodyResult> {
+/**
+ * The sender's own text. With `includeQuoted` the thread below it comes back
+ * too, held to the same cap — what a reply was answering is often the only
+ * place the facts it answers live.
+ */
+export async function readBody(ref: EmailRef, maxChars: number, includeQuoted = false): Promise<EmailBodyResult> {
     const b = await bridge();
-    return serialize(`Read a body in ${ref.account}`, () => b.readEmailBody(ref, { maxChars }));
+    return serialize(`Read a body in ${ref.account}`, () =>
+        b.readEmailBody(ref, { maxChars, includeQuoted, maxQuotedChars: maxChars }),
+    );
 }
 
 export async function saveAttachments(
@@ -147,22 +155,26 @@ export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmai
 }
 
 /**
+ * What a reply says: a body written for it, or a template email saved in the
+ * mailbox. Where it goes and whether it is sent are not the caller's to choose.
+ */
+export type DraftContent = Omit<
+    ReplyEmailParams,
+    'emailAccount' | 'entryId' | 'storeId' | 'sendImmediately' | 'openDraftWindow'
+>;
+
+/**
  * Always a draft: `sendImmediately` is hard-wired false, and no code path sets it
  * true. A flow can propose a reply; a person sends it.
  */
-export async function draftReply(
-    ref: EmailRef,
-    htmlBody: string,
-    replyAll: boolean,
-): Promise<ReplyEmailResult> {
+export async function draftReply(ref: EmailRef, content: DraftContent): Promise<ReplyEmailResult> {
     const b = await bridge();
     return serialize(`Draft a reply in ${ref.account}`, () =>
         b.replyOutlookEmail({
+            ...content,
             emailAccount: ref.account,
             entryId: ref.entryId,
             storeId: ref.storeId,
-            htmlBody,
-            replyAll,
             sendImmediately: false,
             openDraftWindow: false,
         }),
