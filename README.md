@@ -144,7 +144,7 @@ npm run mcpcheck
 ```
 
 It starts the server against a throwaway workspace in the temp directory, drives it with a real MCP client — build a
-flow, wire it, write a skill, read it back — and prints a line per check.
+flow, wire it, write, import and move skills, queue and cancel a run, read the console — and prints a line per check.
 
 ## First run
 
@@ -231,16 +231,26 @@ does — one workspace, not two copies of it — and the window re-reads what it
 |----------|---------------------------------------------------------------------------|
 | Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`     |
 | Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`         |
-| Skills   | `list_skills`, `get_skill`, `write_skill`, `delete_skill`                 |
+| Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `move_skill`, `delete_skill` |
 | Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                     |
 | Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run` |
-| Runs     | `list_runs`, `get_run`                                                    |
+| Runs     | `list_runs`, `get_run`, `get_console`                                     |
 | Settings | `get_settings`                                                            |
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a
 value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
 dropped, with the tool that dropped it saying how many.
+
+`write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
+`import_skills`, from a folder on this machine — `~/.claude/skills`, say — optionally narrowed to the names wanted.
+`move_skill` re-points the flow's own Processors as the Skills tab does, and names any other flow a skill leaving the
+global shelf strands.
+
+A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
+under *Runs at once*. `get_run` says which rather than reporting no such run, `list_runs` puts what is queued and under
+way first, and `cancel_run` takes a queued one out before it starts. When an email never became a run at all,
+`get_console` reads the console: this session's lines, or any day's file still kept.
 
 Three things are deliberately absent:
 

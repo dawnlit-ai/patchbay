@@ -145,4 +145,6 @@ export interface EngineStatus {
     lastPollAt?: string;
     lastError?: string;
     activeRunIds: string[];
+    /** Handed out and waiting: for a slot, or for an earlier run of the same flow. */
+    queuedRunIds: string[];
 }

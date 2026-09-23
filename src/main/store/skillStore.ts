@@ -179,14 +179,16 @@ export function moveSkill(
 
 /**
  * Copy `<dir>/<skill>/SKILL.md` trees into one library, overwriting a skill of
- * the same name, so re-importing picks up upstream edits.
+ * the same name, so re-importing picks up upstream edits. `only` narrows it to
+ * the named skills, for a folder that holds more than the caller wants.
  */
-export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string): string[] {
+export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string, only?: string[]): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
     const target = libraryDir(scope, flowId);
     const imported: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
+        if (only && !only.includes(entry.name)) continue;
         const source = join(dir, entry.name);
         if (!existsSync(join(source, 'SKILL.md'))) continue;
         if (!isValidSkillName(entry.name)) continue;

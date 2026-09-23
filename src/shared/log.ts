@@ -12,6 +12,8 @@ export const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 /** Which part of the app said it. */
 export type LogSource = 'app' | 'watcher' | 'run' | 'outlook' | 'agent';
 
+export const LOG_SOURCES: LogSource[] = ['app', 'watcher', 'run', 'outlook', 'agent'];
+
 export interface LogEntry {
     /** Rises for the life of the process, so a list and a push can be merged. */
     seq: number;

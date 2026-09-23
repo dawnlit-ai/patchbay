@@ -1,4 +1,4 @@
-import { appendFileSync, readdirSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LogEntry, LogLevel, LogSource } from '@shared/log';
 import { logsDir } from './paths';
@@ -74,6 +74,28 @@ export const log = {
 /** What the buffer holds, oldest first. */
 export function logEntries(): LogEntry[] {
     return [...buffer];
+}
+
+/**
+ * One day's file, oldest first — what the buffer no longer holds once the app
+ * has restarted or the window has cleared it. `day` is `YYYY-MM-DD`, local time,
+ * and a day with no file is an empty one.
+ */
+export function logEntriesOn(day: string): LogEntry[] {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`"${day}" is not a day. Write it as YYYY-MM-DD.`);
+    const file = join(logsDir(), `${day}.jsonl`);
+    if (!existsSync(file)) return [];
+    // A torn final line (power loss mid-append) costs one entry, not the day.
+    return readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .flatMap((line): LogEntry[] => {
+            try {
+                return [JSON.parse(line) as LogEntry];
+            } catch {
+                return [];
+            }
+        });
 }
 
 /** Empties the buffer the window reads. The day's file keeps every line. */

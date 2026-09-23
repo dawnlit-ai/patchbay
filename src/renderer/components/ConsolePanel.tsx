@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { LOG_LEVELS, type LogEntry, type LogLevel, type LogSource } from '@shared/log';
+import { LOG_LEVELS, LOG_SOURCES, type LogEntry, type LogLevel, type LogSource } from '@shared/log';
 import { time } from '../format';
 
 /**
@@ -9,8 +9,6 @@ import { time } from '../format';
  * Outlook call was slow, and what an agent did. Newest at the bottom, and it
  * follows new lines unless you have scrolled up to read.
  */
-
-const SOURCES: LogSource[] = ['app', 'watcher', 'run', 'outlook', 'agent'];
 
 /** The quietest level each choice shows. */
 const LEVEL_CHOICES: { level: LogLevel; label: string }[] = [
@@ -123,7 +121,7 @@ export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenR
                     onChange={(e) => onView({ ...view, source: e.target.value as LogSource | '' })}
                 >
                     <option value="">All sources</option>
-                    {SOURCES.map((s) => (
+                    {LOG_SOURCES.map((s) => (
                         <option key={s} value={s}>
                             {s}
                         </option>

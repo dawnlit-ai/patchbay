@@ -10,7 +10,7 @@
  *   npm run mcpcheck
  */
 import { app } from 'electron';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -140,6 +140,108 @@ async function main(): Promise<void> {
         'the skill is in the flow’s library',
         (await call('list_skills', { flowId })).includes('check-skill'),
     );
+
+    // A skill is a folder, not a file: what sits beside SKILL.md has to come too.
+    const shelf = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-skills-'));
+    for (const name of ['alpha', 'beta']) {
+        mkdirSync(join(shelf, name, 'references'), { recursive: true });
+        writeFileSync(
+            join(shelf, name, 'SKILL.md'),
+            `---\nname: ${name}\ndescription: Imported over MCP.\n---\n\nRead references/notes.md.\n`,
+        );
+        writeFileSync(join(shelf, name, 'references', 'notes.md'), 'A file beside the SKILL.md.\n');
+    }
+    const imported = JSON.parse(
+        await call('import_skills', { scope: 'flow', flowId, dir: shelf, names: ['alpha', 'nope'] }),
+    ) as { imported: string[]; notFound?: string[] };
+    check(
+        'only the named skill is imported, and a missing one is named',
+        imported.imported.join() === 'alpha' && imported.notFound?.join() === 'nope',
+    );
+    const flowPath =
+        (JSON.parse(await call('list_flows')) as { id: string; path: string }[]).find((f) => f.id === flowId)?.path ?? '';
+    check(
+        'the files beside SKILL.md come with it',
+        existsSync(join(flowPath, '.claude', 'skills', 'alpha', 'references', 'notes.md')),
+    );
+    const itself = await client.callTool({
+        name: 'import_skills',
+        arguments: { scope: 'flow', flowId, dir: join(shelf, 'alpha') },
+    });
+    check('a skill folder passed as the shelf is refused', itself.isError === true);
+    const relative = await client.callTool({ name: 'import_skills', arguments: { scope: 'global', dir: 'skills' } });
+    check('a relative folder is refused', relative.isError === true);
+
+    // Moving a skill changes how it is ticked, so the flow's Processors follow it,
+    // and a skill leaving the shelf names every other flow it leaves behind.
+    const worker = await idOf('processor');
+    await call('update_node', { flowId, nodeId: worker, config: { skills: ['alpha'] } });
+    const up = JSON.parse(await call('move_skill', { flowId, name: 'alpha', to: 'global' })) as {
+        repointedNodes: string[];
+    };
+    check(
+        'moving a skill re-points this flow’s ticks',
+        up.repointedNodes.includes(worker) && (await call('get_flow', { flowId })).includes('"global:alpha"'),
+    );
+    const other = (JSON.parse(await call('create_flow', { name: 'Also ticks alpha' })) as { id: string }).id;
+    const otherWorker = (JSON.parse(await call('add_node', { flowId: other, kind: 'processor' })) as { id: string }).id;
+    await call('update_node', { flowId: other, nodeId: otherWorker, config: { skills: ['global:alpha'] } });
+    const down = JSON.parse(await call('move_skill', { flowId, name: 'alpha', to: 'flow' })) as {
+        stillTickedBy?: { id: string }[];
+    };
+    check(
+        'a skill leaving the shelf names the flows it strands',
+        down.stillTickedBy?.some((f) => f.id === other) === true,
+    );
+    await call('delete_flow', { flowId: other });
+
+    // A run has an id from the moment it is queued. A trigger wired to nothing
+    // ends its path at once, so these runs touch neither Outlook nor Claude; two
+    // of one flow queued together means the second waits for the first.
+    const lane = (JSON.parse(await call('create_flow', { name: 'Queue check' })) as { id: string }).id;
+    const start = (JSON.parse(await call('add_node', { flowId: lane, kind: 'trigger.outlook' })) as { id: string }).id;
+    const email = {
+        ref: { entryId: 'mcpcheck', storeId: 'mcpcheck', account: 'check@example.com', folderPath: '' },
+        subject: 'Queue check',
+        senderName: 'mcpcheck',
+        senderEmail: 'check@example.com',
+        receivedTime: new Date().toISOString(),
+        bodyPreview: '',
+        attachmentNames: [],
+    };
+    const first = watcher.enqueueManual(lane, start, email);
+    const second = watcher.enqueueManual(lane, start, email);
+    check(
+        'a run behind another of its flow is queued, and says why',
+        watcher.queued().find((q) => q.runId === second)?.waitingFor.includes('this flow') === true,
+    );
+    check('a queued run can be cancelled', watcher.cancel(second) === 'dequeued' && watcher.queued().length === 0);
+    check('cancelling it again finds nothing', watcher.cancel(second) === 'unknown');
+    for (let i = 0; i < 50 && watcher.status().activeRunIds.length > 0; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    check('the run ahead of it still ran', (await call('get_run', { runId: first })).includes('"status": "completed"'));
+    check('list_runs has it', (await call('list_runs', { flowId: lane })).includes(first));
+    check(
+        'cancel_run says when there is nothing to cancel',
+        (await call('cancel_run', { runId: second })).includes('Nothing to cancel'),
+    );
+    await call('delete_flow', { flowId: lane });
+
+    // The console: what the app did outside any one run, this session's and a day's.
+    check(
+        'the console shows an agent’s calls',
+        (await call('get_console', { source: 'agent' })).includes('Called create_flow'),
+    );
+    const now = new Date();
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    check(
+        'a day’s file reads back',
+        (await call('get_console', { day: today, source: 'run' })).includes('Cancelled before it started'),
+    );
+    const notADay = await client.callTool({ name: 'get_console', arguments: { day: 'yesterday' } });
+    check('a day that is not a date is refused', notADay.isError === true);
 
     const settings = await call('get_settings');
     check('the token is withheld', settings.includes('(withheld)') && !settings.includes(TOKEN));

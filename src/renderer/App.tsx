@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
+import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind, retickSkill } from '@shared/flow';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
@@ -255,19 +255,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const relabelSkill = useCallback(
         (from: SkillScope, to: SkillScope, name: string) => {
             if (!flow) return;
-            const before = skillRef(from, name);
-            const after = skillRef(to, name);
-            let changed = false;
-            const nodes = flow.nodes.map((node) => {
-                if (node.config.kind !== 'processor') return node;
-                if (!node.config.skills.includes(before)) return node;
-                changed = true;
-                // Through a Set: a node ticking both libraries' copies would otherwise
-                // end up ticking the survivor twice.
-                const skills = [...new Set(node.config.skills.map((s) => (s === before ? after : s)))];
-                return { ...node, config: { ...node.config, skills } };
-            });
-            if (changed) updateFlow({ ...flow, nodes });
+            const next = retickSkill(flow, skillRef(from, name), skillRef(to, name));
+            if (next !== flow) updateFlow(next);
         },
         [flow, updateFlow],
     );

@@ -61,6 +61,24 @@ interface QueueItem {
     trigger: 'poll' | 'manual';
 }
 
+/** A run that has an id but no trace yet, and what it is waiting for. */
+export interface QueuedRun {
+    runId: string;
+    flowId: string;
+    flowName: string;
+    trigger: 'poll' | 'manual';
+    email: EmailEnvelope;
+    /** 1 is next, among those whose flow is free. */
+    position: number;
+    waitingFor: string;
+}
+
+/**
+ * What asking to cancel did: stopped a run under way, took one out of the queue
+ * before it started, or found neither — most likely because it already finished.
+ */
+export type CancelOutcome = 'stopping' | 'dequeued' | 'unknown';
+
 export class Watcher {
     private timer: NodeJS.Timeout | null = null;
     private queue: QueueItem[] = [];
@@ -133,11 +151,57 @@ export class Watcher {
             lastPollAt: this.lastPollAt,
             lastError: this.lastError,
             activeRunIds: [...this.active.keys()],
+            queuedRunIds: this.queue.map((item) => item.runId),
         };
     }
 
-    cancel(runId: string): void {
-        this.active.get(runId)?.controller.abort();
+    /**
+     * What is waiting, in queue order, and why none of it is under way yet. A run
+     * has an id from the moment it is queued but no trace until it starts, and
+     * whoever holds the id is owed an answer in between.
+     */
+    queued(): QueuedRun[] {
+        const busy = new Set(this.active.values().map((run) => run.flowId));
+        return this.queue.map((item, index) => {
+            const behindItsFlow =
+                busy.has(item.flow.id) || this.queue.slice(0, index).some((ahead) => ahead.flow.id === item.flow.id);
+            return {
+                runId: item.runId,
+                flowId: item.flow.id,
+                flowName: item.flow.name,
+                trigger: item.trigger,
+                email: item.email,
+                position: index + 1,
+                waitingFor: behindItsFlow
+                    ? 'another run of this flow to finish'
+                    : `a free slot: ${this.active.size} of ${this.limit()} runs are under way`,
+            };
+        });
+    }
+
+    /**
+     * Stop a run under way, or take one out of the queue before it starts. The
+     * second matters as much as the first: a run's id is handed out when it is
+     * queued, so it can be cancelled before there is anything to abort.
+     */
+    cancel(runId: string): CancelOutcome {
+        const active = this.active.get(runId);
+        if (active) {
+            active.controller.abort();
+            return 'stopping';
+        }
+        const index = this.queue.findIndex((item) => item.runId === runId);
+        const item = this.queue[index];
+        if (!item) return 'unknown';
+        this.queue.splice(index, 1);
+        // As with Stop: a polled email was marked seen when it was queued, so this
+        // one is never picked up again. A test run is only undone.
+        const subject = `"${item.email.subject || '(no subject)'}"`;
+        const detail = `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`;
+        if (item.trigger === 'poll') log.warn('watcher', `Cancelled before it started, not run: ${subject}`, { detail });
+        else log.info('run', `Cancelled before it started: ${subject} (test)`, { detail });
+        this.onStatus();
+        return 'dequeued';
     }
 
     /**

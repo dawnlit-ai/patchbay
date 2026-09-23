@@ -279,6 +279,31 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
     };
 }
 
+/**
+ * Re-point every Processor that ticks `before` at `after` — what a skill moving
+ * library needs, since its name changes with it (`global:x` one way, a bare `x`
+ * the other). Hands back the same flow when nothing ticked it, so a caller can
+ * tell whether there is anything to save.
+ */
+export function retickSkill(flow: Flow, before: string, after: string): Flow {
+    let changed = false;
+    const nodes = flow.nodes.map((node) => {
+        if (node.config.kind !== 'processor') return node;
+        if (!node.config.skills.includes(before)) return node;
+        changed = true;
+        // Through a Set: a node ticking both libraries' copies would otherwise
+        // end up ticking the survivor twice.
+        const skills = [...new Set(node.config.skills.map((s) => (s === before ? after : s)))];
+        return { ...node, config: { ...node.config, skills } };
+    });
+    return changed ? { ...flow, nodes } : flow;
+}
+
+/** Whether any Processor in the flow ticks this skill. */
+export function ticksSkill(flow: Flow, ref: string): boolean {
+    return flow.nodes.some((node) => node.config.kind === 'processor' && node.config.skills.includes(ref));
+}
+
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
     return { id, name, nodes: [], edges: [], updatedAt: new Date().toISOString() };

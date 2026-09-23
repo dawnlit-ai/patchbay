@@ -1,4 +1,7 @@
 import { app } from 'electron';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -11,12 +14,16 @@ import {
     type NodeConfig,
     outputPorts,
     parseFlow,
+    retickSkill,
+    ticksSkill,
     triggerConfig,
 } from '@shared/flow';
-import { SKILL_SCOPES, type SkillScope } from '@shared/settings';
+import { LOG_LEVELS, LOG_SOURCES } from '@shared/log';
+import { SKILL_SCOPES, type SkillScope, skillRef } from '@shared/settings';
 import type { WorkspaceChange } from '@shared/ipc';
-import { type EmailEnvelope, type Run, truncate } from '@shared/trace';
-import type { Watcher } from '../engine/watcher';
+import { type EmailEnvelope, type Run, toSummary, truncate } from '@shared/trace';
+import type { QueuedRun, Watcher } from '../engine/watcher';
+import { logEntries, logEntriesOn } from '../log';
 import * as outlook from '../outlook/bridge';
 import * as flowStore from '../store/flowStore';
 import * as skillStore from '../store/skillStore';
@@ -76,7 +83,10 @@ edge left hanging by that is dropped, and the tool result says how many.
 
 Before telling the person it works, run it: test_run puts one real email through
 the flow, and get_run returns the trace, including why each node left by the port
-it did.`;
+it did. A run can wait in a queue before it starts; get_run says so, and why.
+
+A trace explains a run. When an email never became one — or a run never started —
+get_console is where the app said why: polls, Outlook failures, mail marked seen.`;
 
 // ── Results ──────────────────────────────────────────────────────────────
 
@@ -149,6 +159,19 @@ function describeRun(run: Run, includeEvents: boolean) {
     };
 }
 
+/** A run with an id and no trace yet: where it stands, and what it waits for. */
+const describeQueued = (queued: QueuedRun) => ({
+    id: queued.runId,
+    flowId: queued.flowId,
+    flowName: queued.flowName,
+    status: 'queued' as const,
+    trigger: queued.trigger,
+    subject: queued.email.subject,
+    senderEmail: queued.email.senderEmail,
+    position: queued.position,
+    waitingFor: queued.waitingFor,
+});
+
 // ── Writing the workspace ────────────────────────────────────────────────
 
 /**
@@ -173,6 +196,17 @@ function libraryOf(scope: SkillScope, flowId?: string): string {
     if (scope === 'global') return '';
     if (!flowId) throw new Error('A flow-scoped skill needs the flowId of the flow whose library holds it.');
     return requireFlow(flowId).id;
+}
+
+/**
+ * A folder an agent named. `~` is the shell's, not the filesystem's, so it is
+ * expanded here; a relative path would resolve against wherever the app was
+ * launched from, which the agent cannot know, so it is refused.
+ */
+function absoluteDir(dir: string): string {
+    const path = dir === '~' || /^~[\\/]/.test(dir) ? join(homedir(), dir.slice(1)) : dir;
+    if (!isAbsolute(path)) throw new Error(`"${dir}" is not an absolute path. Name the folder in full.`);
+    return path;
 }
 
 // ── The surface ──────────────────────────────────────────────────────────
@@ -474,6 +508,97 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
     );
 
+    server.registerTool(
+        'import_skills',
+        {
+            title: 'Import skills from a folder',
+            description:
+                'Copy skills from a folder on this machine into one of the libraries, each skill folder whole — its SKILL.md and whatever sits beside it, scripts and references included. What write_skill cannot carry. A skill of the same name already in the library is replaced; the result names those.',
+            inputSchema: {
+                scope: scopeArg,
+                dir: z
+                    .string()
+                    .describe(
+                        'Absolute path to a folder whose subfolders each hold a SKILL.md — ~/.claude/skills, say. The same shape the window’s Import… button takes.',
+                    ),
+                names: z
+                    .array(z.string())
+                    .optional()
+                    .describe('Only these skills from the folder. Default: every one it holds.'),
+                flowId: z.string().optional(),
+            },
+        },
+        ({ scope, dir, names, flowId }) => {
+            const library = libraryOf(scope, flowId);
+            const from = absoluteDir(dir);
+            if (existsSync(join(from, 'SKILL.md'))) {
+                throw new Error(
+                    `"${dir}" is a skill itself. Pass the folder it sits in as dir, and "${basename(from)}" in names.`,
+                );
+            }
+            const before = new Set(skillStore.listSkills(scope, library).map((s) => s.name));
+            const imported = skillStore.importSkillsFrom(scope, library, from, names);
+            host.changed({ flows: false, skills: true });
+            const missing = names?.filter((name) => !imported.includes(name)) ?? [];
+            return json({
+                imported,
+                replaced: imported.filter((name) => before.has(name)),
+                notFound: missing.length > 0 ? missing : undefined,
+                note:
+                    missing.length > 0
+                        ? 'A name is imported only when the folder has a subfolder of that name holding a SKILL.md, and the name is lowercase letters, digits and hyphens.'
+                        : undefined,
+            });
+        },
+    );
+
+    server.registerTool(
+        'move_skill',
+        {
+            title: 'Move a skill to the other library',
+            description:
+                'Move a skill, folder and all, between the global shelf and one flow’s own library — what dragging it onto the other tab does. This flow’s Processors are re-pointed as it goes ("global:<name>" ↔ "<name>"). Ask the person first when the result could surprise them: a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name already there replaces it.',
+            inputSchema: {
+                flowId: z.string().describe('The flow whose own library is one end of the move.'),
+                name: z.string(),
+                to: scopeArg.describe('The library it goes to. It comes from the other one.'),
+            },
+            annotations: { destructiveHint: true },
+        },
+        ({ flowId, name, to }) => {
+            const flow = requireFlow(flowId);
+            const from: SkillScope = to === 'global' ? 'flow' : 'global';
+            const replaced = skillStore.getSkill(to, flow.id, name) !== null;
+            const moved = skillStore.moveSkill(from, to, flow.id, name);
+
+            const before = skillRef(from, name);
+            const after = skillRef(to, name);
+            const reticked = retickSkill(flow, before, after);
+            if (reticked !== flow) flowStore.saveFlow(reticked);
+            host.changed({ flows: reticked !== flow, skills: true });
+
+            // Only a skill leaving the shelf strands anyone: a flow's own library
+            // was never tickable from another flow.
+            const stranded =
+                from === 'global'
+                    ? flowStore
+                        .listFlows()
+                        .filter((other) => other.id !== flow.id && ticksSkill(other, before))
+                        .map((other) => ({ id: other.id, name: other.name }))
+                    : [];
+            return json({
+                ...moved,
+                replaced,
+                repointedNodes: reticked.nodes.filter((node, i) => node !== flow.nodes[i]).map((node) => node.id),
+                stillTickedBy: stranded.length > 0 ? stranded : undefined,
+                note:
+                    stranded.length > 0
+                        ? `These flows still tick "${before}", which no longer exists. Re-point their Processors, or move the skill back.`
+                        : undefined,
+            });
+        },
+    );
+
     // ── The mailbox, as far as choosing an email ─────────────────────────
 
     server.registerTool(
@@ -586,7 +711,11 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 );
             }
             const runId = host.watcher().enqueueManual(flow.id, node.id, email);
-            return json({ runId, email: describeEmail(email), note: 'Queued. Poll get_run for the trace.' });
+            return json({
+                runId,
+                email: describeEmail(email),
+                note: 'Queued. Poll get_run: it says "queued" and why until the run starts, then has the trace.',
+            });
         },
     );
 
@@ -594,13 +723,28 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'cancel_run',
         {
             title: 'Cancel a run',
-            description: 'Abort a run still under way. The trace up to that point is kept.',
+            description:
+                'Abort a run under way, keeping its trace up to that point — or take one out of the queue before it starts, which leaves no trace at all.',
             inputSchema: { runId: z.string() },
             annotations: { idempotentHint: true },
         },
         ({ runId }) => {
-            host.watcher().cancel(runId);
-            return text(`Asked run ${runId} to stop.`);
+            const waiting = host.watcher().queued().find((q) => q.runId === runId);
+            switch (host.watcher().cancel(runId)) {
+                case 'stopping':
+                    return text(`Asked run ${runId} to stop. The trace up to that point is kept; get_run has it.`);
+                case 'dequeued':
+                    return text(
+                        `Run ${runId} had not started, and is out of the queue. It will not run and leaves no trace.` +
+                        (waiting?.trigger === 'poll'
+                            ? ' Its email was marked seen when it was polled, so no later poll will pick it up; test_run can still put it through.'
+                            : ''),
+                    );
+                case 'unknown':
+                    return text(
+                        `Nothing to cancel: run ${runId} is neither under way nor queued. If it existed it has finished, and get_run shows how.`,
+                    );
+            }
         },
     );
 
@@ -608,19 +752,35 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'list_runs',
         {
             title: 'List runs',
-            description: 'Recent runs, newest first: what each handled, how it ended and what it cost.',
+            description:
+                'Recent runs, newest first: what each handled, how it ended and what it cost. Runs still queued or under way come first, whatever the limit — those are the ones an agent is usually waiting on.',
             inputSchema: {
-                limit: z.number().int().min(1).max(200).optional(),
+                limit: z.number().int().min(1).max(200).optional().describe('Finished runs to include. Default 20.'),
                 flowId: z.string().optional().describe('Only runs of this flow.'),
             },
             annotations: { readOnlyHint: true },
         },
         ({ limit, flowId }) => {
             const wanted = limit ?? 20;
-            if (!flowId) return json(traceStore.listRuns(wanted));
+            const mine = (run: { flowId: string }): boolean => !flowId || run.flowId === flowId;
             // Filtered after the walk, so a flow that has not run lately still costs
             // one bounded read of the index rather than the whole of it.
-            return json(traceStore.listRuns(500).filter((run) => run.flowId === flowId).slice(0, wanted));
+            const finished = traceStore.listRuns(flowId ? 500 : wanted).filter(mine).slice(0, wanted);
+            // The index gains a line only when a run ends, so what is still going is
+            // asked of the watcher. A run that ended between the two reads is left
+            // to the index, which has it in its final state.
+            const indexed = new Set(finished.map((run) => run.id));
+            const watcher = host.watcher();
+            const running = watcher
+                .status()
+                .activeRunIds.filter((id) => !indexed.has(id))
+                .flatMap((id) => {
+                    const run = traceStore.getRun(id);
+                    return run && mine(run) ? [toSummary(run)] : [];
+                })
+                .toReversed();
+            const queued = watcher.queued().filter(mine).map(describeQueued).toReversed();
+            return json([...queued, ...running, ...finished]);
         },
     );
 
@@ -641,8 +801,63 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({ runId, includeEvents }) => {
             const run = traceStore.getRun(runId);
-            if (!run) throw new Error(`There is no run "${runId}".`);
-            return json(describeRun(run, includeEvents !== false));
+            if (run) return json(describeRun(run, includeEvents !== false));
+            // Queued runs have an id before they have a file. Saying "no such run"
+            // to whoever was just handed that id would send them looking for a fault.
+            const queued = host.watcher().queued().find((q) => q.runId === runId);
+            if (!queued) throw new Error(`There is no run "${runId}".`);
+            return json({
+                ...describeQueued(queued),
+                note: 'Not started yet, so there is no trace. Ask again once it has; cancel_run takes it out of the queue.',
+            });
+        },
+    );
+
+    // ── The console ──────────────────────────────────────────────────────
+
+    server.registerTool(
+        'get_console',
+        {
+            title: 'Read the console',
+            description:
+                'What the app did outside any one run: each poll and what it found, the first poll that marks a folder’s mail seen without running it, queued mail dropped or cancelled, Outlook calls and their failures, runs starting and ending, and every agent tool call. The place to look when an email never became a run. Returns the newest `limit` entries that pass the filters, oldest first. Without `day` it reads what this session holds — the last 2,000 lines, emptied by the window’s Clear; with one it reads that day’s file, which survives a restart and is kept 14 days.',
+            inputSchema: {
+                level: z
+                    .enum(LOG_LEVELS)
+                    .optional()
+                    .describe(
+                        'The quietest level included. Default "info"; "debug" adds routine lines, such as a poll that found nothing or an Outlook call that worked.',
+                    ),
+                source: z.enum(LOG_SOURCES).optional().describe('Only lines from this part of the app.'),
+                runId: z.string().optional().describe('Only lines about this run.'),
+                afterSeq: z
+                    .number()
+                    .int()
+                    .optional()
+                    .describe(
+                        'Only lines after this seq: pass the last seq you saw to read what is new. Without `day` only, since seq starts again when the app does.',
+                    ),
+                day: z.string().optional().describe('YYYY-MM-DD, local time.'),
+                limit: z.number().int().min(1).max(500).optional().describe('Default 100.'),
+            },
+            annotations: { readOnlyHint: true },
+        },
+        ({ level, source, runId, afterSeq, day, limit }) => {
+            const floor = LOG_LEVELS.indexOf(level ?? 'info');
+            const matching = (day ? logEntriesOn(day) : logEntries()).filter(
+                (entry) =>
+                    LOG_LEVELS.indexOf(entry.level) >= floor &&
+                    (!source || entry.source === source) &&
+                    (!runId || entry.runId === runId) &&
+                    (afterSeq === undefined || entry.seq > afterSeq),
+            );
+            const shown = matching.slice(-(limit ?? 100));
+            return json({
+                entries: shown.map((entry) =>
+                    entry.detail === undefined ? entry : { ...entry, detail: truncate(entry.detail, MAX_DETAIL_CHARS) },
+                ),
+                olderNotShown: matching.length - shown.length,
+            });
         },
     );
 
