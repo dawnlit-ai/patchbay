@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { type FlowNode, triggerConfig } from '@shared/flow';
+import { type FlowNode, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 
 /**
@@ -14,7 +14,8 @@ export const EMAIL_DRAG_TYPE = 'application/patchbay-email';
 /** How a trigger reads in a picker: its name, and the mailbox it watches. */
 export function triggerLabel(node: FlowNode): string {
     const c = triggerConfig(node);
-    const where = c?.account ? `${c.account}${c.folder ? ` \\ ${c.folder}` : ''}` : 'no mailbox';
+    const below = c?.includeSubfolders ? ' and below' : '';
+    const where = c?.account ? `${c.account}${c.folder ? ` \\ ${c.folder}` : ''}${below}` : 'no mailbox';
     return `${node.name} — ${where}`;
 }
 
@@ -32,13 +33,18 @@ export interface RecentMail {
 
 export function useRecentMail(trigger: FlowNode | undefined, days: number, limit: number): RecentMail {
     const config = triggerConfig(trigger);
-    const account = config?.account ?? '';
-    const folder = config?.folder ?? '';
-    const mailbox = JSON.stringify([account, folder]);
+    const scope: MailScope = {
+        account: config?.account ?? '',
+        folder: config?.folder ?? '',
+        includeSubfolders: config?.includeSubfolders ?? false,
+        excludeFolders: config?.excludeFolders ?? [],
+    };
+    const { account } = scope;
+    const mailbox = JSON.stringify(scope);
     const [attempt, setAttempt] = useState(0);
     const reload = useCallback(() => setAttempt((n) => n + 1), []);
     /** Names one read exactly; a read is still under way until a result carries it. */
-    const read = JSON.stringify([account, folder, days, limit, attempt]);
+    const read = JSON.stringify([scope, days, limit, attempt]);
 
     // Each result says which read and which mailbox it came from, so loading is
     // derived rather than set, and another mailbox's mail is never shown as this
@@ -55,7 +61,7 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
     useEffect(() => {
         if (!account) return;
         let cancelled = false;
-        window.api.outlook.recent(account, folder, days, limit).then(
+        window.api.outlook.recent(scope, days, limit).then(
             (emails) => {
                 if (!cancelled) setResult({ read, mailbox, emails, error: null });
             },

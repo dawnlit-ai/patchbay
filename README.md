@@ -21,7 +21,10 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
 
-- **Outlook Trigger** — polls a mailbox folder through the real Outlook client and starts one run per new email.
+- **Outlook Trigger** — polls a mailbox folder through the real Outlook client and starts one run per new email. Tick
+  *Watch every folder below it too* for a mailbox whose rules file mail away as it arrives: the trigger then walks the
+  whole tree under its folder, less any folders you leave out, and knows an email by sender, time and subject rather
+  than by entry id — Outlook rewrites the id whenever an email moves, so filing one away doesn't make it new again.
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
 - **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,

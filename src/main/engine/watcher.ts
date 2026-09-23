@@ -19,10 +19,28 @@ import { log } from '../log';
  */
 
 interface Watermark {
-    /** Message ids already handled, newest last. Bounded so the file stays small. */
+    /** Emails already handled, by `mailKey`, newest last. Bounded so the file stays small. */
     seen: string[];
     /** False until the first poll has established a baseline for this trigger. */
     primed: boolean;
+    /** What `seen` holds. Missing on marks written before there was a choice: entry ids. */
+    keyedBy?: KeyedBy;
+}
+
+/**
+ * How a trigger knows an email again. One folder's mail is known by entry id.
+ * A trigger that also watches the folders below it sees mail get filed from one
+ * of its folders into another, and Outlook rewrites the entry id on every move —
+ * so there an email is known by who sent it, when, and its subject instead.
+ */
+type KeyedBy = 'entryId' | 'message';
+
+const keyedByFor = (config: TriggerConfig): KeyedBy => (config.includeSubfolders ? 'message' : 'entryId');
+
+function mailKey(email: EmailEnvelope, keyedBy: KeyedBy): string {
+    return keyedBy === 'entryId'
+        ? email.ref.entryId
+        : [email.senderEmail.toLowerCase(), email.receivedTime, email.subject].join('\n');
 }
 
 /** Keyed per trigger, not per flow: two triggers watch two folders separately. */
@@ -291,12 +309,7 @@ export class Watcher {
 
                 let emails: EmailEnvelope[];
                 try {
-                    emails = await outlook.readInbox(
-                        config.account,
-                        config.folder,
-                        config.lookbackDays,
-                        config.maxPerPoll,
-                    );
+                    emails = await outlook.readScope(config, config.lookbackDays, config.maxPerPoll);
                     this.lastError = undefined;
                 } catch (e) {
                     this.lastError = `${where(flow, node)}: ${e instanceof Error ? e.message : String(e)}`;
@@ -305,27 +318,45 @@ export class Watcher {
                 }
 
                 const mark: Watermark = marks[key] ?? { seen: [], primed: false };
+                const keyedBy = keyedByFor(config);
+                const idOf = (email: EmailEnvelope): string => mailKey(email, keyedBy);
                 const seen = new Set(mark.seen);
+                // Switching a trigger between one folder and a whole tree changes what
+                // its marks are keys of, so none of the old ones would match.
+                const rekeyed = mark.primed && (mark.keyedBy ?? 'entryId') !== keyedBy;
 
                 // The first poll establishes a baseline; without it, switching a flow
-                // on would fire a run for every email already in the folder.
-                if (!mark.primed && !config.processBacklogOnStart) {
-                    mark.seen = emails.map((e) => e.ref.entryId).slice(-SEEN_LIMIT);
+                // on would fire a run for every email already in the folder. A trigger
+                // whose marks no longer match takes a new one, for the same reason.
+                if ((!mark.primed && !config.processBacklogOnStart) || rekeyed) {
+                    mark.seen = emails.map(idOf).slice(-SEEN_LIMIT);
                     mark.primed = true;
+                    mark.keyedBy = keyedBy;
                     marks[key] = mark;
                     changed = true;
                     // The one poll that sees mail and starts nothing, on purpose — and
                     // the first place to look when an email already there never ran.
+                    const why = rekeyed
+                        ? `now ${config.includeSubfolders ? 'watches the folders below too' : 'watches one folder'}`
+                        : 'first look';
                     log.info(
                         'watcher',
-                        `${where(flow, node)}: first look, so the ${emails.length} email(s) already there are marked seen and not run`,
+                        `${where(flow, node)}: ${why}, so the ${emails.length} email(s) already there are marked seen and not run`,
                         { detail: emails.map((e) => `${e.receivedTime}  ${e.subject}`).join('\n') || undefined },
                     );
                     continue;
                 }
 
-                // Oldest first, so a backlog is processed in the order it arrived.
-                const fresh = emails.filter((e) => !seen.has(e.ref.entryId)).toReversed();
+                // Oldest first, so a backlog is processed in the order it arrived. Kept
+                // to one run per key: a mailbox can hold two copies of one message.
+                const fresh = emails
+                    .filter((e) => {
+                        const id = idOf(e);
+                        if (seen.has(id)) return false;
+                        seen.add(id);
+                        return true;
+                    })
+                    .toReversed();
                 if (fresh.length === 0) {
                     log.debug('watcher', `${where(flow, node)}: nothing new in ${emails.length} email(s)`);
                 } else if (fresh.length >= config.maxPerPoll) {
@@ -338,7 +369,7 @@ export class Watcher {
                 }
                 for (const email of fresh) {
                     log.info('watcher', `${where(flow, node)}: new email "${email.subject}" from ${email.senderEmail}`);
-                    mark.seen.push(email.ref.entryId);
+                    mark.seen.push(idOf(email));
                     this.queue.push({
                         runId: randomUUID(),
                         flow,
@@ -352,6 +383,7 @@ export class Watcher {
                     changed = true;
                 }
                 mark.primed = true;
+                mark.keyedBy = keyedBy;
                 marks[key] = mark;
             }
 

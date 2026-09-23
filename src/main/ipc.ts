@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { type InboxFolderOption, IPC, type OpenWhere } from '@shared/ipc';
-import type { Flow } from '@shared/flow';
+import type { Flow, MailScope } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
 import * as flowStore from './store/flowStore';
@@ -195,8 +195,8 @@ export function registerIpc(): void {
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>
         outlook.listFolders(account),
     );
-    handle(IPC.outlookRecent, (account: string, folder: string, days: number, limit: number) =>
-        outlook.readInbox(account, folder, days, limit),
+    handle(IPC.outlookRecent, (scope: MailScope, days: number, limit: number) =>
+        outlook.readScope(scope, days, limit),
     );
 
     handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));

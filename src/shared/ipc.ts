@@ -4,7 +4,7 @@
  * rather than going quiet at runtime.
  */
 
-import type { Flow } from './flow';
+import type { Flow, MailScope } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
 import type { LogEntry } from './log';
 import type {
@@ -110,8 +110,8 @@ export interface Api {
     outlook: {
         accounts(): Promise<string[]>;
         folders(account: string): Promise<InboxFolderOption[]>;
-        /** Recent mail, newest first, for picking a message to test a flow against. */
-        recent(account: string, folder: string, days: number, limit: number): Promise<EmailEnvelope[]>;
+        /** Recent mail where a trigger looks, newest first, for picking a message to test a flow against. */
+        recent(scope: MailScope, days: number, limit: number): Promise<EmailEnvelope[]>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every

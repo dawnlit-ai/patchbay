@@ -637,12 +637,17 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             inputSchema: {
                 account: z.string(),
                 folder: z.string().optional().describe('Path relative to the Inbox. Empty means the Inbox.'),
+                includeSubfolders: z
+                    .boolean()
+                    .optional()
+                    .describe('Read every folder below `folder` too, as a trigger watching subfolders does. No previews then.'),
                 limit: z.number().int().min(1).max(50).optional(),
             },
             annotations: { readOnlyHint: true },
         },
-        async ({ account, folder, limit }) => {
-            const emails = await outlook.readInbox(account, folder ?? '', LOOKBACK_DAYS, limit ?? 20);
+        async ({ account, folder, includeSubfolders, limit }) => {
+            const scope = { account, folder: folder ?? '', includeSubfolders: includeSubfolders === true, excludeFolders: [] };
+            const emails = await outlook.readScope(scope, LOOKBACK_DAYS, limit ?? 20);
             return json(emails.map(describeEmail));
         },
     );
@@ -705,7 +710,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             if (!config.account.trim()) {
                 throw new Error(`"${node.name}" names no mailbox yet. Give it an account with update_node first.`);
             }
-            const recent = await outlook.readInbox(config.account, config.folder, LOOKBACK_DAYS, 50);
+            const recent = await outlook.readScope(config, LOOKBACK_DAYS, 50);
             const email = entryId ? recent.find((e) => e.ref.entryId === entryId) : recent[0];
             if (!email) {
                 throw new Error(

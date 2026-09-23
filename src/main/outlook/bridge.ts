@@ -7,6 +7,7 @@ import type {
     ReplyEmailResult,
     SavedAttachment,
 } from '@dawnlit/outlook-bridge';
+import type { MailScope } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption } from '@shared/ipc';
 import { log } from '../log';
@@ -78,13 +79,9 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
         { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
     ];
     for (const f of folders) {
-        // A trigger stores the path relative to the Inbox — what readInboxEmails
-        // takes as its `folder` argument.
-        const idx = f.folderPath.toLowerCase().lastIndexOf('\\inbox\\');
-        const relative = idx >= 0 ? f.folderPath.slice(idx + '\\inbox\\'.length) : f.name;
         options.push({
             folderPath: f.folderPath,
-            relativePath: relative,
+            relativePath: underInbox(f.folderPath) ?? f.name,
             name: `${'— '.repeat(Math.max(0, f.depth - 1))}${f.name}`,
             depth: f.depth,
             itemCount: f.itemCount,
@@ -93,7 +90,34 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
     return options;
 }
 
-function toEnvelope(account: string, e: InboxEmail): EmailEnvelope {
+/**
+ * A folder as a trigger stores it: its path relative to the Inbox — what
+ * readInboxEmails takes as `folder` — and '' for the Inbox itself. Outlook
+ * reports full paths (`\\team@example.com\Inbox\Mobile, AL`); null for one
+ * outside the Inbox.
+ */
+function underInbox(folderPath: string): string | null {
+    const lower = folderPath.toLowerCase();
+    const at = lower.indexOf('\\inbox\\');
+    if (at >= 0) return folderPath.slice(at + '\\inbox\\'.length);
+    return lower.endsWith('\\inbox') ? '' : null;
+}
+
+/** What an envelope is built from — a folder listing's row, or a tree search's match. */
+type ListedEmail = Pick<
+    InboxEmail,
+    | 'entryId'
+    | 'storeId'
+    | 'folderPath'
+    | 'subject'
+    | 'senderName'
+    | 'senderEmail'
+    | 'receivedTime'
+    | 'bodyPreview'
+    | 'attachmentNames'
+>;
+
+function toEnvelope(account: string, e: ListedEmail): EmailEnvelope {
     const ref: EmailRef = {
         entryId: e.entryId,
         storeId: e.storeId,
@@ -122,6 +146,34 @@ export async function readInbox(
         b.readInboxEmails(account, { folder: folder || undefined, daysBack: lookbackDays, limit }),
     );
     return emails.map((e) => toEnvelope(account, e));
+}
+
+/**
+ * A trigger's mail, newest first. Reading below a folder walks the whole Inbox
+ * tree — where the bridge's search starts — and keeps what sits under `folder`.
+ * That walk leaves bodies behind, so these envelopes carry no preview: a poll
+ * only needs to know what arrived, and every node that wants a body reads it.
+ */
+export async function readScope(scope: MailScope, lookbackDays: number, limit: number): Promise<EmailEnvelope[]> {
+    const { account, folder } = scope;
+    if (!scope.includeSubfolders) return readInbox(account, folder, lookbackDays, limit);
+    const b = await bridge();
+    const matches = await serialize(`Read ${account}${folder ? `\\${folder}` : ' Inbox'} and below`, () =>
+        b.searchInboxByFilter(account, {
+            daysBack: lookbackDays,
+            excludeFolders: scope.excludeFolders.map((f) => f.trim()).filter(Boolean),
+            includeBody: false,
+        }),
+    );
+    const root = folder.trim().toLowerCase();
+    return matches
+        .filter((m) => {
+            const at = underInbox(m.folderPath)?.toLowerCase();
+            return at !== undefined && (root === '' || at === root || at.startsWith(`${root}\\`));
+        })
+        .toSorted((x, y) => y.receivedTime.localeCompare(x.receivedTime))
+        .slice(0, limit)
+        .map((m) => toEnvelope(account, { ...m, bodyPreview: '' }));
 }
 
 /**

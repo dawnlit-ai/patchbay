@@ -124,7 +124,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                 </select>
             </Field>
 
-            <Field label="Folder" hint="Inbox subfolder to watch. Leave on Inbox to watch everything.">
+            <Field label="Folder" hint="Inbox subfolder to watch.">
                 <select value={config.folder} onChange={(e) => patch({ folder: e.target.value })}>
                     {folders.length === 0 && <option value="">Inbox</option>}
                     {folders.map((f) => (
@@ -134,6 +134,28 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                     ))}
                 </select>
             </Field>
+
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.includeSubfolders}
+                    onChange={(e) => patch({ includeSubfolders: e.target.checked })}
+                />
+                Watch every folder below it too — for mail your rules file away as it arrives
+            </label>
+
+            {config.includeSubfolders && (
+                <Field
+                    label="Leave out"
+                    hint="One folder per line, by name or path under the Inbox. Each takes the folders below it along."
+                >
+                    <textarea
+                        rows={3}
+                        value={config.excludeFolders.join('\n')}
+                        onChange={(e) => patch({ excludeFolders: e.target.value.split('\n') })}
+                    />
+                </Field>
+            )}
 
             <div className="row">
                 <Field label="Poll every (s)">

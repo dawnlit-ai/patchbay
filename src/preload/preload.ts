@@ -57,8 +57,7 @@ const api: Api = {
     outlook: {
         accounts: () => call(IPC.outlookAccounts),
         folders: (account) => call(IPC.outlookFolders, account),
-        recent: (account, folder, days, limit) =>
-            call(IPC.outlookRecent, account, folder, days, limit),
+        recent: (scope, days, limit) => call(IPC.outlookRecent, scope, days, limit),
     },
     skills: {
         list: (flowId) => call(IPC.skillsList, flowId),

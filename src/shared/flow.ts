@@ -27,6 +27,18 @@ export interface TriggerConfig {
     account: string;
     /** Inbox subfolder path, e.g. "Pre-Alerts". Empty means the Inbox itself. */
     folder: string;
+    /**
+     * Watch every folder below `folder` too — for a mailbox whose rules file mail
+     * away as it arrives. Mail is then known by sender, time and subject rather
+     * than by entry id, which Outlook rewrites whenever an email is moved, so
+     * filing one away does not make it new again.
+     */
+    includeSubfolders: boolean;
+    /**
+     * With `includeSubfolders`: folders to leave out, by name or by path under
+     * the Inbox. Each takes everything below it along.
+     */
+    excludeFolders: string[];
     pollSeconds: number;
     /** How far back each poll looks. Keeps the COM walk cheap. */
     lookbackDays: number;
@@ -37,6 +49,9 @@ export interface TriggerConfig {
      */
     processBacklogOnStart: boolean;
 }
+
+/** Where a trigger reads its mail: one folder, or that folder and every folder below it. */
+export type MailScope = Pick<TriggerConfig, 'account' | 'folder' | 'includeSubfolders' | 'excludeFolders'>;
 
 export interface CategorizerConfig {
     categories: Category[];
@@ -150,6 +165,8 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 kind,
                 account: '',
                 folder: '',
+                includeSubfolders: false,
+                excludeFolders: [],
                 pollSeconds: 60,
                 lookbackDays: 1,
                 maxPerPoll: 10,
@@ -327,6 +344,10 @@ const num = (value: unknown, fallback: number): number =>
 const bool = (value: unknown, fallback: boolean): boolean =>
     typeof value === 'boolean' ? value : fallback;
 
+/** A list of strings, keeping only the entries that are strings. */
+const strings = (value: unknown, fallback: string[]): string[] =>
+    (Array.isArray(value) ? value : fallback).filter((s): s is string => typeof s === 'string');
+
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
@@ -340,6 +361,8 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 account: str(from.account, base.account),
                 folder: str(from.folder, base.folder),
+                includeSubfolders: bool(from.includeSubfolders, base.includeSubfolders),
+                excludeFolders: strings(from.excludeFolders, base.excludeFolders),
                 pollSeconds: num(from.pollSeconds, base.pollSeconds),
                 lookbackDays: num(from.lookbackDays, base.lookbackDays),
                 maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),
@@ -368,9 +391,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
         case 'processor':
             return {
                 ...base,
-                skills: (Array.isArray(from.skills) ? from.skills : base.skills).filter(
-                    (s): s is string => typeof s === 'string',
-                ),
+                skills: strings(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
                 model: str(from.model, base.model),
                 effort: oneOf(from.effort, EFFORT_LEVELS, base.effort),
