@@ -10,11 +10,13 @@
   "engines": {
     "node": ">=24"
   },
-  "allowScripts": [
-    "electron",
-    "esbuild",
-    "@dawnlit/outlook-bridge"
-  ],
+  "allowScripts": {
+    "0": "electron",
+    "1": "esbuild",
+    "2": "@dawnlit/outlook-bridge",
+    "electron-winstaller@5.4.4": true,
+    "esbuild@0.28.2": true
+  },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
@@ -31,21 +33,21 @@
     "@electron-forge/maker-zip": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
     "@types/node": "^24.13.6",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "electron": "^44.0.0",
+    "electron": "^44.4.5",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.3.0"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.251",
-    "@dawnlit/outlook-bridge": "github:dawnlit-ai/outlook-bridge#main",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.280",
+    "@dawnlit/outlook-bridge": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@xyflow/react": "^12.11.5",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "zod": "^4.5.4"
+    "@xyflow/react": "^12.11.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
   }
 }

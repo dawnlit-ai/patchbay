@@ -85,6 +85,7 @@ const api: Api = {
         openFlow: (flowId, where) => call(IPC.windowOpenFlow, flowId, where),
         openFlows: () => call(IPC.windowOpenFlows),
         showWelcome: () => call(IPC.windowShowWelcome),
+        showSettings: () => call(IPC.windowShowSettings),
     },
     runs: {
         list: (limit) => call(IPC.runsList, limit),

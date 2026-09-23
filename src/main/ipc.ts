@@ -11,7 +11,7 @@ import * as outlook from './outlook/bridge';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
-import { openFlow, openFlows, showWelcome } from './windows';
+import { openFlow, openFlows, showSettings, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 
 let watcher: Watcher | null = null;
@@ -218,6 +218,7 @@ export function registerIpc(): void {
     handle(IPC.windowOpenFlow, (flowId: string, where?: OpenWhere) => openFlow(flowId, where));
     handle(IPC.windowOpenFlows, () => openFlows());
     handle(IPC.windowShowWelcome, () => showWelcome());
+    handle(IPC.windowShowSettings, () => showSettings());
     ipcMain.handle(
         IPC.windowIsMaximized,
         (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,

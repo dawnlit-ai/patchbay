@@ -3,14 +3,16 @@ import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
 
 /**
- * Two kinds of window, one renderer build. The welcome window is the app's start
+ * Three kinds of window, one renderer build. The welcome window is the app's start
  * page — the flows this install holds, and everything you can do to one without
  * opening it. A canvas window holds one flow being drawn, and there may be
  * several of them: the canvas is the half that wants the desk, which is why the
- * start page is a window rather than a screen it has to make room for.
+ * start page is a window rather than a screen it has to make room for. The
+ * settings window holds what belongs to the install rather than to any one flow,
+ * so it is raised from any of the others instead of living in a canvas's panel.
  *
  * Which is which is the hash the window loads with, read before React renders,
- * so neither paints the other's layout first.
+ * so none paints another's layout first.
  */
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -31,6 +33,7 @@ interface Project {
 }
 
 let welcome: BrowserWindow | null = null;
+let settings: BrowserWindow | null = null;
 /** Every canvas open, the one used most recently first. */
 const projects: Project[] = [];
 
@@ -155,6 +158,23 @@ export function showWelcome(): void {
         welcome = null;
     });
     load(welcome, 'welcome');
+}
+
+/**
+ * The settings window, raised from the gear in any other window's bar. Only ever
+ * one: two would be two drafts of the same file, each saving over the other. A
+ * rail of pages and one short page beside it, so smaller than the start page.
+ */
+export function showSettings(): void {
+    if (settings && !settings.isDestroyed()) {
+        raise(settings);
+        return;
+    }
+    settings = make({ width: 820, height: 600, minWidth: 700, minHeight: 480, maximizable: false });
+    settings.on('closed', () => {
+        settings = null;
+    });
+    load(settings, 'settings');
 }
 
 /**

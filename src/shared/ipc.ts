@@ -161,6 +161,8 @@ export interface Api {
         openFlows(): Promise<string[]>;
         /** Bring the welcome window up — the list of flows, and what to do with one. */
         showWelcome(): Promise<void>;
+        /** Bring the settings window up, opening it if it is not already. */
+        showSettings(): Promise<void>;
     };
     runs: {
         list(limit: number): Promise<RunSummary[]>;
@@ -253,6 +255,7 @@ export const IPC = {
     windowOpenFlow: 'window:openFlow',
     windowOpenFlows: 'window:openFlows',
     windowShowWelcome: 'window:showWelcome',
+    windowShowSettings: 'window:showSettings',
 
     runsList: 'runs:list',
     runsGet: 'runs:get',

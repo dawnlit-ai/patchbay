@@ -3,15 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind } from '@shared/flow';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
-import {
-    type AboutInfo,
-    type AgentControlStatus,
-    type EngineStatus,
-    type Settings,
-    skillRef,
-    type SkillScope,
-    type SkillSummary,
-} from '@shared/settings';
+import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
@@ -19,8 +11,8 @@ import { Inspector } from './components/Inspector';
 import { MailList } from './components/MailList';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
+import { SettingsButton } from './components/SettingsButton';
 import { SkillLibrary } from './components/SkillLibrary';
-import { SettingsPanel } from './components/SettingsPanel';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
@@ -63,11 +55,10 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const [flowCount, setFlowCount] = useState(1);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[]>([]);
-    const [settings, setSettings] = useState<Settings | null>(null);
     const [runs, setRuns] = useState<RunSummary[]>([]);
     const [selectedRun, setSelectedRun] = useState<Run | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
-    const [tab, setTab] = useState<'inspector' | 'skills' | 'settings'>('inspector');
+    const [tab, setTab] = useState<'inspector' | 'skills'>('inspector');
     const [testing, setTesting] = useState(false);
     /** An email is being dragged out of the mail list toward a trigger. */
     const [emailDrag, setEmailDrag] = useState(false);
@@ -87,9 +78,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
     consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
     const { error, attempt, report: setError } = useErrorBanner();
     const [theme, setTheme] = useTheme();
-    const [about, setAbout] = useState<AboutInfo | null>(null);
-    /** The app's own MCP server, so Settings can show whether it is listening. */
-    const [agentControl, setAgentControl] = useState<AgentControlStatus | null>(null);
 
     /** Every library belongs to a flow, so switching flows swaps the list. */
     const flowId = flow?.id ?? null;
@@ -130,16 +118,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     useEffect(() => {
         void (async () => {
-            const [loadedSettings, loadedStatus, loadedAbout, loadedAgent] = await Promise.all([
-                window.api.settings.get(),
-                window.api.engine.status(),
-                window.api.about(),
-                window.api.agentControl.status(),
-            ]);
-            setAbout(loadedAbout);
-            setSettings(loadedSettings);
-            setStatus(loadedStatus);
-            setAgentControl(loadedAgent);
+            setStatus(await window.api.engine.status());
             await readFlow(initialFlowId);
             refreshRuns();
         })();
@@ -168,11 +147,9 @@ export function App({ initialFlowId }: Props): JSX.Element {
             setSelectedRun((current) => (!current || current.id === run.id ? run : current));
         });
         const offStatus = window.api.on.engineStatus((next) => setStatus(next));
-        const offAgent = window.api.on.agentControl((next) => setAgentControl(next));
         return () => {
             offRun();
             offStatus();
-            offAgent();
         };
     }, []);
 
@@ -411,7 +388,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
-    if (!flow || !settings) {
+    if (!flow) {
         return <div className="empty loading">Loading…</div>;
     }
 
@@ -459,6 +436,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                     {watching ? 'Stop' : 'Start watching'}
                 </button>
 
+                <SettingsButton/>
                 <WindowControls/>
             </div>
 
@@ -564,9 +542,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         <button className={tab === 'skills' ? 'active' : ''} onClick={() => setTab('skills')}>
                             Skills
                         </button>
-                        <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
-                            Settings
-                        </button>
                     </div>
                     <div className="tab-body">
                         {tab === 'inspector' && (
@@ -585,19 +560,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
                                 otherFlowCount={flowCount - 1}
                                 onRefresh={refreshSkills}
                                 onMoved={relabelSkill}
-                            />
-                        )}
-                        {tab === 'settings' && (
-                            <SettingsPanel
-                                settings={settings}
-                                about={about}
-                                agentControl={agentControl}
-                                onSave={(next) => {
-                                    void window.api.settings.save(next).then(setSettings);
-                                }}
-                                onRegenerateToken={() => {
-                                    void window.api.agentControl.regenerateToken().then(setAgentControl);
-                                }}
                             />
                         )}
                     </div>

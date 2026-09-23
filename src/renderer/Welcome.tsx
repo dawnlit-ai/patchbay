@@ -8,6 +8,7 @@ import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { NameDialog } from './components/NameDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
+import { SettingsButton } from './components/SettingsButton';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { ago } from './format';
@@ -222,6 +223,7 @@ export function Welcome(): JSX.Element {
                     before anything else, and choosing is the only thing to do here. */}
                 <span className="window-title">Open a flow</span>
                 <span className="spacer"/>
+                <SettingsButton/>
                 <WindowControls maximize={false}/>
             </div>
 
