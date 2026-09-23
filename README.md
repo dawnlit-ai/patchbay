@@ -43,7 +43,8 @@ directory its Processors run in.
 Renaming asks a second question: should the folder follow the name? It is offered ticked when the folder is still the
 one the app chose, and left alone when you have named it yourself. Either way the flow's **id** does not move — runs
 already recorded, the watcher's marks and anything an agent holds go on pointing at the same flow. Only the path
-changes, and a rename is refused outright while a run is using that directory.
+changes, and a rename is refused outright while a run is using that directory. So is deleting the flow; runs of it
+still waiting in the queue are cancelled as it goes.
 
 **☰ Flows** in the canvas's top bar brings the start page back. Opening a flow while a canvas is already up on a
 different one asks where it should go: in that window, in place of the flow on it, or in a second canvas beside it.
@@ -225,7 +226,9 @@ claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Aut
 
 After that, "wire me a flow that sorts pre-alerts from rate quotes and runs the pre-alert skill on the first branch" is
 something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
-does — one workspace, not two copies of it — and the window re-reads what it changed as it goes.
+does — one workspace, not two copies of it — and the window re-reads what it changed as it goes. Every canvas save
+names the version it was made to, so an edit made in the moment before an agent's write to the same flow is refused
+rather than saved over it: the canvas says so, and shows the flow as the agent left it.
 
 | Area     | Tools                                                                     |
 |----------|---------------------------------------------------------------------------|

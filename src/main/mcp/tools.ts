@@ -19,7 +19,7 @@ import {
     triggerConfig,
 } from '@shared/flow';
 import { LOG_LEVELS, LOG_SOURCES } from '@shared/log';
-import { SKILL_SCOPES, type SkillScope, skillRef } from '@shared/settings';
+import { SKILL_SCOPES, skillRef, type SkillScope } from '@shared/settings';
 import type { WorkspaceChange } from '@shared/ipc';
 import { type EmailEnvelope, type Run, toSummary, truncate } from '@shared/trace';
 import type { QueuedRun, Watcher } from '../engine/watcher';
@@ -285,15 +285,19 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a flow',
             description:
-                'Delete a flow, the skill library belonging to it and the watcher marks that go with it. Nothing in the app undoes this, so ask the person first.',
+                'Delete a flow, the skill library belonging to it and the watcher marks that go with it. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
             inputSchema: { flowId: flowIdArg },
             annotations: { destructiveHint: true, idempotentHint: true },
         },
         ({ flowId }) => {
             const flow = requireFlow(flowId);
+            const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
             host.changed({ flows: true, skills: true });
-            return text(`Deleted "${flow.name}".`);
+            return text(
+                `Deleted "${flow.name}".` +
+                (cancelled > 0 ? ` ${cancelled} queued run(s) of it were cancelled first.` : ''),
+            );
         },
     );
 

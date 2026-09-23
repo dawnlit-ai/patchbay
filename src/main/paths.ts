@@ -110,9 +110,11 @@ export const flowDirNamed = (folder: string): string => ensureAt(flowDirAt(folde
  */
 export const flowDir = (flowId: string): string => flowDirNamed(flowFolder(flowId));
 export const flowFile = (flowId: string): string => join(flowDir(flowId), FLOW_FILE);
+/** Where one flow's SKILL.md folders would sit. Does not create it: for reading. */
+export const flowSkillsDirAt = (flowId: string): string =>
+    join(flowDirAt(flowFolder(flowId)), '.claude', 'skills');
 /** Where one flow's SKILL.md folders live. The Agent SDK discovers them from here. */
-export const flowSkillsDir = (flowId: string): string =>
-    ensureAt(join(flowDir(flowId), '.claude', 'skills'));
+export const flowSkillsDir = (flowId: string): string => ensureAt(flowSkillsDirAt(flowId));
 export const runsDir = (): string => ensure('runs');
 /** Per-run scratch space — saved attachments, files a skill writes. */
 export const runScratchDir = (runId: string): string => ensure('runs', safeSegment(runId) + '.files');

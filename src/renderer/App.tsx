@@ -160,18 +160,46 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     /** The flow a queued write would put on disk, or null once one has. */
     const queued = useRef<Flow | null>(null);
+    /** Read by a save's reply, which may arrive after this window moved on. */
+    const shownId = useRef<string | null>(null);
+    shownId.current = flow?.id ?? null;
 
-    const writeFlow = useCallback((next: Flow) => {
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = null;
-        queued.current = null;
-        void window.api.flows.save(next).catch((e: Error) => {
-            setError(e.message);
-            // Left queued unless a newer edit already took its place, so the next
-            // write — or leaving the flow — tries again.
-            queued.current ??= next;
-        });
-    }, []);
+    /**
+     * Every save names the version the canvas last read, in `updatedAt`, and main
+     * refuses one made before somebody else wrote the flow — an agent, or the
+     * start window. Writing it anyway would undo their change without either side
+     * knowing. So the refusal is said out loud, the edit is let go, and the canvas
+     * takes up the flow as it now stands, or closes if it was deleted.
+     */
+    const writeFlow = useCallback(
+        (next: Flow) => {
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            saveTimer.current = null;
+            queued.current = null;
+            void window.api.flows.save(next).then(
+                (outcome) => {
+                    if ('saved' in outcome) return;
+                    // An edit queued since was made to the same overtaken version.
+                    if (queued.current?.id === next.id && queued.current.updatedAt === next.updatedAt) {
+                        if (saveTimer.current) clearTimeout(saveTimer.current);
+                        saveTimer.current = null;
+                        queued.current = null;
+                    }
+                    setError(
+                        'This flow was changed somewhere else — by an agent, or in another window — after your last edit was made, so that edit was not saved. The canvas now shows the flow as it stands.',
+                    );
+                    if (shownId.current === next.id) void readFlow(next.id);
+                },
+                (e: Error) => {
+                    setError(e.message);
+                    // Left queued unless a newer edit already took its place, so the next
+                    // write — or leaving the flow — tries again.
+                    queued.current ??= next;
+                },
+            );
+        },
+        [readFlow, setError],
+    );
 
     /** Write a queued edit now, rather than when its timer says so. */
     const flushSave = useCallback(() => {
@@ -193,8 +221,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
      * An agent driving the app through its MCP server writes to the same files
      * this window does, and so does the welcome window — the moment either does,
      * what is on screen is behind. An edit of ours still in the queue goes out
-     * first; then the flow on screen becomes whatever the store now holds under
-     * its id.
+     * first — refused, and said so, if that write was to this flow; then the flow
+     * on screen becomes whatever the store now holds under its id.
      */
     useEffect(
         () =>

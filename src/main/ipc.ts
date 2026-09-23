@@ -84,6 +84,28 @@ function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: 
 }
 
 /**
+ * A canvas's save, checked against whatever else wrote the flow since the edit
+ * was made. Which window sent it is part of the question — its own earlier saves
+ * are not somebody else's write — so this one handler reads the sender, and lets
+ * go of what it knows about a window once that window is gone.
+ */
+function handleCanvasSave(): void {
+    const known = new Set<number>();
+    const save = readable((writer: string, flow: Flow) => flowStore.saveFlowFrom(writer, flow));
+    ipcMain.handle(IPC.flowsSave, (event, flow: Flow) => {
+        const { id } = event.sender;
+        if (!known.has(id)) {
+            known.add(id);
+            event.sender.once('destroyed', () => {
+                known.delete(id);
+                flowStore.forgetWriter(String(id));
+            });
+        }
+        return save(String(id), flow);
+    });
+}
+
+/**
  * Acts on the window the call came from rather than whichever one holds focus, so
  * a title-bar button always moves the bar that was clicked.
  */
@@ -120,11 +142,16 @@ export function registerIpc(): void {
 
     handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
     handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
-    handle(IPC.flowsSave, (flow: Flow) => flowStore.saveFlow(flow));
+    handleCanvasSave();
     handleFlowWrite(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
     handleFlowWrite(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
     handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
-    handleFlowWrite(IPC.flowsRemove, (id: string) => flowStore.removeFlow(id));
+    handleFlowWrite(IPC.flowsRemove, (id: string) => {
+        // The same reason a folder rename is refused mid-run: the directory going
+        // is the one that run is working in.
+        getWatcher().clearForRemoval(id);
+        flowStore.removeFlow(id);
+    });
     handleFlowWrite(IPC.flowsSetFolder, (id: string, folder: string) => {
         // The directory being renamed is the working directory of anything running
         // in it. Moving it mid-run pulls the ground out from under an agent that

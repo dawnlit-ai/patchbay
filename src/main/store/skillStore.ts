@@ -10,7 +10,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { flowSkillsDir, globalPluginDir, globalSkillsDir } from '../paths';
+import { flowSkillsDir, flowSkillsDirAt, globalPluginDir, globalSkillsDir } from '../paths';
 import { getSettings } from './settingsStore';
 import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary } from '@shared/settings';
 
@@ -59,6 +59,15 @@ function libraryDir(scope: SkillScope, flowId: string): string {
     return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDir(flowId);
 }
 
+/**
+ * The same library for reading, which does not make a flow's by looking at it:
+ * a window refreshing its skill list as its flow is deleted would otherwise put
+ * the flow's folder straight back.
+ */
+function libraryAt(scope: SkillScope, flowId: string): string {
+    return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDirAt(flowId);
+}
+
 interface Frontmatter {
     name?: string;
     description?: string;
@@ -90,7 +99,7 @@ export function parseFrontmatter(content: string): Frontmatter {
 }
 
 function skillFile(scope: SkillScope, flowId: string, name: string): string {
-    return join(libraryDir(scope, flowId), name, 'SKILL.md');
+    return join(libraryAt(scope, flowId), name, 'SKILL.md');
 }
 
 function summarize(scope: SkillScope, name: string, content: string, file: string): SkillSummary {
@@ -105,7 +114,8 @@ function summarize(scope: SkillScope, name: string, content: string, file: strin
 }
 
 export function listSkills(scope: SkillScope, flowId: string): SkillSummary[] {
-    const dir = libraryDir(scope, flowId);
+    const dir = libraryAt(scope, flowId);
+    if (!existsSync(dir)) return [];
     const out: SkillSummary[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;

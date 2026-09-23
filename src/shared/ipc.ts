@@ -44,6 +44,13 @@ export interface FlowEntry {
     path: string;
 }
 
+/**
+ * What saving a canvas's edit came to: written, or refused because the flow was
+ * written by something else after the edit was made — `current` is the flow as
+ * it now stands, or null once it has been deleted.
+ */
+export type SaveOutcome = { saved: Flow } | { current: Flow | null };
+
 export interface InboxFolderOption {
     folderPath: string;
     /** Path relative to the Inbox — what a trigger stores. */
@@ -58,7 +65,11 @@ export interface Api {
         /** Every flow with the directory it lives in — what both windows list. */
         entries(): Promise<FlowEntry[]>;
         get(id: string): Promise<Flow | null>;
-        save(flow: Flow): Promise<Flow>;
+        /**
+         * Write an edit made to the version `flow.updatedAt` names. Refused, not
+         * written, when anything but this window has written the flow since.
+         */
+        save(flow: Flow): Promise<SaveOutcome>;
         create(name: string): Promise<Flow>;
         /**
          * Copy a flow into a new one of its own — the flow as it stands on screen,

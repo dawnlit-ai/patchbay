@@ -36,6 +36,8 @@ async function main(): Promise<void> {
     const { getSettings, saveSettings } = await import('../src/main/store/settingsStore');
     const { AgentControl } = await import('../src/main/mcp/server');
     const { Watcher } = await import('../src/main/engine/watcher');
+    const { getFlow, saveFlowFrom } = await import('../src/main/store/flowStore');
+    const { listAllSkills } = await import('../src/main/store/skillStore');
 
     console.log('workspace:', workspace);
     saveSettings({ ...getSettings(), agentControl: { enabled: true, port: PORT, token: TOKEN } });
@@ -215,6 +217,13 @@ async function main(): Promise<void> {
         'a run behind another of its flow is queued, and says why',
         watcher.queued().find((q) => q.runId === second)?.waitingFor.includes('this flow') === true,
     );
+    let refusedMidRun = false;
+    try {
+        watcher.clearForRemoval(lane);
+    } catch {
+        refusedMidRun = true;
+    }
+    check('a flow is not cleared for deleting while a run of it is under way', refusedMidRun);
     check('a queued run can be cancelled', watcher.cancel(second) === 'dequeued' && watcher.queued().length === 0);
     check('cancelling it again finds nothing', watcher.cancel(second) === 'unknown');
     for (let i = 0; i < 50 && watcher.status().activeRunIds.length > 0; i++) {
@@ -226,7 +235,35 @@ async function main(): Promise<void> {
         'cancel_run says when there is nothing to cancel',
         (await call('cancel_run', { runId: second })).includes('Nothing to cancel'),
     );
+
+    // A canvas saves against the version it last read. Its own saves move that
+    // on; anyone else's write means its edit was made to a flow no longer there.
+    const loaded = getFlow(lane);
+    if (!loaded) throw new Error('the queue check flow is missing');
+    const once = saveFlowFrom('canvas', { ...loaded, name: 'Edited once' });
+    const twice = saveFlowFrom('canvas', { ...loaded, name: 'Edited twice' });
+    check('a canvas saving twice from one read is not refused by its own save', 'saved' in once && 'saved' in twice);
+    await call('rename_flow', { flowId: lane, name: 'Renamed by an agent' });
+    const overtaken = saveFlowFrom('canvas', { ...loaded, name: 'Edited a third time' });
+    check(
+        'a canvas edit made before an agent’s write is refused, and handed what is there',
+        'current' in overtaken && overtaken.current?.name === 'Renamed by an agent',
+    );
+    check('the agent’s write stands', getFlow(lane)?.name === 'Renamed by an agent');
+    const reread = getFlow(lane);
+    check(
+        'an edit to the flow as it now stands is saved',
+        reread !== null && 'saved' in saveFlowFrom('canvas', { ...reread, name: 'Edited after reading' }),
+    );
+    const laneFolder = join(workspace, 'workspace', 'flows', lane);
     await call('delete_flow', { flowId: lane });
+    const late = reread ? saveFlowFrom('canvas', { ...reread, name: 'Too late' }) : null;
+    // What a canvas still showing the flow does next: refresh its skill list.
+    listAllSkills(lane);
+    check(
+        'a save to a deleted flow, or a look at its skills, does not bring it back',
+        late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFolder),
+    );
 
     // The console: what the app did outside any one run, this session's and a day's.
     check(
@@ -253,6 +290,7 @@ async function main(): Promise<void> {
 
     const missing = await client.callTool({ name: 'get_flow', arguments: { flowId: 'gone' } });
     check('a missing flow comes back as a readable error', missing.isError === true);
+    check('and asking after it leaves no folder behind', !existsSync(join(workspace, 'workspace', 'flows', 'gone')));
 
     await client.close();
     control.stop();

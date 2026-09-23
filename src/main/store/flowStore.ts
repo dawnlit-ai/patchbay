@@ -18,7 +18,7 @@ import { readJson, writeJson } from './jsonFile';
 import { getSkill, importSkillsFrom, isValidSkillName, listSkills, saveSkill } from './skillStore';
 import { emptyFlow, type Flow, type FlowNode, parseFlow } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
-import type { FlowEntry } from '@shared/ipc';
+import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 import { isGlobalRef, skillRef, type SkillScope } from '@shared/settings';
 
 /**
@@ -47,13 +47,52 @@ export function listFlows(): Flow[] {
 }
 
 export function getFlow(id: string): Flow | null {
-    return readJson<Flow | null>(flowFile(id), null);
+    // Not through flowFile, which makes the directory it names: asking after a
+    // flow that was deleted, or never was, should not leave a folder behind.
+    return readJson<Flow | null>(join(flowDirAt(flowFolder(id)), FLOW_FILE), null);
 }
 
 export function saveFlow(flow: Flow): Flow {
-    const next: Flow = { ...flow, updatedAt: new Date().toISOString() };
+    // Strictly later than what it replaces. updatedAt is the version a canvas saves
+    // against, so two writes landing in one millisecond must not share one.
+    const previous = Date.parse(getFlow(flow.id)?.updatedAt ?? '');
+    const stamp = Number.isNaN(previous) ? Date.now() : Math.max(Date.now(), previous + 1);
+    const next: Flow = { ...flow, updatedAt: new Date(stamp).toISOString() };
     writeJson(flowFile(next.id), next);
     return next;
+}
+
+// ── Saving over someone else's write ─────────────────────────────────────
+
+/**
+ * Per writer — one per window — what its own saves have turned each version into,
+ * keyed `<flowId>@<version it sent>`. A canvas sends the version it last read
+ * with every save and ignores the one its save makes, so its second save names
+ * the same version as its first. This is what tells "the version it read, moved
+ * on by its own saves" from "moved on by somebody else".
+ */
+const lineage = new Map<string, Map<string, string>>();
+
+/**
+ * Save an edit made to the version `flow.updatedAt` names — unless something
+ * else has written the flow since: an agent, the start window's rename, or its
+ * delete. Saving then would quietly undo that write, so nothing is written, and
+ * the caller gets what is there now (null once deleted) to show instead.
+ */
+export function saveFlowFrom(writer: string, flow: Flow): SaveOutcome {
+    const mine = lineage.get(writer) ?? new Map<string, string>();
+    lineage.set(writer, mine);
+    const key = `${flow.id}@${flow.updatedAt}`;
+    const current = getFlow(flow.id);
+    if (!current || current.updatedAt !== (mine.get(key) ?? flow.updatedAt)) return { current };
+    const saved = saveFlow(flow);
+    mine.set(key, saved.updatedAt);
+    return { saved };
+}
+
+/** A window closed: nothing it sent will be resolved again. */
+export function forgetWriter(writer: string): void {
+    lineage.delete(writer);
 }
 
 /**

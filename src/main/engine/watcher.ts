@@ -212,6 +212,23 @@ export class Watcher {
         return this.active.values().some((run) => run.flowId === flowId);
     }
 
+    /**
+     * Clear the way for a flow to be deleted. Refused while a run of it is under
+     * way, since its directory is that run's working directory; runs of it still
+     * queued are cancelled, since each would start on a flow that is gone.
+     * Returns how many were.
+     */
+    clearForRemoval(flowId: string): number {
+        if (this.isFlowRunning(flowId)) {
+            throw new Error(
+                'A run of this flow is in progress. Its folder is the directory that run works in, so the flow cannot be deleted until the run finishes or is cancelled.',
+            );
+        }
+        const queued = this.queue.filter((item) => item.flow.id === flowId);
+        for (const item of queued) this.cancel(item.runId);
+        return queued.length;
+    }
+
     // ── Polling ────────────────────────────────────────────────────────────
 
     /**
