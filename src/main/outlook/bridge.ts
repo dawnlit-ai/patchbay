@@ -9,7 +9,7 @@ import type {
 } from '@dawnlit/outlook-bridge';
 import type { MailScope } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
-import type { InboxFolderOption } from '@shared/ipc';
+import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
 import { log } from '../log';
 
 /**
@@ -174,6 +174,72 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
         .toSorted((x, y) => y.receivedTime.localeCompare(x.receivedTime))
         .slice(0, limit)
         .map((m) => toEnvelope(account, { ...m, bodyPreview: '' }));
+}
+
+/** Letters and digits only, lower-cased: what survives of a subject in a file name or a column of text. */
+const squash = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * Whether a drop is the email selected in Outlook. Outlook names its `.msg`
+ * after the subject — less the characters a file name can't hold, and sometimes
+ * shortened — and puts the subject in the text it offers alongside.
+ */
+function dropNames(subject: string, drag: OutlookDrag, message: string | undefined): boolean {
+    const wanted = squash(subject);
+    if (message) {
+        // A dragged .msg with no subject to compare is still an email out of Outlook.
+        if (!wanted) return true;
+        const stem = squash(message.replace(/\.msg$/i, ''));
+        if (stem.length >= Math.min(wanted.length, 8) && wanted.startsWith(stem)) return true;
+    }
+    return wanted !== '' && squash(drag.text).includes(wanted);
+}
+
+/**
+ * The email dragged out of Outlook onto a trigger, found in that trigger's
+ * mailbox. A drag carries no id, but Outlook selects an email as the drag
+ * starts, so the selection is the dragged email — once the drag's own evidence
+ * agrees, which is what stops a file dragged from anywhere else from running
+ * whatever Outlook happens to have selected. The mailbox matters as much: a run
+ * replies from, and files into, the mailbox its email sits in.
+ */
+export async function readDragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope> {
+    const messages = drag.fileNames.filter((name) => /\.msg$/i.test(name));
+    if (messages.length > 1) {
+        throw new Error(`That was ${messages.length} emails. Drag one at a time — each one is a run of its own.`);
+    }
+
+    const b = await bridge();
+    const selected = await serialize('Read the email selected in Outlook', () => b.readSelectedEmail());
+    const subject = selected.subject || '(no subject)';
+
+    if (!dropNames(selected.subject, drag, messages[0])) {
+        log.warn('outlook', `A drop on a trigger did not match the email selected in Outlook, "${subject}"`, {
+            detail: [
+                `formats: ${drag.types.join(', ') || '(none)'}`,
+                `files: ${drag.fileNames.join(', ') || '(none)'}`,
+                `text: ${drag.text.slice(0, 500) || '(none)'}`,
+            ].join('\n'),
+        });
+        throw new Error(
+            `That drop doesn't match the email selected in Outlook ("${subject}"). Drag a single email out of Outlook's message list.`,
+        );
+    }
+
+    const found = await serialize(`Find the dragged email in ${account}`, () =>
+        b.locateEmail({
+            subject: selected.subject,
+            sender: selected.senderEmail,
+            receivedTime: selected.receivedTime,
+            emailAccount: account,
+        }),
+    );
+    if (!found) {
+        throw new Error(
+            `"${subject}" from ${selected.senderEmail} isn't in ${account}'s Inbox or the folders under it — the mailbox this trigger watches.`,
+        );
+    }
+    return toEnvelope(account, { ...found, bodyPreview: selected.body.slice(0, 600) });
 }
 
 /**

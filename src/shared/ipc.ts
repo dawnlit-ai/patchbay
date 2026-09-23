@@ -60,6 +60,19 @@ export interface InboxFolderOption {
     itemCount: number;
 }
 
+/**
+ * What a drag from outside the app carried when it was dropped on a trigger. An
+ * email dragged out of Outlook arrives as a `.msg` copy named after its subject,
+ * plus a line of text naming it — no id, so this is evidence to check the
+ * email selected in Outlook against, not a way to find one.
+ */
+export interface OutlookDrag {
+    text: string;
+    fileNames: string[];
+    /** The formats on offer, kept for the console when a drop is refused. */
+    types: string[];
+}
+
 export interface Api {
     flows: {
         /** Every flow with the directory it lives in — what both windows list. */
@@ -112,6 +125,12 @@ export interface Api {
         folders(account: string): Promise<InboxFolderOption[]>;
         /** Recent mail where a trigger looks, newest first, for picking a message to test a flow against. */
         recent(scope: MailScope, days: number, limit: number): Promise<EmailEnvelope[]>;
+        /**
+         * The email dragged out of Outlook onto a trigger, found in that trigger's
+         * mailbox. Refused, with the reason, when the drop doesn't match the email
+         * selected in Outlook or the email lives in another mailbox.
+         */
+        dragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every
@@ -244,6 +263,7 @@ export const IPC = {
     outlookAccounts: 'outlook:accounts',
     outlookFolders: 'outlook:folders',
     outlookRecent: 'outlook:recent',
+    outlookDragged: 'outlook:dragged',
 
     skillsList: 'skills:list',
     skillsGet: 'skills:get',

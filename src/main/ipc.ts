@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
-import { type InboxFolderOption, IPC, type OpenWhere } from '@shared/ipc';
+import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag } from '@shared/ipc';
 import type { Flow, MailScope } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
@@ -198,6 +198,7 @@ export function registerIpc(): void {
     handle(IPC.outlookRecent, (scope: MailScope, days: number, limit: number) =>
         outlook.readScope(scope, days, limit),
     );
+    handle(IPC.outlookDragged, (account: string, drag: OutlookDrag) => outlook.readDragged(account, drag));
 
     handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));
     handle(IPC.skillsGet, (scope: SkillScope, flowId: string, name: string) =>

@@ -74,6 +74,15 @@ function make(frame: Frame): BrowserWindow {
     win.on('maximize', sendMaximized);
     win.on('unmaximize', sendMaximized);
 
+    // A file dropped anywhere nothing takes it — an email dragged out of Outlook
+    // that misses the trigger, say — is opened by Chromium in place of the app.
+    // The app moves between its own views by hash, so a navigation that leaves
+    // its page is one to refuse; a reload of the page itself is not.
+    win.webContents.on('will-navigate', (event) => {
+        const page = (url: string): string => url.split('#')[0] ?? url;
+        if (page(event.url) !== page(win.webContents.getURL())) event.preventDefault();
+    });
+
     // Dropping the default menu also dropped its zoomIn/zoomOut/resetZoom roles,
     // which were what bound Ctrl+Plus, Ctrl+Minus and Ctrl+0. Rebind them on the
     // window so the shortcuts survive without a menu bar to host them.

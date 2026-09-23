@@ -1,12 +1,13 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind, retickSkill } from '@shared/flow';
+import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind, retickSkill, triggerConfig } from '@shared/flow';
+import type { OutlookDrag } from '@shared/ipc';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
-import { type CanvasHighlight, FlowCanvas } from './components/FlowCanvas';
+import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
 import { MailList } from './components/MailList';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
@@ -405,6 +406,20 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
+    /** An email dragged straight out of Outlook: found in the trigger's mailbox first, then run like any other. */
+    const runOutlookDrag = (nodeId: string, drag: OutlookDrag): void => {
+        const trigger = flow?.nodes.find((n) => n.id === nodeId);
+        const account = triggerConfig(trigger)?.account ?? '';
+        if (!account) {
+            setError(`Choose a mailbox on “${trigger?.name ?? 'the trigger'}” first — the dragged email is looked for there.`);
+            return;
+        }
+        void window.api.outlook.dragged(account, drag).then(
+            (email) => runEmail(nodeId, email),
+            (e: Error) => setError(e.message),
+        );
+    };
+
     if (!flow) {
         return <div className="empty loading">Loading…</div>;
     }
@@ -470,7 +485,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                                 className={`palette-item kind-${meta.token}`}
                                 draggable
                                 onDragStart={(e) => {
-                                    e.dataTransfer.setData('application/flow-node', kind);
+                                    e.dataTransfer.setData(NODE_DRAG_TYPE, kind);
                                     e.dataTransfer.effectAllowed = 'move';
                                 }}
                             >
@@ -500,6 +515,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
                         onRunEmail={runEmail}
+                        onRunOutlookDrag={runOutlookDrag}
                     />
                     <div className={`dock${dockCollapsed ? ' collapsed' : ''}`}>
                         <div className="dock-tabs">

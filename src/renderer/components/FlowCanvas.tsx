@@ -30,6 +30,7 @@ import {
     outputPorts,
 } from '@shared/flow';
 import type { EmailEnvelope, Pass } from '@shared/trace';
+import type { OutlookDrag } from '@shared/ipc';
 import { EMAIL_DRAG_TYPE } from '../recentMail';
 
 /**
@@ -204,7 +205,13 @@ export interface FlowCanvasProps {
 
     /** An email was dropped on a trigger: run it through the flow from there. */
     onRunEmail(nodeId: string, email: EmailEnvelope): void;
+
+    /** Something dragged in from outside the app — an email out of Outlook — was dropped on a trigger. */
+    onRunOutlookDrag(nodeId: string, drag: OutlookDrag): void;
 }
+
+/** What the node palette puts on a drag: the kind of node to place. */
+export const NODE_DRAG_TYPE = 'application/flow-node';
 
 export function FlowCanvas({
                                flow,
@@ -214,16 +221,20 @@ export function FlowCanvas({
                                onChange,
                                onSelect,
                                onRunEmail,
+                               onRunOutlookDrag,
                            }: FlowCanvasProps): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
-    /** The trigger a dragged email is over. Only read while `emailDrag` holds. */
+    /** The trigger a dragged email is over. Only read while an email is being dragged. */
     const [dropTarget, setDropTarget] = useState<string | null>(null);
+    /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
+    const [outsideDrag, setOutsideDrag] = useState(false);
+    const mailDrag = emailDrag || outsideDrag;
 
     const rfNodes: Node[] = useMemo(
         () =>
             flow.nodes.map((n) => {
                 let drop: NodeData['drop'];
-                if (emailDrag && n.kind === 'trigger.outlook') drop = n.id === dropTarget ? 'over' : 'ready';
+                if (mailDrag && n.kind === 'trigger.outlook') drop = n.id === dropTarget ? 'over' : 'ready';
                 return {
                     id: n.id,
                     type: 'card',
@@ -232,7 +243,7 @@ export function FlowCanvas({
                     data: { flowNode: n, pass: highlight?.passes.get(n.id), drop } satisfies NodeData,
                 };
             }),
-        [flow.nodes, selectedNodeId, highlight, emailDrag, dropTarget],
+        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget],
     );
 
     const removeEdge = useCallback(
@@ -315,11 +326,17 @@ export function FlowCanvas({
     const onDragOver = useCallback(
         (event: React.DragEvent) => {
             event.preventDefault();
-            if (!event.dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
+            const { types } = event.dataTransfer;
+            if (types.includes(NODE_DRAG_TYPE)) {
                 event.dataTransfer.dropEffect = 'move';
                 return;
             }
-            // Anywhere but a trigger refuses the email, and the cursor says so.
+            // An email: one from the mail list, or anything from outside the app,
+            // which is an email dragged out of Outlook or nothing a trigger takes.
+            // Anywhere but a trigger refuses it, and the cursor says so. Never
+            // 'move' for an outside drag: that is how Outlook is told the email
+            // has gone somewhere else, and takes it out of the mailbox.
+            if (!types.includes(EMAIL_DRAG_TYPE)) setOutsideDrag(true);
             const id = triggerAt(event.target);
             setDropTarget(id);
             event.dataTransfer.dropEffect = id ? 'copy' : 'none';
@@ -330,13 +347,24 @@ export function FlowCanvas({
     const onDrop = useCallback(
         (event: React.DragEvent) => {
             event.preventDefault();
-            if (event.dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
+            const { dataTransfer } = event;
+            if (!dataTransfer.types.includes(NODE_DRAG_TYPE)) {
                 setDropTarget(null);
+                setOutsideDrag(false);
                 const id = triggerAt(event.target);
-                if (id) onRunEmail(id, JSON.parse(event.dataTransfer.getData(EMAIL_DRAG_TYPE)) as EmailEnvelope);
+                if (!id) return;
+                if (dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
+                    onRunEmail(id, JSON.parse(dataTransfer.getData(EMAIL_DRAG_TYPE)) as EmailEnvelope);
+                } else {
+                    onRunOutlookDrag(id, {
+                        text: dataTransfer.getData('text/plain'),
+                        fileNames: [...dataTransfer.files].map((file) => file.name),
+                        types: [...dataTransfer.types],
+                    });
+                }
                 return;
             }
-            const kind = event.dataTransfer.getData('application/flow-node') as NodeKind;
+            const kind = dataTransfer.getData(NODE_DRAG_TYPE) as NodeKind;
             if (!kind || !NODE_KIND_META[kind]) return;
             const bounds = wrapper.current?.getBoundingClientRect();
             if (!bounds) return;
@@ -351,11 +379,11 @@ export function FlowCanvas({
             onChange({ ...flow, nodes: [...flow.nodes, node] });
             onSelect(id);
         },
-        [flow, onChange, onSelect, onRunEmail, triggerAt],
+        [flow, onChange, onSelect, onRunEmail, onRunOutlookDrag, triggerAt],
     );
 
     return (
-        <div className={`canvas-wrap${emailDrag ? ' email-drag' : ''}`} ref={wrapper}>
+        <div className={`canvas-wrap${mailDrag ? ' email-drag' : ''}`} ref={wrapper}>
             <ReactFlow
                 nodes={rfNodes}
                 edges={rfEdges}
@@ -371,7 +399,9 @@ export function FlowCanvas({
                 // Moving from an element onto its child also fires a leave; only
                 // leaving the canvas altogether clears the target.
                 onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDropTarget(null);
+                    if (e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) return;
+                    setDropTarget(null);
+                    setOutsideDrag(false);
                 }}
                 fitView
                 fitViewOptions={{ maxZoom: 1 }}
