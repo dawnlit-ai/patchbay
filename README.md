@@ -160,14 +160,13 @@ flow, wire it, write, import and move skills, queue and cancel a run, read the c
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
 3. Drag a **Processor** per branch, tick a skill from either library, and connect it.
-4. Pick a real email you already understand from **Test with an email**, in the left sidebar, and drag it onto the
-   trigger. It runs through the flow straight away, and the runs panel opens to follow it. Filter the list, or reach
-   back 30 or 90 days, to find the message you mean. (**Test run…** does the same from a dialog.)
+4. Pick a real email you already understand and drag it out of Outlook's message list onto the trigger. It runs
+   through the flow straight away, and the runs panel opens to follow it. (**Test run…** picks one from a list
+   instead.)
 
-   Or drag the email straight out of Outlook's message list onto the trigger. A drag from Outlook carries no id, so
-   the app takes the email Outlook has selected — the one being dragged — once the drag's `.msg` name or text agrees
-   with it, and runs it only if it is in the trigger's mailbox. It is always taken as a copy: Outlook keeps the email.
-   One email per drop.
+   A drag from Outlook carries no id, so the app takes the email Outlook has selected — the one being dragged — once
+   the drag's `.msg` name or text agrees with it, and runs it only if it is in the trigger's mailbox. It is always
+   taken as a copy: Outlook keeps the email. One email per drop.
 5. When the path looks right, **Start watching**.
 
 The trigger does not process mail already sitting in the folder unless you ask it to — switching a flow on shouldn't

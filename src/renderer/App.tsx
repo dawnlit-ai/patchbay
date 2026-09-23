@@ -9,7 +9,6 @@ import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
 import { Inspector } from './components/Inspector';
-import { MailList } from './components/MailList';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
@@ -61,8 +60,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const [tab, setTab] = useState<'inspector' | 'skills'>('inspector');
     const [testing, setTesting] = useState(false);
-    /** An email is being dragged out of the mail list toward a trigger. */
-    const [emailDrag, setEmailDrag] = useState(false);
     /** Open while the flow's name — and possibly its folder — is being changed. */
     const [renaming, setRenaming] = useState(false);
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
@@ -394,7 +391,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     /**
      * One email through the flow on screen, starting at the trigger named — picked
-     * in the Test run dialog, or dropped on the canvas. The engine reads the flow
+     * in the Test run dialog, or dragged out of Outlook onto it. The engine reads the flow
      * from disk, so a queued edit goes out first: a test straight after an edit
      * runs the flow as it now looks. The runs panel opens to follow it.
      */
@@ -503,7 +500,11 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         sequence is the run’s path — select a run below to light it up here.
                     </div>
 
-                    <MailList flow={flow} onDragging={setEmailDrag}/>
+                    <div className="section-title">Try it on an email</div>
+                    <div className="side-note">
+                        Drag an email out of Outlook’s message list onto a trigger, and it runs through the
+                        flow from there now — whether or not the flow is being watched.
+                    </div>
                 </div>
 
                 <div className="center">
@@ -511,10 +512,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         flow={flow}
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
-                        emailDrag={emailDrag}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
-                        onRunEmail={runEmail}
                         onRunOutlookDrag={runOutlookDrag}
                     />
                     <div className={`dock${dockCollapsed ? ' collapsed' : ''}`}>

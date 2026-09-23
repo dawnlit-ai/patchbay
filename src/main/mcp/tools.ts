@@ -646,7 +646,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             annotations: { readOnlyHint: true },
         },
         async ({ account, folder, includeSubfolders, limit }) => {
-            const scope = { account, folder: folder ?? '', includeSubfolders: includeSubfolders === true, excludeFolders: [] };
+            const scope = {
+                account,
+                folder: folder ?? '',
+                includeSubfolders: includeSubfolders === true,
+                excludeFolders: []
+            };
             const emails = await outlook.readScope(scope, LOOKBACK_DAYS, limit ?? 20);
             return json(emails.map(describeEmail));
         },

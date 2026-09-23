@@ -29,9 +29,8 @@ import {
     type NodeKind,
     outputPorts,
 } from '@shared/flow';
-import type { EmailEnvelope, Pass } from '@shared/trace';
+import type { Pass } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
-import { EMAIL_DRAG_TYPE } from '../recentMail';
 
 /**
  * The canvas. The Flow object is the single source of truth: React Flow's node
@@ -196,15 +195,10 @@ export interface FlowCanvasProps {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
-    /** An email is being dragged out of the mail list, so the triggers say so. */
-    emailDrag: boolean;
 
     onChange(flow: Flow): void;
 
     onSelect(nodeId: string | null): void;
-
-    /** An email was dropped on a trigger: run it through the flow from there. */
-    onRunEmail(nodeId: string, email: EmailEnvelope): void;
 
     /** Something dragged in from outside the app — an email out of Outlook — was dropped on a trigger. */
     onRunOutlookDrag(nodeId: string, drag: OutlookDrag): void;
@@ -217,18 +211,15 @@ export function FlowCanvas({
                                flow,
                                selectedNodeId,
                                highlight,
-                               emailDrag,
                                onChange,
                                onSelect,
-                               onRunEmail,
                                onRunOutlookDrag,
                            }: FlowCanvasProps): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
-    /** The trigger a dragged email is over. Only read while an email is being dragged. */
+    /** The trigger a dragged email is over. Only read while `mailDrag` holds. */
     const [dropTarget, setDropTarget] = useState<string | null>(null);
     /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
-    const [outsideDrag, setOutsideDrag] = useState(false);
-    const mailDrag = emailDrag || outsideDrag;
+    const [mailDrag, setMailDrag] = useState(false);
 
     const rfNodes: Node[] = useMemo(
         () =>
@@ -331,12 +322,11 @@ export function FlowCanvas({
                 event.dataTransfer.dropEffect = 'move';
                 return;
             }
-            // An email: one from the mail list, or anything from outside the app,
-            // which is an email dragged out of Outlook or nothing a trigger takes.
-            // Anywhere but a trigger refuses it, and the cursor says so. Never
-            // 'move' for an outside drag: that is how Outlook is told the email
-            // has gone somewhere else, and takes it out of the mailbox.
-            if (!types.includes(EMAIL_DRAG_TYPE)) setOutsideDrag(true);
+            // Anything else came from outside the app: an email dragged out of
+            // Outlook, or nothing a trigger takes. Anywhere but a trigger refuses
+            // it, and the cursor says so. Never 'move': that is how Outlook is told
+            // the email has gone somewhere else, and takes it out of the mailbox.
+            setMailDrag(true);
             const id = triggerAt(event.target);
             setDropTarget(id);
             event.dataTransfer.dropEffect = id ? 'copy' : 'none';
@@ -350,18 +340,14 @@ export function FlowCanvas({
             const { dataTransfer } = event;
             if (!dataTransfer.types.includes(NODE_DRAG_TYPE)) {
                 setDropTarget(null);
-                setOutsideDrag(false);
+                setMailDrag(false);
                 const id = triggerAt(event.target);
                 if (!id) return;
-                if (dataTransfer.types.includes(EMAIL_DRAG_TYPE)) {
-                    onRunEmail(id, JSON.parse(dataTransfer.getData(EMAIL_DRAG_TYPE)) as EmailEnvelope);
-                } else {
-                    onRunOutlookDrag(id, {
-                        text: dataTransfer.getData('text/plain'),
-                        fileNames: [...dataTransfer.files].map((file) => file.name),
-                        types: [...dataTransfer.types],
-                    });
-                }
+                onRunOutlookDrag(id, {
+                    text: dataTransfer.getData('text/plain'),
+                    fileNames: [...dataTransfer.files].map((file) => file.name),
+                    types: [...dataTransfer.types],
+                });
                 return;
             }
             const kind = dataTransfer.getData(NODE_DRAG_TYPE) as NodeKind;
@@ -379,7 +365,7 @@ export function FlowCanvas({
             onChange({ ...flow, nodes: [...flow.nodes, node] });
             onSelect(id);
         },
-        [flow, onChange, onSelect, onRunEmail, onRunOutlookDrag, triggerAt],
+        [flow, onChange, onSelect, onRunOutlookDrag, triggerAt],
     );
 
     return (
@@ -401,7 +387,7 @@ export function FlowCanvas({
                 onDragLeave={(e) => {
                     if (e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) return;
                     setDropTarget(null);
-                    setOutsideDrag(false);
+                    setMailDrag(false);
                 }}
                 fitView
                 fitViewOptions={{ maxZoom: 1 }}

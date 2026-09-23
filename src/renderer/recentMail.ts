@@ -4,12 +4,8 @@ import type { EmailEnvelope } from '@shared/trace';
 
 /**
  * Recent mail in a trigger's mailbox, for picking a real message to test a flow
- * against — in the Test run dialog, and in the sidebar list an email is dragged
- * out of onto the canvas.
+ * against in the Test run dialog.
  */
-
-/** Marks a drag as an email, and carries its envelope as JSON. */
-export const EMAIL_DRAG_TYPE = 'application/patchbay-email';
 
 /** How a trigger reads in a picker: its name, and the mailbox it watches. */
 export function triggerLabel(node: FlowNode): string {
