@@ -23,7 +23,7 @@ interface Watermark {
     seen: string[];
     /** False until the first poll has established a baseline for this trigger. */
     primed: boolean;
-    /** What `seen` holds. Missing on marks written before there was a choice: entry ids. */
+    /** What `seen` holds. Set by the poll that primes the mark. */
     keyedBy?: KeyedBy;
 }
 
@@ -323,7 +323,7 @@ export class Watcher {
                 const seen = new Set(mark.seen);
                 // Switching a trigger between one folder and a whole tree changes what
                 // its marks are keys of, so none of the old ones would match.
-                const rekeyed = mark.primed && (mark.keyedBy ?? 'entryId') !== keyedBy;
+                const rekeyed = mark.primed && mark.keyedBy !== keyedBy;
 
                 // The first poll establishes a baseline; without it, switching a flow
                 // on would fire a run for every email already in the folder. A trigger

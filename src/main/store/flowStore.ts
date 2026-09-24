@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -12,14 +12,13 @@ import {
     flowSkillsDir,
     forgetFlowFolders,
     watermarkFile,
-    workspaceRoot,
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
-import { getSkill, importSkillsFrom, isValidSkillName, listSkills, saveSkill } from './skillStore';
-import { emptyFlow, type Flow, type FlowNode, parseFlow } from '@shared/flow';
+import { getSkill, isValidSkillName, saveSkill } from './skillStore';
+import { emptyFlow, type Flow, parseFlow } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
-import { isGlobalRef, skillRef, type SkillScope } from '@shared/settings';
+import type { SkillScope } from '@shared/settings';
 
 /**
  * A flow is a directory rather than a file: `flows/<folder>/flow.json` sits
@@ -266,92 +265,4 @@ export function importFlowFile(path: string): Flow {
         saveSkill(skill.scope, flow.id, skill.name, skill.content);
     }
     return flow;
-}
-
-// ── Workspaces written by an earlier version ─────────────────────────────
-
-/**
- * A Processor written before the split names its skills bare. Anything now on
- * the global shelf is re-pointed at it, so the graph goes on meaning what it
- * meant; a name the flow holds itself is left alone, because that one already
- * resolves.
- */
-function adoptGlobalRefs(flow: Flow, globalNames: Set<string>, ownNames: Set<string>): Flow | null {
-    let changed = false;
-    const nodes = flow.nodes.map((node): FlowNode => {
-        if (node.config.kind !== 'processor') return node;
-        const skills = node.config.skills.map((ref) => {
-            if (isGlobalRef(ref) || ownNames.has(ref) || !globalNames.has(ref)) return ref;
-            changed = true;
-            return skillRef('global', ref);
-        });
-        return { ...node, config: { ...node.config, skills } };
-    });
-    return changed ? { ...flow, nodes } : null;
-}
-
-/**
- * Flows used to be `flows/<id>.json` beside one `.claude/skills` the whole
- * install shared. Give each flow a directory of its own, and hand that shared
- * library to the global shelf — which is what it always was — rather than
- * copying it into every flow.
- */
-export function migrateToFlowDirectories(): string[] {
-    const dir = flowsDir();
-    const moved: string[] = [];
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-        const id = entry.name.slice(0, -'.json'.length);
-        let target: string;
-        try {
-            target = flowDir(id);
-        } catch {
-            // A file whose name is not a usable id was never a flow of ours.
-            continue;
-        }
-        renameSync(join(dir, entry.name), join(target, FLOW_FILE));
-        moved.push(id);
-    }
-    if (moved.length > 0) forgetFlowFolders();
-
-    const shared = join(workspaceRoot(), '.claude', 'skills');
-    if (!existsSync(shared)) return moved;
-
-    const adopted = new Set(importSkillsFrom('global', '', shared));
-    // Removed rather than left: the cwd of a run is a flow's own directory now, so
-    // a library above it is read by nothing and only invites edits that go nowhere.
-    rmSync(join(workspaceRoot(), '.claude'), { recursive: true, force: true });
-
-    for (const id of moved) {
-        const flow = getFlow(id);
-        if (!flow) continue;
-        const next = adoptGlobalRefs(flow, adopted, new Set(listSkills('flow', id).map((s) => s.name)));
-        if (next) saveFlow(next);
-    }
-
-    return moved;
-}
-
-/**
- * Those directories were named by the flow's id, and an id is a UUID — so the
- * project location the welcome window shows was thirty-six characters of
- * nothing. Name each one after its flow instead, once. A directory already
- * called something else is left alone: only the app's own naming is being undone.
- */
-export function adoptFolderNames(): string[] {
-    const renamed: string[] = [];
-    for (const flow of listFlows()) {
-        const folder = flowFolder(flow.id);
-        if (folder !== flow.id) continue;
-        const wanted = freeFolder(toFolderName(flow.name));
-        try {
-            renameSync(flowDirAt(folder), flowDirAt(wanted));
-        } catch {
-            // A directory the OS will not move stays where it is and still works.
-            continue;
-        }
-        forgetFlowFolders();
-        renamed.push(wanted);
-    }
-    return renamed;
 }

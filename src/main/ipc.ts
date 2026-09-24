@@ -132,7 +132,6 @@ export function registerIpc(): void {
             name: 'Patchbay',
             version: app.getVersion(),
             developer: 'Dawnlit',
-            developerUrl: DEVELOPER_URL,
             license: 'AGPL-3.0-or-later',
             workspace: workspaceRoot(),
         }),
@@ -142,7 +141,6 @@ export function registerIpc(): void {
     handle(IPC.copyText, (text: string) => clipboard.writeText(text));
 
     handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
-    handle(IPC.flowsGet, (id: string) => flowStore.getFlow(id));
     handleCanvasSave();
     handleFlowWrite(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
     handleFlowWrite(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
@@ -215,9 +213,6 @@ export function registerIpc(): void {
     );
     handle(IPC.skillsMove, (from: SkillScope, to: SkillScope, flowId: string, name: string) =>
         skillStore.moveSkill(from, to, flowId, name),
-    );
-    handle(IPC.skillsImportFrom, (scope: SkillScope, flowId: string, dir: string) =>
-        skillStore.importSkillsFrom(scope, flowId, dir),
     );
     handle(IPC.skillsPickAndImport, async (scope: SkillScope, flowId: string) => {
         const picked = await dialog.showOpenDialog({

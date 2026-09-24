@@ -49,7 +49,6 @@ export interface ClaudeRunRequest {
 export interface ClaudeRunResult {
     ok: boolean;
     structured?: unknown;
-    text: string;
     error?: string;
 }
 
@@ -176,7 +175,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     let structured: unknown;
-    let text = '';
     let error: string | undefined;
     /** Tool name by tool_use id, so a result can name the call it answers. */
     const toolNames = new Map<string, string>();
@@ -245,7 +243,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
             if (message.type === 'assistant') {
                 for (const block of blocksOf(message.message)) {
                     if (block.type === 'text' && block.text?.trim()) {
-                        text += block.text;
                         request.onEvent({
                             at: now(),
                             type: 'assistant',
@@ -287,7 +284,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
             if (message.type === 'result') {
                 if (message.subtype === 'success') {
                     structured = message.structured_output;
-                    if (typeof message.result === 'string' && message.result) text = message.result;
                 } else {
                     error = `Claude ended with "${message.subtype}"`;
                 }
@@ -307,5 +303,5 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
 
     if (error) request.onEvent({ at: now(), type: 'error', label: error });
 
-    return { ok: !error, structured, text, error };
+    return { ok: !error, structured, error };
 }

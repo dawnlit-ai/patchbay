@@ -36,7 +36,6 @@ const api: Api = {
     copyText: (text) => call(IPC.copyText, text),
     flows: {
         entries: () => call(IPC.flowsEntries),
-        get: (id) => call(IPC.flowsGet, id),
         save: (flow) => call(IPC.flowsSave, flow),
         create: (name) => call(IPC.flowsCreate, name),
         duplicate: (flow, name) => call(IPC.flowsDuplicate, flow, name),
@@ -70,7 +69,6 @@ const api: Api = {
             call(IPC.skillsSave, scope, flowId, name, content),
         remove: (scope, flowId, name) => call(IPC.skillsRemove, scope, flowId, name),
         move: (from, to, flowId, name) => call(IPC.skillsMove, from, to, flowId, name),
-        importFrom: (scope, flowId, dir) => call(IPC.skillsImportFrom, scope, flowId, dir),
         pickAndImport: (scope, flowId) => call(IPC.skillsPickAndImport, scope, flowId),
     },
     engine: {

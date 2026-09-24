@@ -85,7 +85,7 @@ the **Console** tab beside Runs is for. It records what the app did outside any 
 - **outlook** — every call to the client, how long it took, and how long it waited in the queue behind another
 - **agent** — the MCP server listening or failing to, every tool call an agent makes and its input, and every request
   refused
-- **app** — startup, and the one-off workspace migrations
+- **app** — startup, and seeding the global skill library
 
 Warnings and errors you have not looked at are counted on the tab. The level filter starts at *Info and up*; routine
 lines — a poll that found nothing, an Outlook call that worked — are *debug*, shown under *Everything*.

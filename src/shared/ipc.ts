@@ -89,7 +89,6 @@ export interface Api {
     flows: {
         /** Every flow with the directory it lives in — what both windows list. */
         entries(): Promise<FlowEntry[]>;
-        get(id: string): Promise<Flow | null>;
         /**
          * Write an edit made to the version `flow.updatedAt` names. Refused, not
          * written, when anything but this window has written the flow since.
@@ -163,9 +162,7 @@ export interface Api {
          * the same name there. The caller asks first, and repairs the ticks.
          */
         move(from: SkillScope, to: SkillScope, flowId: string, name: string): Promise<SkillSummary>;
-        /** Copy SKILL.md folders in from a directory on disk. Returns names imported. */
-        importFrom(scope: SkillScope, flowId: string, dir: string): Promise<string[]>;
-        /** Ask the user for a folder, then import from it. */
+        /** Ask the user for a folder, then copy the SKILL.md folders in it into the library. */
         pickAndImport(
             scope: SkillScope,
             flowId: string,
@@ -260,7 +257,6 @@ export const IPC = {
     copyText: 'app:copyText',
 
     flowsEntries: 'flows:entries',
-    flowsGet: 'flows:get',
     flowsSave: 'flows:save',
     flowsCreate: 'flows:create',
     flowsDuplicate: 'flows:duplicate',
@@ -288,7 +284,6 @@ export const IPC = {
     skillsSave: 'skills:save',
     skillsRemove: 'skills:remove',
     skillsMove: 'skills:move',
-    skillsImportFrom: 'skills:importFrom',
     skillsPickAndImport: 'skills:pickAndImport',
 
     engineStart: 'engine:start',

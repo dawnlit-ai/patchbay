@@ -1,6 +1,5 @@
 import { app, Menu } from 'electron';
 import { getAgentControl, getWatcher, registerIpc } from './ipc';
-import { adoptFolderNames, migrateToFlowDirectories } from './store/flowStore';
 import { seedGlobalLibrary } from './store/skillStore';
 import { anyWindowOpen, showWelcome } from './windows';
 import { workspaceRoot } from './paths';
@@ -12,16 +11,6 @@ void app.whenReady().then(() => {
     // bar on macOS.
     Menu.setApplicationMenu(null);
     log.info('app', `Patchbay ${app.getVersion()} started`, { detail: `workspace: ${workspaceRoot()}` });
-    // Flows used to be loose files sharing one library; a workspace written before
-    // that changed is rearranged here, once, before anything reads it.
-    const migrated = migrateToFlowDirectories();
-    if (migrated.length > 0) log.info('app', `Gave ${migrated.length} flow(s) a directory of their own`);
-    // And those directories used to be named by the flow's id, which is a UUID and
-    // no kind of answer to "where is this flow kept?".
-    const renamed = adoptFolderNames();
-    if (renamed.length > 0) log.info('app', `Named ${renamed.length} flow folder(s) after their flow`, {
-        detail: renamed.join(', '),
-    });
     const seeded = seedGlobalLibrary();
     if (seeded.length > 0) log.info('app', `Seeded the global skill library: ${seeded.join(', ')}`);
     registerIpc();

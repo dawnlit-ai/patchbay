@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { type FlowNode, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 
@@ -22,9 +22,6 @@ export interface RecentMail {
     blocked: string | null;
     /** Outlook was asked and failed. */
     error: string | null;
-
-    /** Read the mailbox again; mail keeps arriving while a list is open. */
-    reload(): void;
 }
 
 export function useRecentMail(trigger: FlowNode | undefined, days: number, limit: number): RecentMail {
@@ -37,10 +34,8 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
     };
     const { account } = scope;
     const mailbox = JSON.stringify(scope);
-    const [attempt, setAttempt] = useState(0);
-    const reload = useCallback(() => setAttempt((n) => n + 1), []);
     /** Names one read exactly; a read is still under way until a result carries it. */
-    const read = JSON.stringify([scope, days, limit, attempt]);
+    const read = JSON.stringify([scope, days, limit]);
 
     // Each result says which read and which mailbox it came from, so loading is
     // derived rather than set, and another mailbox's mail is never shown as this
@@ -87,6 +82,5 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
         loading: !blocked && result?.read !== read,
         blocked,
         error: !blocked && result?.read === read ? result.error : null,
-        reload,
     };
 }

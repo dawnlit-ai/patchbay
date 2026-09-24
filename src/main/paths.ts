@@ -88,7 +88,7 @@ export function flowFolder(flowId: string): string {
     if (cached && existsSync(join(flowsDir(), cached, FLOW_FILE))) return cached;
     folders = scanFolders();
     // An id with no directory is one about to be given one — a flow mid-creation,
-    // or a test run built in memory. Its own id names the directory, as it used to.
+    // or a test run built in memory. Its own id names the directory.
     return folders.get(flowId) ?? flowId;
 }
 

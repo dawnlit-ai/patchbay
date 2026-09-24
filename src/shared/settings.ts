@@ -1,7 +1,5 @@
 /** App-level settings, stored once per install rather than per flow. */
 
-import { DEFAULT_MODEL } from './flow';
-
 export interface McpServerSetting {
     /** Name Claude sees the tools under: they arrive as `mcp__<name>__*`. */
     name: string;
@@ -46,8 +44,6 @@ export interface Settings {
      * copy.
      */
     skillSeedPath: string;
-    /** Default model for new nodes. */
-    defaultModel: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
     /**
@@ -64,7 +60,6 @@ export function defaultSettings(): Settings {
         claudeExecutablePath: '',
         skillSeedPath: '',
         mcpServers: [],
-        defaultModel: DEFAULT_MODEL,
         pollingEnabled: true,
         maxConcurrentRuns: 3,
         agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
@@ -89,7 +84,6 @@ export interface AboutInfo {
     name: string;
     version: string;
     developer: string;
-    developerUrl: string;
     license: string;
     /** The directory holding every flow, skill, run and log this install owns. */
     workspace: string;
