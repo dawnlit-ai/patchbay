@@ -5,7 +5,7 @@
  *   npm run mcpcheck
  */
 import { app } from 'electron';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     const { AgentControl } = await import('../src/main/mcp/server');
     const { Watcher } = await import('../src/main/engine/watcher');
     const { getFlow, saveFlowFrom } = await import('../src/main/store/flowStore');
-    const { listAllSkills } = await import('../src/main/store/skillStore');
+    const { globalPluginFor, listAllSkills } = await import('../src/main/store/skillStore');
 
     console.log('workspace:', workspace);
     saveSettings({ ...getSettings(), agentControl: { enabled: true, port: PORT, token: TOKEN } });
@@ -194,6 +194,51 @@ async function main(): Promise<void> {
         down.stillTickedBy?.some((f) => f.id === other) === true,
     );
     await call('delete_flow', { flowId: other });
+
+    // Linked, the global shelf is that folder: writes land in it, and a run gets
+    // a copy of just the skills it ticks, laid out as a plugin.
+    const linkedShelf = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-linked-'));
+    mkdirSync(join(linkedShelf, 'gamma'));
+    writeFileSync(join(linkedShelf, 'gamma', 'SKILL.md'), '---\nname: gamma\ndescription: Linked.\n---\n');
+    const linked = JSON.parse(await call('link_global_skills', { dir: linkedShelf })) as { skills: string[] };
+    check('a linked folder’s skills are the global library', linked.skills.join() === 'gamma');
+    await call('write_skill', {
+        scope: 'global',
+        name: 'delta',
+        content: '---\nname: delta\ndescription: Written while linked.\n---\n',
+    });
+    check('a write to the linked library lands in the folder', existsSync(join(linkedShelf, 'delta', 'SKILL.md')));
+    const plugin = globalPluginFor(['gamma', 'missing']);
+    check(
+        'a run gets only the ticked skills, as a plugin',
+        existsSync(join(plugin.path, '.claude-plugin', 'plugin.json')) &&
+        existsSync(join(plugin.path, 'skills', 'gamma', 'SKILL.md')) &&
+        !existsSync(join(plugin.path, 'skills', 'delta')),
+    );
+    plugin.dispose();
+    check(
+        'the run’s copy goes, and the folder stays',
+        !existsSync(plugin.path) && existsSync(join(linkedShelf, 'gamma', 'SKILL.md')),
+    );
+    // Under Electron, rmSync follows a junction and empties its target.
+    const outside = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-outside-'));
+    writeFileSync(join(outside, 'keep.md'), 'Not the skill’s to delete.\n');
+    symlinkSync(outside, join(linkedShelf, 'delta', 'shared'), 'junction');
+    await call('delete_skill', { scope: 'global', name: 'delta' });
+    check(
+        'deleting a skill removes a link inside it, not what it points at',
+        !existsSync(join(linkedShelf, 'delta')) && existsSync(join(outside, 'keep.md')),
+    );
+    const linkedSkill = await client.callTool({
+        name: 'link_global_skills',
+        arguments: { dir: join(linkedShelf, 'gamma') },
+    });
+    check('a skill folder is refused as a link', linkedSkill.isError === true);
+    const unlinked = JSON.parse(await call('link_global_skills', { dir: '' })) as {
+        linkedTo: string | null;
+        skills: string[];
+    };
+    check('unlinking puts the library’s own skills back', unlinked.linkedTo === null && !unlinked.skills.includes('gamma'));
 
     // A run has an id from the moment it is queued. A trigger wired to nothing
     // ends its path at once, so these runs touch neither Outlook nor Claude; two

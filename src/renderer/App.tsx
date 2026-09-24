@@ -88,6 +88,11 @@ export function App({ initialFlowId }: Props): JSX.Element {
     }, [flowId]);
 
     useEffect(refreshSkills, [refreshSkills]);
+    // A linked library is edited in other apps too; coming back is when to look again.
+    useEffect(() => {
+        window.addEventListener('focus', refreshSkills);
+        return () => window.removeEventListener('focus', refreshSkills);
+    }, [refreshSkills]);
 
     const refreshRuns = useCallback(() => {
         void window.api.runs.list(100).then(setRuns);

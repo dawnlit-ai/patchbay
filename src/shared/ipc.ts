@@ -152,6 +152,12 @@ export interface Api {
             scope: SkillScope,
             flowId: string,
         ): Promise<{ dir: string; imported: string[] } | null>;
+        /** The folder the global library is linked to, or '' while it keeps its own. */
+        linkedFolder(): Promise<string>;
+        /** Ask the user for a folder, then have the global library read and write it in place. */
+        pickAndLink(): Promise<{ dir: string; names: string[] } | null>;
+        /** Put the global library back on its own folder in the workspace. */
+        unlink(): Promise<void>;
     };
     engine: {
         start(): Promise<EngineStatus>;
@@ -264,6 +270,9 @@ export const IPC = {
     skillsRemove: 'skills:remove',
     skillsMove: 'skills:move',
     skillsPickAndImport: 'skills:pickAndImport',
+    skillsLinkedFolder: 'skills:linkedFolder',
+    skillsPickAndLink: 'skills:pickAndLink',
+    skillsUnlink: 'skills:unlink',
 
     engineStart: 'engine:start',
     engineStop: 'engine:stop',

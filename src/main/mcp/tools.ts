@@ -536,6 +536,25 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
     );
 
     server.registerTool(
+        'link_global_skills',
+        {
+            title: 'Link the global library to a folder',
+            description:
+                'Point the global shelf at a folder of skills on this machine — ~/.claude/skills, say — so it reads and writes that folder in place instead of holding copies. From then on write_skill, delete_skill, import_skills and move_skill on the global library change that folder. The library’s own skills stay in the workspace and come back on unlinking. An empty dir unlinks.',
+            inputSchema: {
+                dir: z
+                    .string()
+                    .describe('Absolute path to a folder whose subfolders each hold a SKILL.md, or "" to unlink.'),
+            },
+        },
+        ({ dir }) => {
+            const skills = skillStore.linkGlobalLibrary(dir ? absoluteDir(dir) : '');
+            host.changed({ flows: false, skills: true });
+            return json({ linkedTo: skillStore.linkedGlobalFolder() || null, skills: skills.map((s) => s.name) });
+        },
+    );
+
+    server.registerTool(
         'move_skill',
         {
             title: 'Move a skill to the other library',

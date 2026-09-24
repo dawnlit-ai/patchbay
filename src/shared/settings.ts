@@ -28,6 +28,11 @@ export interface Settings {
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
     skillSeedPath: string;
+    /**
+     * A folder of `<name>/SKILL.md` directories the global library reads and writes
+     * in place of its own. Empty uses the one in the workspace. Set from the Skills tab.
+     */
+    globalSkillsPath: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
     /**
@@ -43,6 +48,7 @@ export function defaultSettings(): Settings {
     return {
         claudeExecutablePath: '',
         skillSeedPath: '',
+        globalSkillsPath: '',
         mcpServers: [],
         pollingEnabled: true,
         maxConcurrentRuns: 3,

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
-import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag } from '@shared/ipc';
+import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag, type WorkspaceChange } from '@shared/ipc';
 import type { Flow, MailScope } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
@@ -65,14 +65,23 @@ function handle<T extends unknown[], R>(channel: string, fn: (...args: T) => R |
     ipcMain.handle(channel, (_event, ...args) => run(...(args as T)));
 }
 
-/** A write that changes which flows exist or where one lives: every other window is told to re-read. */
-function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
+/** A write other windows have to see: each of them is told to re-read what it changed. */
+function handleWrite<T extends unknown[], R>(
+    change: WorkspaceChange,
+    channel: string,
+    fn: (...args: T) => R | Promise<R>,
+): void {
     const run = readable(fn);
     ipcMain.handle(channel, async (event, ...args) => {
         const result = await run(...(args as T));
-        broadcast(IPC.evtWorkspaceChanged, { flows: true, skills: false }, event.sender);
+        broadcast(IPC.evtWorkspaceChanged, change, event.sender);
         return result;
     });
+}
+
+/** A write that changes which flows exist or where one lives. */
+function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
+    handleWrite({ flows: true, skills: false }, channel, fn);
 }
 
 /**
@@ -163,9 +172,14 @@ export function registerIpc(): void {
     });
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => {
-        // Keep the stored token: a panel opened before a regeneration would send the old one back.
-        const { token } = getSettings().agentControl;
-        const saved = saveSettings({ ...settings, agentControl: { ...settings.agentControl, token } });
+        // Keep the stored token and skills link: a panel opened before a regeneration
+        // or a link would send the old one back.
+        const { globalSkillsPath, agentControl } = getSettings();
+        const saved = saveSettings({
+            ...settings,
+            globalSkillsPath,
+            agentControl: { ...settings.agentControl, token: agentControl.token },
+        });
         // Switching the agent-control server on, off, or onto another port is an
         // ordinary settings edit; this is what carries it out.
         getAgentControl().apply();
@@ -210,6 +224,20 @@ export function registerIpc(): void {
         const dir = picked.filePaths[0];
         if (picked.canceled || !dir) return null;
         return { dir, imported: skillStore.importSkillsFrom(scope, flowId, dir) };
+    });
+    handle(IPC.skillsLinkedFolder, () => skillStore.linkedGlobalFolder());
+    // Every flow's global skills change at once, so every window re-reads them.
+    handleWrite({ flows: false, skills: true }, IPC.skillsPickAndLink, async () => {
+        const picked = await dialog.showOpenDialog({
+            title: 'Choose a folder of skills for every flow to use in place',
+            properties: ['openDirectory'],
+        });
+        const dir = picked.filePaths[0];
+        if (picked.canceled || !dir) return null;
+        return { dir, names: skillStore.linkGlobalLibrary(dir).map((s) => s.name) };
+    });
+    handleWrite({ flows: false, skills: true }, IPC.skillsUnlink, () => {
+        skillStore.linkGlobalLibrary('');
     });
 
     handle(IPC.engineStart, () => getWatcher().start());

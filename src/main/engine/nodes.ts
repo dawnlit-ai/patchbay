@@ -10,9 +10,10 @@ import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/t
 import { runClaude } from '../claude/runner';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
 import { getSettings } from '../store/settingsStore';
-import { flowDir, globalPluginDir } from '../paths';
+import { globalPluginFor } from '../store/skillStore';
+import { flowDir } from '../paths';
 import * as outlook from '../outlook/bridge';
-import { isGlobalRef } from '@shared/settings';
+import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 
 /** What the engine hands a node, and what it expects back. */
@@ -179,6 +180,11 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         'When you are finished, return the structured result describing what you did.',
     ].join('\n');
 
+    // The global library lives outside the run's directory, so it arrives as a
+    // plugin — and only when this node actually ticks something from it.
+    const globalTicks = config.skills.filter(isGlobalRef).map((ref) => ref.slice(GLOBAL_SKILL_PLUGIN.length + 1));
+    const plugin = globalTicks.length > 0 ? globalPluginFor(globalTicks) : null;
+
     const result = await runClaude({
         prompt,
         model: config.model,
@@ -187,11 +193,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),
         settingSources: ['project'],
-        // The global library lives outside that directory, so it arrives as a
-        // plugin — and only when this node actually ticks something from it.
-        plugins: config.skills.some(isGlobalRef)
-            ? [{ type: 'local', path: globalPluginDir(), skipMcpDiscovery: true }]
-            : undefined,
+        plugins: plugin ? [{ type: 'local', path: plugin.path, skipMcpDiscovery: true }] : undefined,
         // The scratch folder is outside that directory, and saved attachments are
         // the whole point of it.
         additionalDirectories: [ctx.scratchDir],
@@ -217,7 +219,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             required: ['outcome', 'summary', 'actions'],
             additionalProperties: false,
         },
-    });
+    }).finally(() => plugin?.dispose());
 
     if (!result.ok) {
         return {

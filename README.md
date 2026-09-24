@@ -204,6 +204,13 @@ already there replaces it, so both are asked about first.
 own: opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites
 a global skill this installation already has.
 
+**Link…**, on the Global tab, copies nothing: it points the global library at a folder of skills — `~/.claude/skills`,
+say — and reads and writes that folder in place. What changes there shows up here, and editing, adding, deleting or
+moving a global skill here changes it there. The library's own skills stay in the workspace and come back on **Unlink**.
+A linked folder is not in plugin layout, so each run copies the global skills it ticks into a temporary
+plugin and deletes that copy afterwards. That also keeps an edit made mid-run out of the run. Seeding never writes into
+a linked folder.
+
 Under the hood the flow's library is discovered as project skills from the run's working directory, and the global one
 is handed over as a local plugin — which is what lets a run load skills from outside its own directory. That is where
 the `global:` prefix comes from.
@@ -248,15 +255,15 @@ does — one workspace, not two copies of it — and the window re-reads what it
 names the version it was made to, so an edit made at the moment before an agent's write to the same flow is refused
 rather than saved over it: the canvas says so, and shows the flow as the agent left it.
 
-| Area     | Tools                                                                                    |
-|----------|------------------------------------------------------------------------------------------|
-| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                    |
-| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                        |
-| Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `move_skill`, `delete_skill` |
-| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                    |
-| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                |
-| Runs     | `list_runs`, `get_run`, `get_console`                                                    |
-| Settings | `get_settings`                                                                           |
+| Area     | Tools                                                                                                          |
+|----------|----------------------------------------------------------------------------------------------------------------|
+| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                                          |
+| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                                              |
+| Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `link_global_skills`, `move_skill`, `delete_skill` |
+| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                                          |
+| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                                      |
+| Runs     | `list_runs`, `get_run`, `get_console`                                                                          |
+| Settings | `get_settings`                                                                                                 |
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a
@@ -265,6 +272,7 @@ dropped, with the tool that dropped it saying how many.
 
 `write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
 `import_skills`, from a folder on this machine — `~/.claude/skills`, say — optionally narrowed to the names wanted.
+`link_global_skills` points the global library at such a folder instead, as **Link…** does.
 `move_skill` re-points the flow's own Processors as the Skills tab does, and names any other flow a skill leaving the
 global shelf strands.
 

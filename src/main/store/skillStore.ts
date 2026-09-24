@@ -1,17 +1,21 @@
 import {
     cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
+    mkdtempSync,
     readdirSync,
     readFileSync,
     renameSync,
-    rmSync,
+    rmdirSync,
     statSync,
+    unlinkSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { flowSkillsDir, flowSkillsDirAt, globalPluginDir, globalSkillsDir } from '../paths';
-import { getSettings } from './settingsStore';
+import { getSettings, saveSettings } from './settingsStore';
 import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary } from '@shared/settings';
 
 /**
@@ -19,6 +23,9 @@ import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSumma
  * kept in plugin layout so runs can load it from outside their cwd; and **flow**,
  * under one flow's directory and travelling with it. `flowId` is read only for
  * the `flow` scope, and the two may hold the same name without shadowing.
+ *
+ * The global library can instead be linked to a folder of the user's own, which
+ * is then read and written in place.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -28,27 +35,110 @@ export function isValidSkillName(name: string): boolean {
     return NAME_RE.test(name) && name.length <= 64;
 }
 
-/** Writes the plugin manifest the SDK needs beside the global `skills` folder, if it is missing. */
-function ensureGlobalPlugin(): string {
-    const manifest = join(globalPluginDir(), '.claude-plugin', 'plugin.json');
-    if (!existsSync(manifest)) {
-        mkdirSync(join(globalPluginDir(), '.claude-plugin'), { recursive: true });
-        const content = {
-            name: GLOBAL_SKILL_PLUGIN,
-            description: 'Skills shared by every flow in this Patchbay workspace.',
-        };
-        writeFileSync(manifest, JSON.stringify(content, null, 2), 'utf8');
+/**
+ * A recursive delete that removes a link rather than following it: under Electron,
+ * `rmSync` deletes what a junction points at, and a linked folder is the user's own.
+ */
+function removeTree(path: string): void {
+    let stat;
+    try {
+        stat = lstatSync(path);
+    } catch {
+        return;
     }
+    if (stat.isDirectory()) {
+        for (const entry of readdirSync(path)) removeTree(join(path, entry));
+        rmdirSync(path);
+    } else {
+        unlinkSync(path);
+    }
+}
+
+/** Writes the plugin manifest the SDK needs beside a `skills` folder, if it is missing. */
+function ensureManifest(pluginDir: string): void {
+    const manifest = join(pluginDir, '.claude-plugin', 'plugin.json');
+    if (existsSync(manifest)) return;
+    mkdirSync(join(pluginDir, '.claude-plugin'), { recursive: true });
+    const content = {
+        name: GLOBAL_SKILL_PLUGIN,
+        description: 'Skills shared by every flow in this Patchbay workspace.',
+    };
+    writeFileSync(manifest, JSON.stringify(content, null, 2), 'utf8');
+}
+
+/** The folder the global library is linked to, or '' while it keeps its own. */
+export function linkedGlobalFolder(): string {
+    return getSettings().globalSkillsPath;
+}
+
+function globalLibrary(): string {
+    const linked = linkedGlobalFolder();
+    if (linked) return linked;
+    ensureManifest(globalPluginDir());
     return globalSkillsDir();
 }
 
 function libraryDir(scope: SkillScope, flowId: string): string {
-    return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDir(flowId);
+    if (scope === 'flow') return flowSkillsDir(flowId);
+    const dir = globalLibrary();
+    // Writing would recreate the folder — on the wrong drive, if it was a removable one.
+    if (!existsSync(dir)) {
+        throw new Error(`The global library is linked to ${dir}, which is not there. Restore it, or unlink.`);
+    }
+    return dir;
 }
 
 /** `libraryDir` without creating anything, so reading a deleted flow's skills doesn't recreate its folder. */
 function libraryAt(scope: SkillScope, flowId: string): string {
-    return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDirAt(flowId);
+    return scope === 'global' ? globalLibrary() : flowSkillsDirAt(flowId);
+}
+
+/**
+ * Point the global library at a folder of `<name>/SKILL.md` folders, or back at
+ * its own with ''. Its own skills stay in the workspace meanwhile.
+ */
+export function linkGlobalLibrary(dir: string): SkillSummary[] {
+    const target = dir ? resolve(dir) : '';
+    if (target) {
+        if (!existsSync(target) || !statSync(target).isDirectory()) throw new Error(`No such folder: ${target}`);
+        if (existsSync(join(target, 'SKILL.md'))) {
+            throw new Error(`${target} is a skill itself. Link the folder it sits in.`);
+        }
+    }
+    saveSettings({ ...getSettings(), globalSkillsPath: target });
+    return listSkills('global', '');
+}
+
+/**
+ * The plugin a run loads its ticked global skills from. A linked folder is not
+ * in plugin layout, so those skills are copied into a temporary one, which also
+ * keeps an edit made mid-run out of it. `dispose` removes the copy.
+ */
+export function globalPluginFor(names: string[]): { path: string; dispose(): void } {
+    const linked = linkedGlobalFolder();
+    if (!linked) {
+        ensureManifest(globalPluginDir());
+        return {
+            path: globalPluginDir(), dispose: () => {
+            }
+        };
+    }
+    const root = mkdtempSync(join(tmpdir(), 'patchbay-skills-'));
+    ensureManifest(root);
+    for (const name of names) {
+        const source = join(linked, name);
+        if (!isValidSkillName(name) || !existsSync(join(source, 'SKILL.md'))) continue;
+        // Dereferenced, so a link inside a skill is copied as content, not as a way back into the folder.
+        cpSync(source, join(root, 'skills', name), { recursive: true, dereference: true });
+    }
+    const dispose = (): void => {
+        try {
+            removeTree(root);
+        } catch {
+            // A copy left in the temp folder is harmless; failing a finished run over it is not.
+        }
+    };
+    return { path: root, dispose };
 }
 
 interface Frontmatter {
@@ -137,7 +227,7 @@ export function saveSkill(
 
 export function removeSkill(scope: SkillScope, flowId: string, name: string): void {
     if (!isValidSkillName(name)) return;
-    rmSync(join(libraryDir(scope, flowId), name), { recursive: true, force: true });
+    removeTree(join(libraryDir(scope, flowId), name));
 }
 
 /**
@@ -156,8 +246,15 @@ export function moveSkill(
     if (!existsSync(join(source, 'SKILL.md'))) throw new Error(`There is no skill "${name}" to move.`);
 
     const target = join(libraryDir(to, flowId), name);
-    rmSync(target, { recursive: true, force: true });
-    renameSync(source, target);
+    removeTree(target);
+    try {
+        renameSync(source, target);
+    } catch (e) {
+        // A linked global folder can be on another drive, which a rename cannot cross.
+        if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
+        cpSync(source, target, { recursive: true });
+        removeTree(source);
+    }
 
     const file = join(target, 'SKILL.md');
     return summarize(to, name, readFileSync(file, 'utf8'), file);
@@ -219,6 +316,8 @@ that email — you cannot reach any other message.
  * something to tick. Returns the names imported.
  */
 export function seedGlobalLibrary(): string[] {
+    // A linked folder is the user's own: seeding would write into it.
+    if (linkedGlobalFolder()) return [];
     const existing = listSkills('global', '');
     // A library holding only the placeholder still counts as unseeded; otherwise
     // one launch before pointing at a real skills folder would lock it in forever.
