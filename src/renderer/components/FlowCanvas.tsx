@@ -220,6 +220,13 @@ export function FlowCanvas({
     const [dropTarget, setDropTarget] = useState<string | null>(null);
     /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
     const [mailDrag, setMailDrag] = useState(false);
+    /**
+     * Each card's size, as React Flow last measured it. Not part of the graph, but
+     * handed back on every node: a node that arrives without one is hidden until
+     * it is measured again, and every edit rebuilds every node — so without this,
+     * each frame of a drag blanks the whole canvas for a frame.
+     */
+    const measured = useRef(new Map<string, { width: number; height: number }>());
 
     const rfNodes: Node[] = useMemo(
         () =>
@@ -230,6 +237,7 @@ export function FlowCanvas({
                     id: n.id,
                     type: 'card',
                     position: n.position,
+                    measured: measured.current.get(n.id),
                     selected: n.id === selectedNodeId,
                     data: { flowNode: n, pass: highlight?.passes.get(n.id), drop } satisfies NodeData,
                 };
@@ -264,11 +272,14 @@ export function FlowCanvas({
             let touched = false;
 
             for (const change of changes) {
-                if (change.type === 'position' && change.position) {
+                if (change.type === 'dimensions' && change.dimensions) {
+                    measured.current.set(change.id, change.dimensions);
+                } else if (change.type === 'position' && change.position) {
                     const { position } = change;
                     nodes = nodes.map((n) => (n.id === change.id ? { ...n, position } : n));
                     touched = true;
                 } else if (change.type === 'remove') {
+                    measured.current.delete(change.id);
                     nodes = nodes.filter((n) => n.id !== change.id);
                     edges = edges.filter((e) => e.source !== change.id && e.target !== change.id);
                     touched = true;
