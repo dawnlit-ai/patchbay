@@ -1,5 +1,7 @@
 /** App-level settings, stored once per install rather than per flow. */
 
+import { DEFAULT_MODEL } from './flow';
+
 export interface McpServerSetting {
     /** Name Claude sees the tools under: they arrive as `mcp__<name>__*`. */
     name: string;
@@ -62,7 +64,7 @@ export function defaultSettings(): Settings {
         claudeExecutablePath: '',
         skillSeedPath: '',
         mcpServers: [],
-        defaultModel: 'claude-opus-5',
+        defaultModel: DEFAULT_MODEL,
         pollingEnabled: true,
         maxConcurrentRuns: 3,
         agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },

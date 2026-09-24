@@ -100,7 +100,10 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
 - **Node 24+** — the version Electron 44 itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
   `engine-strict`, which makes an older Node refuse the install rather than fail somewhere later.
 - **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
-  `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login.
+  `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login. The
+  inspector's model lists come from it too: they show what that login offers now, so a new model appears without a
+  new build of the app. So do the effort levels, which differ from model to model — a Processor offers the ones its
+  model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
 
 ## Install
 

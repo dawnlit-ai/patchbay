@@ -4,8 +4,6 @@ import {
     type CategorizerConfig,
     type Disposition,
     DISPOSITIONS,
-    EFFORT_LEVELS,
-    type EffortLevel,
     type FlowNode,
     NODE_KIND_META,
     type NodeConfig,
@@ -14,7 +12,7 @@ import {
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
-import type { InboxFolderOption } from '@shared/ipc';
+import type { InboxFolderOption, ModelOption } from '@shared/ipc';
 import { SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
 
 /**
@@ -22,8 +20,6 @@ import { SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
  * narrowed config it understands, so no section casts or reads a field belonging
  * to another kind.
  */
-
-const MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
 
 /** A labelled control. */
 function Field({
@@ -51,6 +47,119 @@ function Legend({ label, hint }: { label: string; hint?: string }): JSX.Element 
             <span>{label}</span>
             {hint && <div className="hint">{hint}</div>}
         </div>
+    );
+}
+
+interface Models {
+    /** Null until Claude Code has answered. */
+    models: ModelOption[] | null;
+    error: string | null;
+}
+
+/**
+ * The models the Claude login offers, and the effort levels each takes — asked of
+ * Claude Code, so a model released after this build is offered without a new one.
+ */
+function useModels(): Models {
+    const [models, setModels] = useState<ModelOption[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        window.api.claude
+            .models()
+            .then((list) => {
+                if (!cancelled) setModels(list);
+            })
+            .catch((e: Error) => {
+                if (!cancelled) setError(e.message);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    return { models, error };
+}
+
+/** The list's entry for a node's model: by its own name, or a pinned id an alias stands for today. */
+function findModel(models: ModelOption[] | null, value: string): ModelOption | undefined {
+    return models?.find((m) => m.value === value) ?? models?.find((m) => m.resolvedModel === value);
+}
+
+/** A node keeps a model the list does not name, and says so, rather than showing another in its place. */
+function ModelField({
+                        value,
+                        models,
+                        error,
+                        onChange,
+                    }: Models & { value: string; onChange(model: string): void }): JSX.Element {
+    const listed = models?.find((m) => m.value === value);
+    const sameToday = models?.find((m) => m.resolvedModel === value);
+    let hint: string;
+    if (error) hint = `Could not ask Claude which models it offers: ${error}`;
+    else if (!models) hint = 'Asking Claude…';
+    else if (listed) hint = listed.description;
+    else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
+    else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
+
+    return (
+        <Field label="Model" hint={hint}>
+            <select value={value} onChange={(e) => onChange(e.target.value)}>
+                {!listed && <option value={value}>{value}</option>}
+                {models?.map((m) => (
+                    <option key={m.value} value={m.value} title={m.description}>
+                        {m.displayName}
+                    </option>
+                ))}
+            </select>
+        </Field>
+    );
+}
+
+/**
+ * The levels the chosen model takes, which differ from model to model. A level
+ * the model does not take stays on the node and is said to, as a model the list
+ * does not name is.
+ */
+function EffortField({
+                         value,
+                         model,
+                         loading,
+                         onChange,
+                     }: {
+    value: string;
+    /** Undefined while the list is on its way, or when the node's model is not in it. */
+    model: ModelOption | undefined;
+    loading: boolean;
+    onChange(effort: string): void;
+}): JSX.Element {
+    if (model && model.effortLevels.length === 0) {
+        return (
+            <Field label="Effort" hint={`${model.displayName} takes no effort level.`}>
+                <select disabled>
+                    <option>—</option>
+                </select>
+            </Field>
+        );
+    }
+
+    const levels = model?.effortLevels ?? [];
+    const offered = value === '' || levels.includes(value);
+    let hint: string | undefined;
+    if (!model && !loading) hint = 'The levels come from the chosen model, which is not in the list above.';
+    else if (model && !offered) hint = `${model.displayName} does not take ${value}. Pick one of the levels it does.`;
+
+    return (
+        <Field label="Effort" hint={hint}>
+            <select value={value} onChange={(e) => onChange(e.target.value)}>
+                <option value="">Model default</option>
+                {!offered && <option value={value}>{value}</option>}
+                {levels.map((level) => (
+                    <option key={level}>{level}</option>
+                ))}
+            </select>
+        </Field>
     );
 }
 
@@ -198,6 +307,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
 
 function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.Element {
     const { categories } = config;
+    const listing = useModels();
 
     const replace = (index: number, category: Partial<CategorizerConfig['categories'][number]>): void =>
         patch({ categories: categories.map((c, j) => (j === index ? { ...c, ...category } : c)) });
@@ -248,13 +358,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
 
             <div className="gap"/>
 
-            <Field label="Model">
-                <select value={config.model} onChange={(e) => patch({ model: e.target.value })}>
-                    {MODELS.map((m) => (
-                        <option key={m}>{m}</option>
-                    ))}
-                </select>
-            </Field>
+            <ModelField {...listing} value={config.model} onChange={(model) => patch({ model })}/>
 
             <label className="check">
                 <input
@@ -288,6 +392,15 @@ function ProcessorFields({
                          }: Section<ProcessorConfig> & { skills: SkillSummary[] }): JSX.Element {
     const toggle = (ref: string, on: boolean): void =>
         patch({ skills: on ? [...config.skills, ref] : config.skills.filter((s) => s !== ref) });
+
+    const listing = useModels();
+    // A level the new model does not take goes back to that model's default. A
+    // model that takes none leaves the level alone, for the next one that does.
+    const pickModel = (model: string): void => {
+        const levels = findModel(listing.models, model)?.effortLevels ?? [];
+        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
+        patch(kept ? { model } : { model, effort: '' });
+    };
 
     // Ticked in the flow file but in neither library — a flow imported from an
     // install whose global shelf held more than this one does. Said out loud,
@@ -341,22 +454,14 @@ function ProcessorFields({
                 />
             </Field>
 
-            <div className="row">
-                <Field label="Model">
-                    <select value={config.model} onChange={(e) => patch({ model: e.target.value })}>
-                        {MODELS.map((m) => (
-                            <option key={m}>{m}</option>
-                        ))}
-                    </select>
-                </Field>
-                <Field label="Effort">
-                    <select value={config.effort} onChange={(e) => patch({ effort: e.target.value as EffortLevel })}>
-                        {EFFORT_LEVELS.map((v) => (
-                            <option key={v}>{v}</option>
-                        ))}
-                    </select>
-                </Field>
-            </div>
+            {/* Not side by side: the model's hint says which version it is, and wants the width. */}
+            <ModelField {...listing} value={config.model} onChange={pickModel}/>
+            <EffortField
+                value={config.effort}
+                model={findModel(listing.models, config.model)}
+                loading={!listing.models && !listing.error}
+                onChange={(effort) => patch({ effort })}
+            />
 
             <div className="section-title">What this node may do</div>
             <label className="check">

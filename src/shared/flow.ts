@@ -5,14 +5,11 @@
 
 export type NodeKind = 'trigger.outlook' | 'categorizer' | 'processor' | 'terminal';
 
-export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
 // Listed as values as well as types: the inspector offers them and the importer
 // checks against them, and neither should carry its own copy.
 export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
-export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
 
 /** One branch of a categorizer — the description is what the model matches on. */
@@ -67,7 +64,12 @@ export interface ProcessorConfig {
     /** Free-text instruction prepended to the email context. */
     instruction: string;
     model: string;
-    effort: EffortLevel;
+    /**
+     * One of the levels Claude Code lists for the model — which differ from model
+     * to model, so they are not written down here. Empty leaves it to the model's
+     * own default.
+     */
+    effort: string;
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
     allowMoveEmail: boolean;
@@ -154,7 +156,11 @@ export function hasInput(kind: NodeKind): boolean {
 
 // ── Defaults ─────────────────────────────────────────────────────────────
 
-export const DEFAULT_MODEL = 'claude-opus-5';
+/**
+ * The alias rather than a dated id: Claude Code resolves it to the newest Opus the
+ * account offers, so a node made today does not stay pinned to today's model.
+ */
+export const DEFAULT_MODEL = 'opus';
 
 export function defaultConfig(kind: NodeKind): NodeConfig {
     switch (kind) {
@@ -390,7 +396,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 skills: strings(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
                 model: str(from.model, base.model),
-                effort: oneOf(from.effort, EFFORT_LEVELS, base.effort),
+                effort: str(from.effort, base.effort),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),

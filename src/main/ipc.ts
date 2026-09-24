@@ -8,6 +8,7 @@ import * as skillStore from './store/skillStore';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
+import { listModels } from './claude/runner';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
@@ -199,6 +200,8 @@ export function registerIpc(): void {
         outlook.readScope(scope, days, limit),
     );
     handle(IPC.outlookDragged, (account: string, drag: OutlookDrag) => outlook.readDragged(account, drag));
+
+    handle(IPC.claudeModels, () => listModels());
 
     handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));
     handle(IPC.skillsGet, (scope: SkillScope, flowId: string, name: string) =>

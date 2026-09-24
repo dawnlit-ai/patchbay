@@ -1,8 +1,14 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { McpServerConfig, Options, SdkPluginConfig, SettingSource } from '@anthropic-ai/claude-agent-sdk';
-import type { EffortLevel } from '@shared/flow';
+import type {
+    McpServerConfig,
+    Options,
+    SdkPluginConfig,
+    SDKUserMessage,
+    SettingSource,
+} from '@anthropic-ai/claude-agent-sdk';
+import type { ModelOption } from '@shared/ipc';
 import { now, type TraceEvent, truncate } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
 
@@ -16,7 +22,8 @@ import { getSettings } from '../store/settingsStore';
 export interface ClaudeRunRequest {
     prompt: string;
     model: string;
-    effort?: EffortLevel;
+    /** One of the levels Claude Code lists for the model. Empty or absent leaves it to the model's default. */
+    effort?: string;
     /** Agent SDK cwd. Must be the flow's directory, so its `.claude/skills` is discoverable. */
     cwd: string;
     /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
@@ -59,6 +66,76 @@ export function resolveClaudePath(): string | undefined {
             ? [join(homedir(), '.local', 'bin', 'claude.exe')]
             : [join(homedir(), '.local', 'bin', 'claude'), '/usr/local/bin/claude'];
     return candidates.find((p) => existsSync(p));
+}
+
+/**
+ * How long one answer to "which models?" is reused. The inspector asks on every
+ * AI node it opens, and a new model is rarer than that — but the app runs for
+ * days while Claude Code updates itself underneath it.
+ */
+const MODELS_TTL_MS = 10 * 60_000;
+
+let modelsAsked: { exe: string | undefined; at: number; list: Promise<ModelOption[]> } | null = null;
+
+async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+    // A prompt stream that stays open without a message on it: the CLI starts and
+    // answers control requests, and is closed before it has anything to run — so
+    // asking spends nothing.
+    let release = (): void => {
+    };
+    const held = new Promise<void>((resolve) => (release = resolve));
+
+    async function* nothing(): AsyncGenerator<SDKUserMessage> {
+        await held;
+    }
+
+    const q = query({
+        prompt: nothing(),
+        options: {
+            // What a run is started with, so the list is the one a run can use.
+            pathToClaudeCodeExecutable: exe,
+            settingSources: [],
+            strictMcpConfig: true,
+            mcpServers: {},
+            tools: [],
+            persistSession: false,
+        },
+    });
+    try {
+        const models = await q.supportedModels();
+        return models.map((m) => ({
+            value: m.value,
+            resolvedModel: m.resolvedModel,
+            displayName: m.displayName,
+            description: m.description,
+            effortLevels: m.supportsEffort ? (m.supportedEffortLevels ?? []) : [],
+        }));
+    } finally {
+        release();
+        q.close();
+    }
+}
+
+/**
+ * The models the Claude login offers, as Claude Code's own model picker lists
+ * them. Asked of the CLI rather than written into the app, so a model released
+ * after this build shows up, and one retired from the account drops out.
+ */
+export function listModels(): Promise<ModelOption[]> {
+    const exe = resolveClaudePath();
+    if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {
+        return modelsAsked.list;
+    }
+    const asked = { exe, at: Date.now(), list: askForModels(exe) };
+    modelsAsked = asked;
+    // A failure is not kept: once Claude Code is installed or logged in, the next
+    // ask should find out.
+    asked.list.catch(() => {
+        if (modelsAsked === asked) modelsAsked = null;
+    });
+    return asked.list;
 }
 
 /** Content blocks arrive as a loose union; read them structurally. */
@@ -130,7 +207,9 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         options.additionalDirectories = request.additionalDirectories;
     }
     if (request.tools) options.tools = request.tools;
-    if (request.effort) options.effort = request.effort;
+    // The SDK's type names only the levels it knew when it was built; the node's
+    // came from the CLI's own list for the model.
+    if (request.effort) options.effort = request.effort as Options['effort'];
     if (request.skills && request.skills.length > 0) options.skills = request.skills;
     if (request.jsonSchema) options.outputFormat = { type: 'json_schema', schema: request.jsonSchema };
     if (request.signal) {

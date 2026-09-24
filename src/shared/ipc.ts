@@ -60,6 +60,18 @@ export interface InboxFolderOption {
     itemCount: number;
 }
 
+/** A model the Claude account offers, as Claude Code's own model picker lists it. */
+export interface ModelOption {
+    /** What a node stores and the run is started with — often an alias, such as `opus`. */
+    value: string;
+    /** The model that alias stands for today, e.g. `claude-opus-5-5`. */
+    resolvedModel?: string;
+    displayName: string;
+    description: string;
+    /** The effort levels this model takes, as Claude Code lists them. Empty when it takes none. */
+    effortLevels: string[];
+}
+
 /**
  * What a drag from outside the app carried when it was dropped on a trigger. An
  * email dragged out of Outlook arrives as a `.msg` copy named after its subject,
@@ -131,6 +143,10 @@ export interface Api {
          * selected in Outlook or the email lives in another mailbox.
          */
         dragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope>;
+    };
+    claude: {
+        /** The models the Claude login offers now, asked of Claude Code rather than written into the app. */
+        models(): Promise<ModelOption[]>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every
@@ -264,6 +280,8 @@ export const IPC = {
     outlookFolders: 'outlook:folders',
     outlookRecent: 'outlook:recent',
     outlookDragged: 'outlook:dragged',
+
+    claudeModels: 'claude:models',
 
     skillsList: 'skills:list',
     skillsGet: 'skills:get',
