@@ -40,7 +40,6 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         path: [],
         edgePath: [],
         passes: [],
-        totalCostUsd: 0,
     };
 
     const publish = (): void => {
@@ -79,7 +78,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         seq += 1;
 
         /** The half of a pass that is the same however the node ended. */
-        const record = (outcome: Pick<Pass, 'status' | 'outPort' | 'summary' | 'cost' | 'error'>): Pass => ({
+        const record = (outcome: Pick<Pass, 'status' | 'outPort' | 'summary' | 'error'>): Pass => ({
             seq,
             nodeId: node.id,
             nodeKind: node.kind,
@@ -107,7 +106,6 @@ export async function executeRun(request: RunRequest): Promise<Run> {
                 status: outcome.error ? 'error' : 'ok',
                 outPort: outcome.outPort,
                 summary: outcome.summary,
-                cost: outcome.cost,
                 error: outcome.error,
             });
             if (outcome.disposition) run.disposition = outcome.disposition;
@@ -123,7 +121,6 @@ export async function executeRun(request: RunRequest): Promise<Run> {
 
         run.passes.push(pass);
         run.path.push(node.id);
-        run.totalCostUsd += pass.cost?.usd ?? 0;
         publish();
 
         if (pass.error && pass.outPort === null) {

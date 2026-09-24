@@ -767,7 +767,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List runs',
             description:
-                'Recent runs, newest first: what each handled, how it ended and what it cost. Runs still queued or under way come first, whatever the limit — those are the ones an agent is usually waiting on.',
+                'Recent runs, newest first: what each handled and how it ended. Runs still queued or under way come first, whatever the limit — those are the ones an agent is usually waiting on.',
             inputSchema: {
                 limit: z.number().int().min(1).max(200).optional().describe('Finished runs to include. Default 20.'),
                 flowId: z.string().optional().describe('Only runs of this flow.'),
@@ -803,7 +803,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read a run',
             description:
-                'One run in full: the path it took and, per node, the port it left by, the one-line reason, every prompt and tool call, and the cost. This is where you find out why an email went where it did — and, since a prompt carries the email it was about, where a handled message can be read back.',
+                'One run in full: the path it took and, per node, the port it left by, the one-line reason, and every prompt and tool call. This is where you find out why an email went where it did — and, since a prompt carries the email it was about, where a handled message can be read back.',
             inputSchema: {
                 runId: z.string(),
                 includeEvents: z

@@ -75,13 +75,6 @@ export interface TraceEvent {
     detail?: string;
 }
 
-export interface PassCost {
-    usd: number;
-    turns: number;
-    model: string;
-    durationMs: number;
-}
-
 export type PassStatus = 'ok' | 'error';
 
 export interface Pass {
@@ -97,7 +90,6 @@ export interface Pass {
     /** One line a human can scan: why this node did what it did. */
     summary: string;
     events: TraceEvent[];
-    cost?: PassCost;
     error?: string;
 }
 
@@ -118,7 +110,6 @@ export interface Run {
     /** Edge ids traversed, so the canvas can light the exact connections used. */
     edgePath: string[];
     passes: Pass[];
-    totalCostUsd: number;
     /** Terminal disposition, when the run reached a terminal node. */
     disposition?: string;
     error?: string;
@@ -136,7 +127,6 @@ export interface RunSummary {
     subject: string;
     senderEmail: string;
     disposition?: string;
-    totalCostUsd: number;
     passCount: number;
 }
 
@@ -152,7 +142,6 @@ export function toSummary(run: Run): RunSummary {
         subject: run.email.subject,
         senderEmail: run.email.senderEmail,
         disposition: run.disposition,
-        totalCostUsd: run.totalCostUsd,
         passCount: run.passes.length,
     };
 }

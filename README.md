@@ -65,7 +65,7 @@ Every email produces a `Run`, and every node it touches produces a `Pass`:
 - the full prompt sent to Claude
 - every tool call with its arguments, and every result
 - Outlook side effects (body read, attachment saved, draft left, email moved)
-- cost, turns and duration
+- when it started and finished
 
 Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email travelled, with each node
 showing its pass number and outcome.
@@ -325,9 +325,9 @@ thinking, and take turns the moment they touch the mailbox.
 
 ## Costs
 
-Every Categorizer pass is one Claude call; every Processor pass is an agent loop. Both record `total_cost_usd` on the
-pass, and the Processor honours a per-node USD budget. Classification runs about a cent on Opus; a processing run
-depends entirely on the skill.
+Every Categorizer pass is one Claude call; every Processor pass is an agent loop that runs until the agent is done. The
+app neither caps nor records what either spends — that is left to your Claude plan or API account, and to whatever
+usage view it gives you. Classification runs about a cent on Opus; a processing run depends entirely on the skill.
 
 ## Licence
 

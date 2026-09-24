@@ -458,7 +458,7 @@ export class Watcher {
                 signal: controller.signal,
                 onUpdate: (update) => this.onRun(update),
             });
-            const tally = `${run.passes.length} pass(es) · $${run.totalCostUsd.toFixed(3)}`;
+            const tally = `${run.passes.length} pass(es)`;
             if (run.status === 'failed') {
                 log.error('run', `Failed ${subject}: ${run.error ?? 'no reason recorded'}`, {
                     runId,

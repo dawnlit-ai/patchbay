@@ -358,26 +358,6 @@ function ProcessorFields({
                 </Field>
             </div>
 
-            <div className="row">
-                <Field label="Max turns">
-                    <input
-                        type="number"
-                        min={1}
-                        value={config.maxTurns}
-                        onChange={(e) => patch({ maxTurns: Math.max(1, Number(e.target.value) || 40) })}
-                    />
-                </Field>
-                <Field label="Budget (USD)">
-                    <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={config.maxBudgetUsd}
-                        onChange={(e) => patch({ maxBudgetUsd: Math.max(0, Number(e.target.value) || 0) })}
-                    />
-                </Field>
-            </div>
-
             <div className="section-title">What this node may do</div>
             <label className="check">
                 <input

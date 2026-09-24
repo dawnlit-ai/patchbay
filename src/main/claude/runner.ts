@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { McpServerConfig, Options, SdkPluginConfig, SettingSource } from '@anthropic-ai/claude-agent-sdk';
 import type { EffortLevel } from '@shared/flow';
-import { now, type PassCost, type TraceEvent, truncate } from '@shared/trace';
+import { now, type TraceEvent, truncate } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
 
 /**
@@ -17,8 +17,6 @@ export interface ClaudeRunRequest {
     prompt: string;
     model: string;
     effort?: EffortLevel;
-    maxTurns: number;
-    maxBudgetUsd?: number;
     /** Agent SDK cwd. Must be the flow's directory, so its `.claude/skills` is discoverable. */
     cwd: string;
     /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
@@ -45,7 +43,6 @@ export interface ClaudeRunResult {
     ok: boolean;
     structured?: unknown;
     text: string;
-    cost: PassCost;
     error?: string;
 }
 
@@ -101,8 +98,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
     // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
-    const startedAt = Date.now();
-    const cost: PassCost = { usd: 0, turns: 0, model: request.model, durationMs: 0 };
     let structured: unknown;
     let text = '';
     let error: string | undefined;
@@ -112,7 +107,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
     const options: Options = {
         model: request.model,
         cwd: request.cwd,
-        maxTurns: request.maxTurns,
         allowedTools: request.allowedTools,
         // Only the servers this app passes in. Otherwise the run would inherit the
         // machine's Claude Code config and behave differently on another desktop.
@@ -137,7 +131,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
     }
     if (request.tools) options.tools = request.tools;
     if (request.effort) options.effort = request.effort;
-    if (request.maxBudgetUsd) options.maxBudgetUsd = request.maxBudgetUsd;
     if (request.skills && request.skills.length > 0) options.skills = request.skills;
     if (request.jsonSchema) options.outputFormat = { type: 'json_schema', schema: request.jsonSchema };
     if (request.signal) {
@@ -213,9 +206,6 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
             }
 
             if (message.type === 'result') {
-                cost.usd = message.total_cost_usd ?? 0;
-                cost.turns = message.num_turns ?? 0;
-                cost.durationMs = message.duration_ms ?? Date.now() - startedAt;
                 if (message.subtype === 'success') {
                     structured = message.structured_output;
                     if (typeof message.result === 'string' && message.result) text = message.result;
@@ -225,12 +215,10 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
             }
         }
     } catch (e) {
-        // query() throws after yielding a non-success result, so the cost and events
-        // captured above stay — this only fills in the message.
+        // query() throws after yielding a non-success result, so the events captured
+        // above stay — this only fills in the message.
         error = e instanceof Error ? e.message : String(e);
     }
-
-    cost.durationMs = cost.durationMs || Date.now() - startedAt;
 
     // No structured output means the question went unanswered, whatever text came
     // back with it.
@@ -240,5 +228,5 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
 
     if (error) request.onEvent({ at: now(), type: 'error', label: error });
 
-    return { ok: !error, structured, text, cost, error };
+    return { ok: !error, structured, text, error };
 }

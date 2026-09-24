@@ -104,7 +104,6 @@ async function main(): Promise<void> {
     console.log(`path        : ${run.path.join(' → ')}`);
     console.log(`edges taken : ${run.edgePath.join(', ') || '(none)'}`);
     console.log(`disposition : ${run.disposition ?? '(none)'}`);
-    console.log(`cost        : $${run.totalCostUsd.toFixed(4)}`);
     if (run.error) console.log(`note        : ${run.error}`);
     console.log('─'.repeat(70));
     for (const pass of run.passes) {

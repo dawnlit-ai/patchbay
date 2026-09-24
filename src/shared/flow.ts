@@ -68,8 +68,6 @@ export interface ProcessorConfig {
     instruction: string;
     model: string;
     effort: EffortLevel;
-    maxTurns: number;
-    maxBudgetUsd: number;
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
     allowMoveEmail: boolean;
@@ -190,8 +188,6 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 instruction: 'Handle this email according to the selected skill.',
                 model: DEFAULT_MODEL,
                 effort: 'high',
-                maxTurns: 40,
-                maxBudgetUsd: 2,
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
@@ -395,8 +391,6 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 instruction: str(from.instruction, base.instruction),
                 model: str(from.model, base.model),
                 effort: oneOf(from.effort, EFFORT_LEVELS, base.effort),
-                maxTurns: num(from.maxTurns, base.maxTurns),
-                maxBudgetUsd: num(from.maxBudgetUsd, base.maxBudgetUsd),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),

@@ -6,7 +6,7 @@ import {
     type TriggerConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
-import { type EmailEnvelope, emailHeader, now, type PassCost, type TraceEvent } from '@shared/trace';
+import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
 import { runClaude } from '../claude/runner';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
 import { getSettings } from '../store/settingsStore';
@@ -31,7 +31,6 @@ export interface NodeOutcome {
     /** Port to leave by. Null ends the path here. */
     outPort: string | null;
     summary: string;
-    cost?: PassCost;
     /** Set on a terminal node, recorded on the run. */
     disposition?: string;
     error?: string;
@@ -104,7 +103,6 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     const result = await runClaude({
         prompt,
         model: config.model,
-        maxTurns: 4,
         cwd: flowDir(ctx.flowId),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.
@@ -128,7 +126,6 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         return {
             outPort: null,
             summary: 'Classification failed',
-            cost: result.cost,
             error: result.error ?? 'no structured output',
         };
     }
@@ -139,7 +136,6 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     return {
         outPort: chosen ? `cat:${chosen.id}` : UNMATCHED_PORT,
         summary: `${chosen?.label ?? 'Unmatched'} · ${Math.round((answer.confidence ?? 0) * 100)}% — ${answer.reason}`,
-        cost: result.cost,
     };
 }
 
@@ -188,8 +184,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         prompt,
         model: config.model,
         effort: config.effort,
-        maxTurns: config.maxTurns,
-        maxBudgetUsd: config.maxBudgetUsd,
         // The flow's own directory: 'project' is what makes the `.claude/skills`
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),
@@ -230,7 +224,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         return {
             outPort: 'error',
             summary: result.error ?? 'Processing failed',
-            cost: result.cost,
             error: result.error,
         };
     }
@@ -248,7 +241,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     return {
         outPort: PORT_FOR_OUTCOME[answer.outcome ?? ''] ?? 'done',
         summary: `${answer.summary ?? 'Processed'}${performed}${stated ? ` — ${stated}` : ''}`,
-        cost: result.cost,
     };
 }
 

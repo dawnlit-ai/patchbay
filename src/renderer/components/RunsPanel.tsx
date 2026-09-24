@@ -44,11 +44,6 @@ function PassCard({ pass }: { pass: Pass }): JSX.Element {
                     </>
                 )}
                 <span className="spacer"/>
-                {pass.cost && pass.cost.usd > 0 && (
-                    <span className="badge">
-                        ${pass.cost.usd.toFixed(3)} · {pass.cost.turns} turns
-                    </span>
-                )}
                 <span className={`badge ${pass.status === 'ok' ? 'ok' : 'err'}`}>{pass.status}</span>
                 <span className="count">
                     {open ? '▾' : '▸'} {pass.events.length}
@@ -148,10 +143,6 @@ export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCance
                         <div className="kv">
                             <b>Flow</b>
                             <span>{selected.flowName}</span>
-                        </div>
-                        <div className="kv">
-                            <b>Cost</b>
-                            <span>${selected.totalCostUsd.toFixed(4)}</span>
                         </div>
                         {selected.email.attachmentNames.length > 0 && (
                             <div className="kv">
