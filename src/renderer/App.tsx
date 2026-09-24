@@ -491,20 +491,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
                             </div>
                         );
                     })}
-
-                    <div className="section-title">How a run works</div>
-                    <div className="side-note">
-                        Every trigger you place starts one run per email it sees, so a flow can
-                        watch several folders at once — or none. Each node hands the email out of
-                        exactly one port, and the engine follows the edge attached to it. That
-                        sequence is the run’s path — select a run below to light it up here.
-                    </div>
-
-                    <div className="section-title">Try it on an email</div>
-                    <div className="side-note">
-                        Drag an email out of Outlook’s message list onto a trigger, and it runs through the
-                        flow from there now — whether or not the flow is being watched.
-                    </div>
                 </div>
 
                 <div className="center">
