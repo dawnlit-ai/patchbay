@@ -6,9 +6,7 @@ import { workspaceRoot } from './paths';
 import { log } from './log';
 
 void app.whenReady().then(() => {
-    // Nothing in the default File/Edit/View/Window menu belongs to this app, so it
-    // goes on every platform: off the window on Windows and Linux, out of the system
-    // bar on macOS.
+    // Nothing in the default menu applies to this app.
     Menu.setApplicationMenu(null);
     log.info('app', `Patchbay ${app.getVersion()} started`, { detail: `workspace: ${workspaceRoot()}` });
     const seeded = seedGlobalLibrary();
@@ -30,9 +28,7 @@ void app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-    // Watching is a foreground activity here: no window, no poller. The same goes
-    // for the agent-control server — an app with nothing on screen is not one an
-    // agent should still be able to drive.
+    // No window, no poller and no agent server.
     getWatcher().stop();
     getAgentControl().stop();
     if (process.platform !== 'darwin') app.quit();

@@ -93,12 +93,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.runs.list(100).then(setRuns);
     }, []);
 
-    /**
-     * Read one flow out of the workspace, with the directory it sits in. A flow
-     * that is not there any more was deleted from the welcome window or by an
-     * agent, and this window has nothing left to show: the start page comes back
-     * and takes its place.
-     */
+    /** Read a flow and its directory. If it has been deleted, swap this window for the start page. */
     const readFlow = useCallback(async (wantedId: string) => {
         const entries = await window.api.flows.entries();
         setFlowCount(entries.length);
@@ -163,11 +158,9 @@ export function App({ initialFlowId }: Props): JSX.Element {
     shownId.current = flow?.id ?? null;
 
     /**
-     * Every save names the version the canvas last read, in `updatedAt`, and main
-     * refuses one made before somebody else wrote the flow — an agent, or the
-     * start window. Writing it anyway would undo their change without either side
-     * knowing. So the refusal is said out loud, the edit is let go, and the canvas
-     * takes up the flow as it now stands, or closes if it was deleted.
+     * Main refuses a save made before someone else wrote the flow. Then the edit
+     * is dropped with a message, and the canvas shows the flow as it now stands
+     * (or closes if it was deleted).
      */
     const writeFlow = useCallback(
         (next: Flow) => {
@@ -204,23 +197,15 @@ export function App({ initialFlowId }: Props): JSX.Element {
         if (queued.current) writeFlow(queued.current);
     }, [writeFlow]);
 
-    /**
-     * The welcome window lists this flow while it is open here, and can rename or
-     * copy it from that list. So the debounce does not outlive this window losing
-     * focus: by the time another window is being clicked in, what it reads off
-     * disk is what is on the canvas.
-     */
+    /** Flush on blur, so another window reading this flow off disk sees what is on the canvas. */
     useEffect(() => {
         window.addEventListener('blur', flushSave);
         return () => window.removeEventListener('blur', flushSave);
     }, [flushSave]);
 
     /**
-     * An agent driving the app through its MCP server writes to the same files
-     * this window does, and so does the welcome window — the moment either does,
-     * what is on screen is behind. An edit of ours still in the queue goes out
-     * first — refused, and said so, if that write was to this flow; then the flow
-     * on screen becomes whatever the store now holds under its id.
+     * Another writer (an agent, the welcome window) changed the workspace. Flush
+     * our queued edit first, which is refused if they wrote this flow, then re-read.
      */
     useEffect(
         () =>
@@ -273,11 +258,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         [flow, updateFlow],
     );
 
-    /**
-     * A skill that changed library changed name with it — `global:x` one way, a
-     * bare `x` the other — so every Processor that ticked it is re-pointed. Only
-     * the flow on screen: the move itself is what tells other flows it is gone.
-     */
+    /** A skill that moved library changed name (`global:x` ↔ `x`); re-point this flow's Processors. */
     const relabelSkill = useCallback(
         (from: SkillScope, to: SkillScope, name: string) => {
             if (!flow) return;
@@ -312,12 +293,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     // ── Actions ────────────────────────────────────────────────────────────
 
-    /**
-     * Asks a yes/no question and resolves to the answer, the way `window.confirm`
-     * returned one. Through ConfirmDialog rather than the native box, which leaves
-     * the page unable to take focus again once it closes: clicks land nowhere and
-     * a `select` refuses to open until another window has had focus.
-     */
+    /** `window.confirm` via ConfirmDialog; Electron's native box leaves the page unable to take focus. */
     const ask = (next: Question): Promise<boolean> =>
         new Promise((resolve) => {
             answering.current = resolve;
@@ -336,11 +312,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
         });
 
     /**
-     * Both halves go through main rather than through the canvas's own save: the
-     * welcome window may be listing this flow while it is renamed, and it is told
-     * about these. Any edit still in the queue goes out first, so the rename lands
-     * on the graph as it stands here. Moving the folder is the half that can be
-     * refused — while a run is using it as a working directory, it says so.
+     * Through main rather than a canvas save, so the welcome window hears of it.
+     * Queued edits go out first. The folder move is refused while a run uses it.
      */
     const renameFlow = (name: string, folder: string | null): Promise<void> =>
         attempt(async () => {
@@ -390,10 +363,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
     };
 
     /**
-     * One email through the flow on screen, starting at the trigger named — picked
-     * in the Test run dialog, or dragged out of Outlook onto it. The engine reads the flow
-     * from disk, so a queued edit goes out first: a test straight after an edit
-     * runs the flow as it now looks. The runs panel opens to follow it.
+     * Test one email from the named trigger. Queued edits go out first, since the
+     * engine reads the flow from disk.
      */
     const runEmail = (nodeId: string, email: EmailEnvelope): void => {
         if (!flow) return;

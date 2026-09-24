@@ -33,9 +33,8 @@ import type { Pass } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
 
 /**
- * The canvas. The Flow object is the single source of truth: React Flow's node
- * array is derived on every render and every interaction translates straight back
- * into a Flow edit, so no second copy of the graph can drift.
+ * The canvas. The Flow is the only source of truth: React Flow's nodes are derived
+ * from it every render, and every interaction becomes a Flow edit.
  */
 
 export interface CanvasHighlight {
@@ -125,10 +124,8 @@ function describe(node: FlowNode): string {
 }
 
 /**
- * A connection, with the button that cuts it. The button is drawn inside the
- * edge's own group rather than through EdgeLabelRenderer, so hovering the wire
- * reveals it and moving onto the button keeps it there — one CSS rule, no
- * hover state to track.
+ * An edge with its cut button, drawn inside the edge's own group (not via
+ * EdgeLabelRenderer) so one CSS hover rule covers both wire and button.
  */
 function Wire({
                   id,
@@ -221,10 +218,8 @@ export function FlowCanvas({
     /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
     const [mailDrag, setMailDrag] = useState(false);
     /**
-     * Each card's size, as React Flow last measured it. Not part of the graph, but
-     * handed back on every node: a node that arrives without one is hidden until
-     * it is measured again, and every edit rebuilds every node — so without this,
-     * each frame of a drag blanks the whole canvas for a frame.
+     * Each card's last measured size, handed back on every rebuilt node. React Flow
+     * hides a node without one, which blanked the canvas on every frame of a drag.
      */
     const measured = useRef(new Map<string, { width: number; height: number }>());
 
@@ -311,11 +306,7 @@ export function FlowCanvas({
         [flow, onChange],
     );
 
-    /**
-     * The trigger a drag event is over, if it is over one. Found from the element
-     * under the pointer rather than from coordinates, which would mean undoing the
-     * viewport's pan and zoom.
-     */
+    /** The trigger under a drag, found by element rather than coordinates to avoid pan/zoom maths. */
     const triggerAt = useCallback(
         (target: EventTarget): string | null => {
             const id =
@@ -333,10 +324,8 @@ export function FlowCanvas({
                 event.dataTransfer.dropEffect = 'move';
                 return;
             }
-            // Anything else came from outside the app: an email dragged out of
-            // Outlook, or nothing a trigger takes. Anywhere but a trigger refuses
-            // it, and the cursor says so. Never 'move': that is how Outlook is told
-            // the email has gone somewhere else, and takes it out of the mailbox.
+            // From outside the app, e.g. an Outlook email. Only a trigger accepts it.
+            // Never 'move': Outlook would take the email out of the mailbox.
             setMailDrag(true);
             const id = triggerAt(event.target);
             setDropTarget(id);

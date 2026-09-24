@@ -1,10 +1,6 @@
 import type { JSX } from 'react';
 
-/**
- * The gear in a window's top bar, which raises the settings window. An icon
- * rather than a word: it sits beside the window's own buttons, and a gear is
- * what that corner is read for.
- */
+/** The gear in a window's top bar that raises the settings window. */
 
 /**
  * Eight teeth round a hub. Drawn, like the window buttons, so that no font gets

@@ -31,21 +31,10 @@ import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
 
 /**
- * The app as a set of MCP tools, so an agent outside the window can do what the
- * person at it does. Every one of these goes through the same store the window
- * uses, so the two are editing one workspace rather than two copies of it —
- * which is why every write says what it changed, and the window re-reads it.
- *
- * What is missing is as much of the design as what is here:
- *
- * - **No tool reaches into the mailbox for a message.** An agent lists what is in
- *   a folder in order to pick one to test against; fetching a body is for the
- *   run's own scoped tools. A run already recorded is another matter — its trace
- *   holds the whole prompt, because a record you cannot read is not a record.
- * - **No tool writes settings.** The Claude executable and the MCP servers
- *   handed to a Processor decide what code a run executes, so they stay with
- *   the person at the window.
- * - **Nothing here sends mail.** Nothing in this app does.
+ * The app as MCP tools, going through the same stores as the window; every write
+ * reports what it changed so the window can re-read it. Deliberately absent: no
+ * tool fetches a message body (that is for a run's scoped tools), none writes
+ * settings (they decide what code a run executes), and none sends mail.
  */
 
 export interface AgentHost {
@@ -175,13 +164,9 @@ const describeQueued = (queued: QueuedRun) => ({
 // ── Writing the workspace ────────────────────────────────────────────────
 
 /**
- * Apply an edit and put the result through the same repair an imported file
- * gets. An agent is a writer the app has not vetted, so what it hands back is
- * checked the way a flow from another install is: a value of the wrong type
- * falls back to that field's default, and an edge whose port the edit removed is
- * dropped here rather than found mid-run. The caller reports that count, because
- * an edge quietly disappearing is exactly the surprise this app tries not to
- * spring.
+ * Apply an agent's edit, then repair it as an imported file would be: wrong-typed
+ * values fall back to defaults, and edges left on a removed port are dropped. The
+ * caller reports how many edges went.
  */
 function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     const before = requireFlow(flowId);
@@ -198,11 +183,7 @@ function libraryOf(scope: SkillScope, flowId?: string): string {
     return requireFlow(flowId).id;
 }
 
-/**
- * A folder an agent named. `~` is the shell's, not the filesystem's, so it is
- * expanded here; a relative path would resolve against wherever the app was
- * launched from, which the agent cannot know, so it is refused.
- */
+/** A folder an agent named, with `~` expanded. Relative paths are refused: the agent can't know the app's cwd. */
 function absoluteDir(dir: string): string {
     const path = dir === '~' || /^~[\\/]/.test(dir) ? join(homedir(), dir.slice(1)) : dir;
     if (!isAbsolute(path)) throw new Error(`"${dir}" is not an absolute path. Name the folder in full.`);
@@ -355,10 +336,8 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     ...node,
                     name: name ?? node.name,
                     position: { x: x ?? node.position.x, y: y ?? node.position.y },
-                    // Asserted rather than proved: a merged patch is exactly the
-                    // unvetted shape `parseFlow` exists to repair, and it runs on the
-                    // way out. `kind` goes on last, so no patch turns one kind of node
-                    // into another.
+                    // Unvetted; `parseFlow` repairs it on the way out. `kind` goes
+                    // last so a patch cannot change the node's kind.
                     config: { ...node.config, ...config, kind: node.config.kind } as NodeConfig,
                 };
                 return { ...current, nodes: current.nodes.map((n) => (n.id === nodeId ? next : n)) };
@@ -780,9 +759,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             // Filtered after the walk, so a flow that has not run lately still costs
             // one bounded read of the index rather than the whole of it.
             const finished = traceStore.listRuns(flowId ? 500 : wanted).filter(mine).slice(0, wanted);
-            // The index gains a line only when a run ends, so what is still going is
-            // asked of the watcher. A run that ended between the two reads is left
-            // to the index, which has it in its final state.
+            // Runs still going aren't in the index yet, so they come from the watcher.
             const indexed = new Set(finished.map((run) => run.id));
             const watcher = host.watcher();
             const running = watcher

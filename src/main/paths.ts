@@ -3,9 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Everything the app owns lives under one workspace directory, and every flow
- * owns a directory inside it: the Agent SDK needs a real `cwd` with a
- * `.claude/skills` tree beneath it, and that cwd is the flow being run.
+ * Everything lives under one workspace directory. Each flow has its own directory
+ * in it, which is the Agent SDK `cwd` its `.claude/skills` are found from.
  */
 let root: string | null = null;
 
@@ -26,21 +25,13 @@ function ensure(...segments: string[]): string {
     return ensureAt(join(workspaceRoot(), ...segments));
 }
 
-/**
- * Run ids and folder names reach these from the renderer and become path
- * segments, so anything that could climb out of the workspace is refused here
- * rather than further down, where the call is an `rm -r`.
- */
+/** Refuses a name that could climb out of the workspace: these come from the renderer and can reach `rm -r`. */
 function safeSegment(name: string): string {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) throw new Error(`"${name}" is not a usable folder name.`);
     return name;
 }
 
-/**
- * The global library is handed to Claude as a local plugin, which is what lets a
- * run load skills from outside its own working directory. That layout is the
- * plugin one — a manifest beside a `skills` folder — rather than `.claude/skills`.
- */
+/** The global library, in plugin layout (manifest beside `skills/`) so runs can load it from outside their cwd. */
 export const globalPluginDir = (): string => ensure('global');
 export const globalSkillsDir = (): string => ensure('global', 'skills');
 
@@ -50,12 +41,8 @@ export const flowsDir = (): string => ensure('flows');
 export const FLOW_FILE = 'flow.json';
 
 /**
- * Which directory holds which flow. The directory's name belongs to the user —
- * it is the project location the welcome window shows, and offers to change — so
- * it cannot also be the flow's identity: ids are minted once and then referred to
- * by every run, every watermark and every tool an agent calls. The map is rebuilt
- * whenever a lookup asks for something it does not hold, and dropped outright by
- * whatever moved a directory.
+ * Flow id → directory name. The user can rename the directory, so it cannot be
+ * the id. Rebuilt on a miss, and dropped by whatever moves a directory.
  */
 let folders: Map<string, string> | null = null;
 
@@ -67,9 +54,7 @@ function scanFolders(): Map<string, string> {
         try {
             const raw: unknown = JSON.parse(readFileSync(join(dir, entry.name, FLOW_FILE), 'utf8'));
             const id = (raw as { id?: unknown }).id;
-            // A directory copied in the file manager carries the id it was copied
-            // from, so two may answer to one flow. The first found keeps it, and the
-            // other is a directory the app simply never reads.
+            // A copied directory carries the same id; the first one found wins.
             if (typeof id === 'string' && !found.has(id)) found.set(id, entry.name);
         } catch {
             // Not a flow directory, or not readable. Nothing here can fix either.
@@ -78,11 +63,7 @@ function scanFolders(): Map<string, string> {
     return found;
 }
 
-/**
- * The directory name a flow's files sit under. A cached answer is checked against
- * the disk before it is trusted, because the thing that moves a directory is
- * sometimes this app and sometimes the person using it.
- */
+/** A flow's directory name. The cache is checked against disk, since the user can move directories too. */
 export function flowFolder(flowId: string): string {
     const cached = folders?.get(flowId);
     if (cached && existsSync(join(flowsDir(), cached, FLOW_FILE))) return cached;
@@ -103,11 +84,7 @@ export const flowDirAt = (folder: string): string => join(flowsDir(), safeSegmen
 /** That directory, made if it is not there yet. */
 export const flowDirNamed = (folder: string): string => ensureAt(flowDirAt(folder));
 
-/**
- * A flow's own directory: its file, its skills, and the cwd every node of it runs
- * in. Created on the way out, because a cwd that does not exist is a run that
- * fails at the Agent SDK rather than at the call that forgot to make it.
- */
+/** A flow's directory, created if missing: it is its runs' cwd, which the Agent SDK needs to exist. */
 export const flowDir = (flowId: string): string => flowDirNamed(flowFolder(flowId));
 export const flowFile = (flowId: string): string => join(flowDir(flowId), FLOW_FILE);
 /** Where one flow's SKILL.md folders would sit. Does not create it: for reading. */

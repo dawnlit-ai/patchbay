@@ -4,7 +4,7 @@
 
 A patchbay is a board where you run a cable from one jack to another and the signal follows the wire you can see. This
 is that, for email: drag nodes onto a canvas, connect them port to port, and watch a real email travel the path you
-drew. Outlook supplies the mail, Claude does the thinking, and every pass is written down so you can work out afterwards
+drew. Outlook supplies the mail, Claude does the thinking, and every pass is written down so you can work out afterward
 why an email went where it did.
 
 ![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![by](https://img.shields.io/badge/by-Dawnlit-0f9d58) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
@@ -40,7 +40,7 @@ The app opens on a start page rather than a canvas, because "which flow?" is a q
 answer to. It lists every flow this install holds — its size, when it was last edited, whether a trigger in it is
 being polled — and is a window of its own, sized for a list rather than for the canvas it hands over to.
 
-From it you can open a flow, start a new one, duplicate one, rename one, delete one, and open a flow file
+From it, you can open a flow, start a new one, duplicate one, rename one, delete one, and open a flow file
 somebody sent you. Each flow shows the **project folder** it lives in, with a button that opens that folder in
 Finder or Explorer — it holds the flow's own file and the skills only that flow can reach, and it is the working
 directory its Processors run in.
@@ -49,7 +49,7 @@ Renaming asks a second question: should the folder follow the name? It is offere
 one the app chose, and left alone when you have named it yourself. Either way the flow's **id** does not move — runs
 already recorded, the watcher's marks and anything an agent holds go on pointing at the same flow. Only the path
 changes, and a rename is refused outright while a run is using that directory. So is deleting the flow; runs of it
-still waiting in the queue are cancelled as it goes.
+still waiting in the queue are canceled as it goes.
 
 **☰ Flows** in the canvas's top bar brings the start page back. Opening a flow while a canvas is already up on a
 different one asks where it should go: in that window, in place of the flow on it, or in a second canvas beside it.
@@ -67,7 +67,7 @@ Every email produces a `Run`, and every node it touches produces a `Pass`:
 - Outlook side effects (body read, attachment saved, draft left, email moved)
 - when it started and finished
 
-Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email travelled, with each node
+Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email traveled, with each node
 showing its pass number and outcome.
 
 Runs are plain JSON in the app workspace — one file per run, plus a JSONL index. A database would be the reflex, but
@@ -98,7 +98,7 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
 - **Windows or macOS with a desktop Outlook client** — this drives the real client over COM/AppleScript, not Microsoft
   Graph. No app registration, no cloud permissions. (macOS needs *legacy* Outlook.)
 - **Node 24+** — the version Electron 44 itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
-  `engine-strict`, which makes an older Node refuse the install rather than fail somewhere later.
+  `engine-strict`, which makes an older Node refuse the installation rather than fail somewhere later.
 - **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
   `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login. The
   inspector's model lists come from it too: they show what that login offers now, so a new model appears without a
@@ -202,7 +202,7 @@ already there replaces it, so both are asked about first.
 
 **Import…** pulls a folder of existing skills into whichever library is showing. A flow file may carry skills of its
 own: opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites
-a global skill this install already has.
+a global skill this installation already has.
 
 Under the hood the flow's library is discovered as project skills from the run's working directory, and the global one
 is handed over as a local plugin — which is what lets a run load skills from outside its own directory. That is where
@@ -214,13 +214,13 @@ the `global:` prefix comes from.
 
 Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled:
 
-| Tool              | Always | What it does                                                                  |
-|-------------------|--------|-------------------------------------------------------------------------------|
+| Tool              | Always | What it does                                                                       |
+|-------------------|--------|------------------------------------------------------------------------------------|
 | `read_email`      | ✅     | The sender's own text, sender, attachment names — and the quoted thread on request |
-| `record_note`     | ✅     | Writes a note into the run trace                                              |
-| `save_attachment` | opt-in | Saves into the run folder, returns paths                                      |
-| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email       |
-| `move_email`      | opt-in | Files the email into an Inbox subfolder                                       |
+| `record_note`     | ✅     | Writes a note into the run trace                                                   |
+| `save_attachment` | opt-in | Saves into the run folder, returns paths                                           |
+| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email            |
+| `move_email`      | opt-in | Files the email into an Inbox subfolder                                            |
 
 There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
 here sends mail.** A drafted reply waits in Outlook for a person. `read_email` does hand back this email's own entry id,
@@ -245,18 +245,18 @@ claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Aut
 After that, "wire me a flow that sorts pre-alerts from rate quotes and runs the pre-alert skill on the first branch" is
 something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
 does — one workspace, not two copies of it — and the window re-reads what it changed as it goes. Every canvas save
-names the version it was made to, so an edit made in the moment before an agent's write to the same flow is refused
+names the version it was made to, so an edit made at the moment before an agent's write to the same flow is refused
 rather than saved over it: the canvas says so, and shows the flow as the agent left it.
 
-| Area     | Tools                                                                     |
-|----------|---------------------------------------------------------------------------|
-| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`     |
-| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`         |
+| Area     | Tools                                                                                    |
+|----------|------------------------------------------------------------------------------------------|
+| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                    |
+| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                        |
 | Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `move_skill`, `delete_skill` |
-| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                     |
-| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run` |
-| Runs     | `list_runs`, `get_run`, `get_console`                                     |
-| Settings | `get_settings`                                                            |
+| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                    |
+| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                |
+| Runs     | `list_runs`, `get_run`, `get_console`                                                    |
+| Settings | `get_settings`                                                                           |
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a
@@ -334,10 +334,10 @@ usage view it gives you. Classification runs about a cent on Opus; a processing 
 
 ## Licence
 
-Copyright (C) 2026 Dawnlit.
+Copyright © 2026 Dawnlit.
 
 Patchbay is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public
-License** as published by the Free Software Foundation, either version 3 of the Licence, or (at your option)
+License** as published by the Free Software Foundation, either version 3 of the License, or (at your option)
 any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
 implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text, or
 <https://www.gnu.org/licenses/>.
@@ -345,7 +345,7 @@ implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LI
 The AGPL's network clause (section 13) is the point of choosing it here: anyone who runs a modified version of this app
 as a service has to offer its users the modified source.
 
-**On dependencies.** The licence above covers this repository's own code. It does not relicense what it talks to:
+**On dependencies.** The license above covers this repository's own code. It does not relicense what it talks to:
 `@anthropic-ai/claude-agent-sdk` is proprietary ("© Anthropic PBC. All rights reserved", subject to Anthropic's
 [legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
 `@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). Both are

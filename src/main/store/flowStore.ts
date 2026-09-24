@@ -21,14 +21,9 @@ import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 import type { SkillScope } from '@shared/settings';
 
 /**
- * A flow is a directory rather than a file: `flows/<folder>/flow.json` sits
- * beside the `.claude/skills` tree only this flow's Processors can reach, and
- * that directory is the cwd they run in. The global library is elsewhere and
- * shared, so nothing here touches it beyond what an export carries.
- *
- * The folder is named after the flow and can be renamed — it is what the welcome
- * window offers to open in the file manager. The flow's id is not: it is inside
- * the file, and runs and watermarks are keyed by it.
+ * A flow is a directory: `flows/<folder>/flow.json` beside the flow's own
+ * `.claude/skills`, and the cwd its Processors run in. The folder can be renamed;
+ * the id inside the file cannot, since runs and watermarks are keyed by it.
  */
 
 export function listFlows(): Flow[] {
@@ -37,9 +32,7 @@ export function listFlows(): Flow[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const flow = readJson<Flow | null>(join(dir, entry.name, FLOW_FILE), null);
-        // A directory copied in the file manager carries the id it was copied from.
-        // Only one of the two can answer to that id, and it is the one `flowFolder`
-        // resolves to, so the list holds it rather than both.
+        // A copied directory carries the same id; keep the first, as `flowFolder` does.
         if (flow && !byId.has(flow.id)) byId.set(flow.id, flow);
     }
     return [...byId.values()].toSorted((a, b) => a.name.localeCompare(b.name));
@@ -64,19 +57,16 @@ export function saveFlow(flow: Flow): Flow {
 // ── Saving over someone else's write ─────────────────────────────────────
 
 /**
- * Per writer — one per window — what its own saves have turned each version into,
- * keyed `<flowId>@<version it sent>`. A canvas sends the version it last read
- * with every save and ignores the one its save makes, so its second save names
- * the same version as its first. This is what tells "the version it read, moved
- * on by its own saves" from "moved on by somebody else".
+ * Per writer (one per window): `<flowId>@<version it sent>` → the version its save
+ * produced. A canvas keeps sending the version it last read, so this is how its
+ * own saves are told apart from somebody else's.
  */
 const lineage = new Map<string, Map<string, string>>();
 
 /**
- * Save an edit made to the version `flow.updatedAt` names — unless something
- * else has written the flow since: an agent, the start window's rename, or its
- * delete. Saving then would quietly undo that write, so nothing is written, and
- * the caller gets what is there now (null once deleted) to show instead.
+ * Save an edit made to the version `flow.updatedAt` names, unless something else
+ * has written the flow since. Then nothing is written and the caller gets the
+ * current flow (null once deleted) instead.
  */
 export function saveFlowFrom(writer: string, flow: Flow): SaveOutcome {
     const mine = lineage.get(writer) ?? new Map<string, string>();
@@ -94,11 +84,7 @@ export function forgetWriter(writer: string): void {
     lineage.delete(writer);
 }
 
-/**
- * Change what a flow is called, taking the graph as the file has it. Its own
- * call rather than a save of the whole flow, because a rename is something the
- * other window has to be told about and an ordinary canvas edit is not.
- */
+/** Rename a flow. Separate from a save, because other windows are told about a rename. */
 export function renameFlow(id: string, name: string): Flow {
     const flow = getFlow(id);
     if (!flow) throw new Error('That flow is no longer in the workspace.');
@@ -139,11 +125,7 @@ function freeFolder(wanted: string, except?: string): string {
     return name;
 }
 
-/**
- * Write a flow that has no directory yet into one named after it. Every way a
- * flow is born — new, copied, imported — comes through here, so a folder is
- * never missing and never collides with one already in the workspace.
- */
+/** Write a new flow into a fresh directory named after it. Every new, copied and imported flow comes through here. */
 function createIn(flow: Flow, folderFrom: string): Flow {
     const dir = flowDirNamed(freeFolder(toFolderName(folderFrom)));
     const next: Flow = { ...flow, updatedAt: new Date().toISOString() };
@@ -152,11 +134,7 @@ function createIn(flow: Flow, folderFrom: string): Flow {
     return next;
 }
 
-/**
- * Give a flow's directory another name. The id inside it is untouched, so every
- * run already recorded, every watermark and every reference an agent holds go on
- * meaning what they meant — only the path moves.
- */
+/** Rename a flow's directory. Its id, and everything keyed by it, is untouched. */
 export function setFlowFolder(flowId: string, requested: string): FlowEntry {
     const flow = getFlow(flowId);
     if (!flow) throw new Error('That flow is no longer in the workspace.');
@@ -181,15 +159,9 @@ export function createFlow(name: string): Flow {
 }
 
 /**
- * Copy a flow into one of its own, taking the graph handed over — what is on
- * screen, unwritten edits and all — rather than what the original's file holds.
- * Its library comes too: those skills exist only inside that flow's directory,
- * so a copy without them names skills it does not have. Global ticks need no
- * such care, since that shelf is shared by every flow anyway.
- *
- * Node ids travel unchanged. They only have to be unique within a flow, and the
- * edges name them — reminting would mean rewriting every edge to no end. The
- * watcher's marks stay behind: a copy is a new flow, and starts as one.
+ * Copy the graph handed over (what is on screen, unsaved edits included) into a
+ * new flow, along with its own skill library. Node ids are kept, as they only need
+ * to be unique within a flow; watermarks are not.
  */
 export function duplicateFlow(source: Flow, name: string): Flow {
     const copy = createIn({ ...source, id: randomUUID(), name }, name);
@@ -201,9 +173,7 @@ export function duplicateFlow(source: Flow, name: string): Flow {
 export function removeFlow(id: string): void {
     rmSync(flowDir(id), { recursive: true, force: true });
     forgetFlowFolders();
-    // Nothing will read this flow's watermarks again: ids are minted fresh, so no
-    // later flow inherits them, and left behind they only grow the file. There is
-    // one per trigger, so the flow's share of the file is taken by prefix.
+    // Drop its watermarks, one per trigger, keyed `<flowId>:<nodeId>`.
     const marks = readJson<Record<string, unknown>>(watermarkFile(), {});
     const mine = Object.keys(marks).filter((key) => key.startsWith(`${id}:`));
     if (mine.length > 0) {
@@ -237,11 +207,8 @@ function bundledSkills(raw: unknown): BundledSkill[] {
 }
 
 /**
- * Read a flow file the user picked. It lands as a new flow rather than replacing
- * one, so importing twice gives two copies and an import can never overwrite the
- * flow being edited. Everything in the file is run past `parseFlow` first, and
- * the skills it carries fill the new flow's library — without them a Processor
- * would name skills this install has never seen.
+ * Import a flow file as a new flow, never over an existing one. The graph goes
+ * through `parseFlow`, and any skills the file carries fill the new library.
  */
 export function importFlowFile(path: string): Flow {
     const label = basename(path);
@@ -258,9 +225,7 @@ export function importFlowFile(path: string): Flow {
     const flow = createIn(parsed, parsed.name);
 
     for (const skill of bundledSkills(raw)) {
-        // A global skill is only written where the name is free: this install's
-        // shared library belongs to every other flow too, and an import is no
-        // reason to rewrite one of them.
+        // Never overwrite an existing global skill: other flows use it.
         if (skill.scope === 'global' && getSkill('global', '', skill.name)) continue;
         saveSkill(skill.scope, flow.id, skill.name, skill.content);
     }

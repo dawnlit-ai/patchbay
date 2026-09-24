@@ -1,8 +1,4 @@
-/**
- * The single contract between renderer and main. The preload builds `window.api`
- * from this shape, so a channel that changes here fails to compile on both sides
- * rather than going quiet at runtime.
- */
+/** The one contract between renderer and main; the preload builds `window.api` from it. */
 
 import type { Flow, MailScope } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
@@ -45,9 +41,8 @@ export interface FlowEntry {
 }
 
 /**
- * What saving a canvas's edit came to: written, or refused because the flow was
- * written by something else after the edit was made — `current` is the flow as
- * it now stands, or null once it has been deleted.
+ * A canvas save: written, or refused because something else wrote the flow since.
+ * `current` is the flow as it now stands, or null once deleted.
  */
 export type SaveOutcome = { saved: Flow } | { current: Flow | null };
 
@@ -73,10 +68,9 @@ export interface ModelOption {
 }
 
 /**
- * What a drag from outside the app carried when it was dropped on a trigger. An
- * email dragged out of Outlook arrives as a `.msg` copy named after its subject,
- * plus a line of text naming it — no id, so this is evidence to check the
- * email selected in Outlook against, not a way to find one.
+ * What an external drag dropped on a trigger carried. Outlook gives a `.msg`
+ * named after the subject and some text, but no id, so this only confirms the
+ * email selected in Outlook.
  */
 export interface OutlookDrag {
     text: string;
@@ -100,18 +94,10 @@ export interface Api {
          * and the skill library belonging to the flow it came from.
          */
         duplicate(flow: Flow, name: string): Promise<Flow>;
-        /**
-         * Change the flow's name only, leaving the graph on disk as it stands. Its
-         * own call because the other window is told about it, which an ordinary
-         * canvas save — one of many, and only ever about the flow on screen — is not.
-         */
+        /** Rename the flow, leaving its graph as stored. Its own call so other windows are told. */
         rename(flowId: string, name: string): Promise<Flow>;
         remove(id: string): Promise<void>;
-        /**
-         * Rename the flow's directory. The flow's id is untouched, so runs already
-         * recorded and the watcher's marks go on pointing at it — only the path
-         * moves. Refused while a run is in flight, since that directory is its cwd.
-         */
+        /** Rename the flow's directory; its id is untouched. Refused while a run of it is in flight. */
         setFolder(flowId: string, folder: string): Promise<FlowEntry>;
         /** Show the flow's directory in the file manager. */
         revealFolder(flowId: string): Promise<void>;
@@ -137,9 +123,8 @@ export interface Api {
         /** Recent mail where a trigger looks, newest first, for picking a message to test a flow against. */
         recent(scope: MailScope, days: number, limit: number): Promise<EmailEnvelope[]>;
         /**
-         * The email dragged out of Outlook onto a trigger, found in that trigger's
-         * mailbox. Refused, with the reason, when the drop doesn't match the email
-         * selected in Outlook or the email lives in another mailbox.
+         * The email dragged out of Outlook onto a trigger. Refused if it doesn't match
+         * Outlook's selection or lives in another mailbox.
          */
         dragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope>;
     };
@@ -190,17 +175,11 @@ export interface Api {
         close(): Promise<void>;
         isMaximized(): Promise<boolean>;
         /**
-         * Put this flow on a canvas. `where` decides between the canvas last used
-         * and a second one; with no canvas open at all it is a new one either way,
-         * and a flow already on one raises that window rather than opening it
-         * twice. The welcome window closes behind it, having done its job.
+         * Put this flow on the last-used canvas or a new one, or raise the window
+         * already showing it. Closes the welcome window.
          */
         openFlow(flowId: string, where?: OpenWhere): Promise<void>;
-        /**
-         * The flow on each canvas window, the one last used first. Empty when the
-         * welcome window is alone — which is what makes opening one a question
-         * worth asking, or not.
-         */
+        /** The flow on each canvas window, most recently used first. */
         openFlows(): Promise<string[]>;
         /** Bring the welcome window up — the list of flows, and what to do with one. */
         showWelcome(): Promise<void>;

@@ -4,10 +4,8 @@ import { LOG_LEVELS, LOG_SOURCES, type LogEntry, type LogLevel, type LogSource }
 import { time } from '../format';
 
 /**
- * The console. Where the runs panel answers "why did this email go there", this
- * answers the questions no run can: whether the poller looked, what it saw, which
- * Outlook call was slow, and what an agent did. Newest at the bottom, and it
- * follows new lines unless you have scrolled up to read.
+ * The console: what the app did outside any run. Newest at the bottom; it follows
+ * new lines unless scrolled up.
  */
 
 /** The quietest level each choice shows. */
@@ -92,9 +90,8 @@ export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenR
             (!needle || e.message.toLowerCase().includes(needle)),
     );
 
-    // Keyed on the newest line rather than the count: once the buffer is full, a
-    // new line arrives as an old one leaves and the count stands still. Before
-    // paint, so a new line never flashes a frame above the fold first.
+    // Keyed on the newest line, not the count, which stops changing once the buffer
+    // is full. Before paint, so a new line never flashes above the fold.
     const newest = shown.at(-1)?.seq;
     useLayoutEffect(() => {
         const el = scroller.current;

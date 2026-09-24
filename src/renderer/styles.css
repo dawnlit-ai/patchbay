@@ -1,7 +1,6 @@
 /*
- * Two themes from one set of tokens. Light is the default; `data-theme="dark"`
- * on <html> swaps the values and nothing else. No component hard-codes a hex, so
- * a theme is a palette change rather than a sweep through the stylesheet.
+ * Two themes from one set of tokens: `data-theme="dark"` on <html> swaps the
+ * values. No component hard-codes a colour.
  */
 
 :root {
@@ -249,11 +248,7 @@ code {
     height: 100%;
 }
 
-/*
- * Also the window's title bar: the frame is off, so this row carries the name and
- * the window buttons, and its empty space is what the window is dragged by. The
- * right padding is the window controls' own, so they reach the corner.
- */
+/* Also the title bar (the window is frameless): its empty space drags the window. */
 .topbar {
     display: flex;
     align-items: center;
@@ -379,11 +374,7 @@ code {
 
 /* ── Welcome window ────────────────────────────────────────────────────── */
 
-/*
- * The start page: a rail of things to start, and the list of flows this install
- * holds. Its own window, and a smaller one — the canvas needs the desk, a list
- * needs a column.
- */
+/* The start page: a rail of actions and the flow list. */
 .welcome {
     display: flex;
     flex: 1;
@@ -541,9 +532,7 @@ button.wide {
     margin-top: 2px;
 }
 
-/* The project folder, at the end of its row: recognisable, and out of the way.
-   Two parts, so that a path too long for the space loses its middle: the
-   folders above give way, and the one the flow is named for stays. */
+/* The project folder, in two parts so a long path loses its parent folders first. */
 .flow-row .where {
     flex: none;
     display: flex;
@@ -565,11 +554,8 @@ button.wide {
     white-space: nowrap;
 }
 
-/* The whole path, for as long as the pointer is on the shortened one. It hangs
-   below the row, aligned with the path it belongs to and widening leftward from
-   there, so that what it covers is the row beneath — which the pointer has just
-   left — and never the name of the row being pointed at. Shortening the path is
-   for the list's sake; nobody reading one wants the middle taken out. */
+/* The full path on hover, hung below the row and widening leftward so it covers
+   the row beneath rather than this row's name. */
 .flow-row .where .full {
     display: none;
     /* Measured from the row and not from the path itself, which is only a line
@@ -652,11 +638,7 @@ button.wide {
 
 /* ── Settings window ───────────────────────────────────────────────────── */
 
-/*
- * A rail of pages and one page beside it: the start window's shape, smaller.
- * Each page is one group of rows — what a setting is and does on the left, its
- * control on the right, or across the row beneath when it needs the width.
- */
+/* A rail of pages and the current page; each setting is a row, label left, control right or below. */
 .settings {
     display: flex;
     flex: 1;
@@ -1001,11 +983,7 @@ button.wide {
     box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-/*
- * The line to Claude Code: whether the agent-control server is listening, and
- * the command that connects to it. Terminal-dark in either theme, since that is
- * where what it shows gets pasted.
- */
+/* The agent-control status and connect command: terminal-dark in both themes, since it gets pasted into one. */
 .conn {
     margin-top: 16px;
     overflow: hidden;
@@ -1396,9 +1374,8 @@ button.wide {
     stroke: var(--accent);
 }
 
-/* The × that cuts a connection: on the wire, and only while the wire is under
-   the pointer or selected. Inside the edge's group, so reaching for it does not
-   count as leaving the edge. */
+/* The × that cuts an edge, shown on hover or selection. Inside the edge's group,
+   so moving onto it keeps it shown. */
 .edge-cut {
     opacity: 0;
     pointer-events: all;

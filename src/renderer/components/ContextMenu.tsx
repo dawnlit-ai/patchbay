@@ -2,14 +2,8 @@ import type { JSX } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
- * The menu a right-click opens, drawn at the pointer. What can be done to one
- * thing belongs to that thing, so the actions live where the click landed
- * rather than in a strip that has to name which row it is talking about.
- *
- * It is a page element and not the system's own menu: Electron would have to
- * build that in the main process, one round trip away from the handlers and
- * the dialogs they open, for a menu that then cannot be themed with the rest
- * of the app.
+ * A right-click menu drawn at the pointer. A page element rather than a native
+ * menu, which would live in main and could not be themed.
  */
 
 export interface MenuItem {
@@ -38,10 +32,8 @@ export function ContextMenu({ x, y, items, label, onClose }: Props): JSX.Element
     const buttons = useRef(new Map<number, HTMLButtonElement>());
     const [at, setAt] = useState<{ left: number; top: number } | null>(null);
 
-    // Measured once it exists, then pulled back inside the window: a menu opened
-    // near an edge flips to the other side of the pointer, as a system menu does.
-    // Until that is worked out it is laid out but not painted, so it never shows
-    // in one place and then jumps to another.
+    // Near an edge, flip to the other side of the pointer. Hidden until placed,
+    // so it never jumps.
     useLayoutEffect(() => {
         const box = menu.current?.getBoundingClientRect();
         if (!box) return;
@@ -52,17 +44,14 @@ export function ContextMenu({ x, y, items, label, onClose }: Props): JSX.Element
         });
     }, [x, y]);
 
-    // The first item takes the focus, so the menu answers the arrows and Enter
-    // from the moment it opens. Once it is placed and not before: until then it
-    // is hidden, and nothing hidden can be focused.
+    // Focus the first item once placed (hidden elements can't take focus), so the
+    // arrows and Enter work straight away.
     useEffect(() => {
         if (at) buttons.current.get(0)?.focus();
     }, [at]);
 
-    // Escape is caught for the whole window rather than the menu, so that it
-    // closes whatever the click left focused — the row behind it, most often.
-    // Anything that moves the window out from under the menu closes it too: it
-    // would otherwise hang there pointing at nothing.
+    // Escape on the window, since focus is usually still on the row behind.
+    // Blur and resize close it too.
     useEffect(() => {
         const key = (e: KeyboardEvent): void => {
             if (e.key !== 'Escape') return;

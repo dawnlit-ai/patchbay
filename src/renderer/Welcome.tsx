@@ -14,13 +14,7 @@ import { useErrorBanner } from './errorBanner';
 import { ago } from './format';
 import { useTheme } from './theme';
 
-/**
- * The start window: which flows this install holds, where each one lives, and
- * everything you can do to one without opening it. The canvas needs a flow before
- * it can draw anything, so this is what the app opens with — and a window of its
- * own rather than a screen inside the canvas, because a list wants the shape of a
- * list and the canvas wants the whole desk.
- */
+/** The start window: every flow, where it lives, and what can be done to it without opening it. */
 
 /** Newest work first is the useful default; by name is for finding one you know. */
 type Sort = 'recent' | 'name';
@@ -42,12 +36,8 @@ function shape(flow: Flow): string {
 }
 
 /**
- * Where a flow lives, shortened so that a row stays a row. The folders above it
- * give way first and its own folder — the half that tells one flow from another
- * — is always there, which is what a plain end-of-line ellipsis would eat.
- *
- * Pointing at the path gives it back whole, on a panel hung below it: over the
- * row beneath, which the pointer has left, rather than over this row's own name.
+ * A flow's path on one line, truncating the parent folders first so its own
+ * folder always shows. Hovering shows the whole path in a panel below.
  */
 function Where({ path }: { path: string }): JSX.Element {
     // The separator goes with the half that is kept, so what is left reads as a
@@ -94,9 +84,7 @@ export function Welcome(): JSX.Element {
 
     useEffect(() => window.api.on.engineStatus(setStatus), []);
 
-    // Another window writes the same workspace: the canvas saves as it is edited,
-    // and an agent may be editing it too. Announced changes are re-read, and so is
-    // everything else the moment this window is looked at again.
+    // Canvases and agents write the workspace too: re-read on their changes and on focus.
     useEffect(() => {
         const off = window.api.on.workspaceChanged((change) => {
             if (change.flows) refresh();
@@ -131,11 +119,8 @@ export function Welcome(): JSX.Element {
     // ── Actions ────────────────────────────────────────────────────────────
 
     /**
-     * Hands the flow to a canvas, which this window then makes way for. Which
-     * canvas is a question only when one is up on a different flow, and it is
-     * asked rather than guessed: taking that window over and drawing both flows
-     * at once are both ordinary things to want. A flow already on a canvas raises
-     * the window holding it, and with nothing open there is nothing to ask.
+     * Open the flow on a canvas. Asks which canvas only when one is up showing a
+     * different flow; either answer is a reasonable thing to want.
      */
     const open = async (flow: Flow): Promise<void> => {
         const canvases = await window.api.window.openFlows();
@@ -201,11 +186,7 @@ export function Welcome(): JSX.Element {
         rows.current.get(next.flow.id)?.focus();
     };
 
-    /**
-     * Everything that can be done to one flow. It was a strip of buttons under
-     * the list, which had to be read against whichever row was selected; the
-     * same list opens on the row itself now, where a right-click asked for it.
-     */
+    /** The actions for one flow, shown in its row's context menu. */
     const actions = (entry: FlowEntry): MenuItem[] => [
         { label: 'Open', onSelect: () => void open(entry.flow) },
         { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
@@ -323,9 +304,8 @@ export function Welcome(): JSX.Element {
                                 onContextMenu={(e) => {
                                     e.preventDefault();
                                     setSelectedId(entry.flow.id);
-                                    // The menu key and Shift+F10 raise this event too,
-                                    // with no pointer behind it: that menu belongs to
-                                    // the row itself, under its own left edge.
+                                    // The menu key and Shift+F10 have no pointer
+                                    // position: open under the row's left edge.
                                     const box = e.currentTarget.getBoundingClientRect();
                                     setMenu({
                                         entry,

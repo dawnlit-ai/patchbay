@@ -9,24 +9,11 @@ import { type AgentHost, INSTRUCTIONS, registerAgentTools } from './tools';
 import { log } from '../log';
 
 /**
- * Patchbay's own MCP server — the one an agent connects *to*, as opposed to the
- * ones a Processor is handed. It is how Claude Code, or anything else speaking
- * MCP, drives this app for the person sitting at it: read the flows, wire a
- * node, write a skill, start a test run and read the trace.
- *
- * It is off until switched on, and when it is on:
- *
- * - it listens on the loopback interface only, so nothing off this machine can
- *   reach it;
- * - every request carries a bearer token minted here and shown in Settings;
- * - a request whose `Host` is not this listener, or that carries an `Origin` at
- *   all, is refused before the token is even looked at. Those two headers are
- *   the ones a page in a browser cannot forge, and a page is the one thing that
- *   can be told to POST to a loopback port without the person knowing.
- *
- * Each request builds its own server and transport and throws both away
- * afterwards. There is no session to lose when the app restarts, and a second
- * agent connecting cannot collide with the first.
+ * Patchbay's own MCP server, which an agent connects to in order to drive the app.
+ * Off by default. When on, it listens on loopback only, requires the bearer token
+ * shown in Settings, and refuses any request with a foreign `Host` or any `Origin`
+ * (the two headers a browser page cannot forge). Stateless: each request gets a
+ * fresh server and transport.
  */
 
 export const MCP_PATH = '/mcp';
@@ -44,18 +31,13 @@ function deny(res: ServerResponse, status: number, message: string): void {
 /** An agent's input can carry a whole SKILL.md; the console keeps the start of it. */
 const MAX_ARGS_CHARS = 2_000;
 
-/**
- * Puts every tool call an agent makes in the console, and the reason for any that
- * fails. What an agent did to a flow is otherwise written down only in the
- * agent's own transcript, on the far side of the connection.
- */
+/** Logs every agent tool call, and why any failed, to the console. */
 function logToolCalls(server: McpServer): void {
     const register = server.registerTool.bind(server) as (name: string, config: unknown, cb: unknown) => unknown;
     const logged = (name: string, config: { inputSchema?: unknown }, cb: (...args: unknown[]) => unknown): unknown =>
         register(name, config, async (...args: unknown[]) => {
-            // Only a tool with an input schema is handed its input first. One without
-            // is handed the request itself, headers and bearer token included, and
-            // that goes nowhere near a file.
+            // A tool without an input schema is handed the request itself, token
+            // included, so that is never logged.
             const input = config.inputSchema ? JSON.stringify(args[0] ?? {}) : '{}';
             const detail = input === '{}' ? undefined : input.slice(0, MAX_ARGS_CHARS);
             try {
@@ -104,11 +86,7 @@ export class AgentControl {
         };
     }
 
-    /**
-     * Bring the listener into line with the settings — the one entry point, so
-     * switching it on, changing the port and starting the app all take the same
-     * path. Listening happens after this returns; the status event says when.
-     */
+    /** Bring the listener in line with the settings. Listening starts asynchronously; the status event says when. */
     apply(): AgentControlStatus {
         const settings = getSettings().agentControl;
         if (!settings.enabled) {
@@ -185,11 +163,7 @@ export class AgentControl {
         this.http = http;
     }
 
-    /**
-     * Bound to loopback, so a request from another machine cannot arrive — but a
-     * page in a browser on this machine can still be told to post here. It cannot
-     * set either of these headers, so they are checked before anything else.
-     */
+    /** A local browser page can post to loopback, but cannot forge `Host` or drop `Origin`. */
     private fromThisApp(req: IncomingMessage): boolean {
         if (!LOOPBACK.includes(req.socket.remoteAddress ?? '')) return false;
         const hosts = [`127.0.0.1:${this.port}`, `localhost:${this.port}`, `[::1]:${this.port}`];

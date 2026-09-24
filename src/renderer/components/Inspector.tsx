@@ -15,11 +15,7 @@ import {
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
 import { SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
 
-/**
- * Configures the selected node. Each kind gets its own section, handed the
- * narrowed config it understands, so no section casts or reads a field belonging
- * to another kind.
- */
+/** Configures the selected node: one section per kind, each handed its narrowed config. */
 
 /** A labelled control. */
 function Field({
@@ -117,11 +113,7 @@ function ModelField({
     );
 }
 
-/**
- * The levels the chosen model takes, which differ from model to model. A level
- * the model does not take stays on the node and is said to, as a model the list
- * does not name is.
- */
+/** The chosen model's effort levels. A saved level it doesn't take is kept, with a note. */
 function EffortField({
                          value,
                          model,
@@ -402,9 +394,8 @@ function ProcessorFields({
         patch(kept ? { model } : { model, effort: '' });
     };
 
-    // Ticked in the flow file but in neither library — a flow imported from an
-    // install whose global shelf held more than this one does. Said out loud,
-    // because the checkbox that would have shown it is not there to be unticked.
+    // Ticked but in neither library (e.g. imported from another install). There is
+    // no checkbox to show it, so it is listed.
     const offered = new Set(skills.map((skill) => skillRef(skill.scope, skill.name)));
     const missing = config.skills.filter((ref) => !offered.has(ref));
 

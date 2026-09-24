@@ -37,9 +37,8 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
     /** Names one read exactly; a read is still under way until a result carries it. */
     const read = JSON.stringify([scope, days, limit]);
 
-    // Each result says which read and which mailbox it came from, so loading is
-    // derived rather than set, and another mailbox's mail is never shown as this
-    // one's while the new read runs. A refresh of the same mailbox keeps its list.
+    // Tagged with its read and mailbox, so loading is derived and another mailbox's
+    // mail is never shown while a new read runs.
     const [result, setResult] = useState<{
         read: string;
         mailbox: string;

@@ -1,11 +1,6 @@
 /**
- * Smoke test for the agent-control MCP server — the one an agent connects to in
- * order to drive the app.
- *
- * Runs under Electron, so the real server, stores and settings are exercised
- * rather than stubbed, but against a throwaway workspace in the temp directory:
- * the flow it builds and the skill it writes are not yours. It calls neither
- * Outlook nor Claude, so it is free and safe to run at any time.
+ * Smoke test for the agent-control MCP server, under Electron against a throwaway
+ * temp workspace. Calls neither Outlook nor Claude, so it is free to run.
  *
  *   npm run mcpcheck
  */
@@ -161,7 +156,10 @@ async function main(): Promise<void> {
         imported.imported.join() === 'alpha' && imported.notFound?.join() === 'nope',
     );
     const flowPath =
-        (JSON.parse(await call('list_flows')) as { id: string; path: string }[]).find((f) => f.id === flowId)?.path ?? '';
+        (JSON.parse(await call('list_flows')) as {
+            id: string;
+            path: string
+        }[]).find((f) => f.id === flowId)?.path ?? '';
     check(
         'the files beside SKILL.md come with it',
         existsSync(join(flowPath, '.claude', 'skills', 'alpha', 'references', 'notes.md')),

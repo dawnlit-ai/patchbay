@@ -34,11 +34,7 @@ export function getWatcher(): Watcher {
 
 let agentControl: AgentControl | null = null;
 
-/**
- * The app's own MCP server. It drives the same watcher and the same stores the
- * window does — an agent is another hand on the same workspace, not a second
- * copy of it — so a flow it writes is announced here for the window to re-read.
- */
+/** The app's own MCP server, on the same watcher and stores as the window; its writes are broadcast. */
 export function getAgentControl(): AgentControl {
     agentControl ??= new AgentControl(
         {
@@ -69,12 +65,7 @@ function handle<T extends unknown[], R>(channel: string, fn: (...args: T) => R |
     ipcMain.handle(channel, (_event, ...args) => run(...(args as T)));
 }
 
-/**
- * A write that changes which flows exist, or where one lives. Two windows show
- * the same workspace now — the start page and the canvas — so whichever did not
- * make the change is told to re-read it, exactly as both are told about an
- * agent's writes. The window that asked already has the answer in its reply.
- */
+/** A write that changes which flows exist or where one lives: every other window is told to re-read. */
 function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
     const run = readable(fn);
     ipcMain.handle(channel, async (event, ...args) => {
@@ -85,10 +76,8 @@ function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: 
 }
 
 /**
- * A canvas's save, checked against whatever else wrote the flow since the edit
- * was made. Which window sent it is part of the question — its own earlier saves
- * are not somebody else's write — so this one handler reads the sender, and lets
- * go of what it knows about a window once that window is gone.
+ * A canvas save, refused if something else wrote the flow since the edit was
+ * made. Tracked per sending window, so a window's own earlier saves don't count.
  */
 function handleCanvasSave(): void {
     const known = new Set<number>();
@@ -152,10 +141,8 @@ export function registerIpc(): void {
         flowStore.removeFlow(id);
     });
     handleFlowWrite(IPC.flowsSetFolder, (id: string, folder: string) => {
-        // The directory being renamed is the working directory of anything running
-        // in it. Moving it mid-run pulls the ground out from under an agent that
-        // is writing files there, so the answer is "not now" rather than "sorry".
-        // Only this flow's own runs count: another flow's is in another directory.
+        // The folder is the cwd of this flow's runs; moving it mid-run would pull
+        // it out from under the agent.
         if (getWatcher().isFlowRunning(id)) {
             throw new Error(
                 'A run of this flow is in progress. That folder is the directory it is running in, so it cannot be renamed until the run finishes.',
@@ -176,9 +163,7 @@ export function registerIpc(): void {
     });
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => {
-        // The token is minted here and only ever shown in the window, so the stored
-        // one stands whatever comes back: a panel open since before a regeneration
-        // holds the old one, and saving it would put a replaced token back in use.
+        // Keep the stored token: a panel opened before a regeneration would send the old one back.
         const { token } = getSettings().agentControl;
         const saved = saveSettings({ ...settings, agentControl: { ...settings.agentControl, token } });
         // Switching the agent-control server on, off, or onto another port is an

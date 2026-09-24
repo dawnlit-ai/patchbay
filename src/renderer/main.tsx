@@ -8,10 +8,8 @@ import '@xyflow/react/dist/style.css';
 import './styles.css';
 
 /**
- * One renderer build serves every window. Which one this is arrives in the hash
- * main loaded it with — `#welcome`, `#settings`, or `#flow=<id>` for a canvas —
- * so it is known before the first render rather than a round trip later, and no
- * window paints another's layout first.
+ * One renderer build serves every window; the hash says which: `#welcome`,
+ * `#settings`, or `#flow=<id>` for a canvas.
  */
 const opened = /^#flow=(.+)$/.exec(location.hash);
 

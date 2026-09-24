@@ -8,11 +8,7 @@ export interface McpServerSetting {
     enabled: boolean;
 }
 
-/**
- * Patchbay's own MCP server: the one an agent connects *to*, in order to drive
- * the app. Off until switched on, and even then it listens on the loopback
- * interface only and every request has to carry the token.
- */
+/** Patchbay's own MCP server, for an agent to drive the app. Off by default; loopback only, token required. */
 export interface AgentControlSettings {
     enabled: boolean;
     port: number;
@@ -22,27 +18,15 @@ export interface AgentControlSettings {
 
 export const DEFAULT_AGENT_CONTROL_PORT = 8787;
 
-/**
- * What the concurrency cap may be set to. A run is mostly spent waiting on
- * Claude, so several overlap comfortably; past a handful they mostly queue
- * behind one another at Outlook, whose client takes one caller at a time.
- */
+/** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
 export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 
 export interface Settings {
-    /**
-     * The `claude` executable the Agent SDK drives. Empty resolves the SDK's own
-     * bundled binary; pointing at an existing Claude Code install avoids a second
-     * ~200MB download.
-     */
+    /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
     claudeExecutablePath: string;
     /** Extra MCP servers handed to every Processor node. */
     mcpServers: McpServerSetting[];
-    /**
-     * Folder of `<name>/SKILL.md` directories to seed the global library from,
-     * read only while that library is empty so edits here never fight an upstream
-     * copy.
-     */
+    /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
     skillSeedPath: string;
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
@@ -100,11 +84,7 @@ export const SKILL_SCOPES: SkillScope[] = ['global', 'flow'];
 /** The plugin name the global library reaches Claude under. */
 export const GLOBAL_SKILL_PLUGIN = 'global';
 
-/**
- * How a ticked skill is written in a Processor's config, and handed to the Agent
- * SDK: a global skill is plugin-qualified, a flow's own is its bare name. The two
- * libraries may hold the same name without either shadowing the other.
- */
+/** How a ticked skill is written: `global:<name>` for the global library, the bare name for the flow's own. */
 export function skillRef(scope: SkillScope, name: string): string {
     return scope === 'global' ? `${GLOBAL_SKILL_PLUGIN}:${name}` : name;
 }

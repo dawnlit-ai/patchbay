@@ -4,11 +4,7 @@ import { runIndexFile, runsDir } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
 
-/**
- * One JSON file per run, plus a JSONL index for the list view. Files rather than
- * a database because a run should stay openable, diffable and pasteable into a
- * bug report months later; the index only spares the list from parsing them all.
- */
+/** One JSON file per run, readable and pasteable into a bug report, plus a JSONL index for the list. */
 
 const runFile = (id: string): string => join(runsDir(), `${id}.json`);
 

@@ -4,12 +4,8 @@ import { toFolderName } from '@shared/naming';
 import { Modal } from './Modal';
 
 /**
- * Renaming a flow asks a second question, because a flow is also a directory on
- * disk: should the folder follow the name? It usually should — a flow called
- * "Rate quotes" kept in `pre-alerts` is a workspace nobody can read — but the
- * folder is a path, and a path may be somewhere a person has already gone
- * looking. So it is offered, ticked only when the folder is still the one the
- * app chose, and never done behind their back.
+ * Rename a flow, and optionally its folder. Moving the folder is offered ticked
+ * only while it still has the name the app chose.
  */
 
 export interface RenameResult {

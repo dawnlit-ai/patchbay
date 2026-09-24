@@ -1,15 +1,9 @@
 import type { JSX, ReactNode } from 'react';
 
 /**
- * The frame every dialog shares: a scrim that dismisses on a click outside, a
- * panel that keeps the clicks inside it, and Escape from wherever the focus
- * happens to be.
- *
- * Dialogs are page elements rather than the browser's own. Electron implements
- * no `window.prompt` at all, and its `window.confirm` shows the box correctly
- * but leaves the page unable to take focus again afterwards — clicks land
- * nowhere and a `select` refuses to open until the window is left and returned
- * to.
+ * The frame every dialog shares; a click outside or Escape dismisses it. Dialogs
+ * are page elements because Electron has no `window.prompt`, and `window.confirm`
+ * leaves the page unable to take focus afterwards.
  */
 
 interface Props {

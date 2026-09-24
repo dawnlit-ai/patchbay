@@ -11,11 +11,9 @@ import { executeRun } from './engine';
 import { log } from '../log';
 
 /**
- * Turns "an email arrived" into "a run happened". The bridge offers no push
- * notification, so arrival means polling and remembering the message ids already
- * seen. Several runs execute at once, up to the cap in Settings, but never two of
- * one flow: a flow's directory is the working directory of every run of it, and
- * its mail is handled in the order it arrived.
+ * Polls each trigger's mailbox (Outlook offers no push) and queues a run per new
+ * email. Runs overlap up to the cap in Settings, but never two of one flow: they
+ * share its directory as cwd, and its mail is handled in arrival order.
  */
 
 interface Watermark {
@@ -28,10 +26,9 @@ interface Watermark {
 }
 
 /**
- * How a trigger knows an email again. One folder's mail is known by entry id.
- * A trigger that also watches the folders below it sees mail get filed from one
- * of its folders into another, and Outlook rewrites the entry id on every move —
- * so there an email is known by who sent it, when, and its subject instead.
+ * How a trigger recognises an email it has seen. Outlook rewrites the entry id
+ * when mail moves, so a trigger watching subfolders keys by sender, time and
+ * subject instead.
  */
 type KeyedBy = 'entryId' | 'message';
 
@@ -173,11 +170,7 @@ export class Watcher {
         };
     }
 
-    /**
-     * What is waiting, in queue order, and why none of it is under way yet. A run
-     * has an id from the moment it is queued but no trace until it starts, and
-     * whoever holds the id is owed an answer in between.
-     */
+    /** Queued runs in order, and what each is waiting for. They have ids but no trace yet. */
     queued(): QueuedRun[] {
         const busy = new Set(this.active.values().map((run) => run.flowId));
         return this.queue.map((item, index) => {
@@ -197,11 +190,7 @@ export class Watcher {
         });
     }
 
-    /**
-     * Stop a run under way, or take one out of the queue before it starts. The
-     * second matters as much as the first: a run's id is handed out when it is
-     * queued, so it can be cancelled before there is anything to abort.
-     */
+    /** Abort a run under way, or remove one still queued (ids are handed out at queue time). */
     cancel(runId: string): CancelOutcome {
         const active = this.active.get(runId);
         if (active) {
@@ -231,10 +220,8 @@ export class Watcher {
     }
 
     /**
-     * Clear the way for a flow to be deleted. Refused while a run of it is under
-     * way, since its directory is that run's working directory; runs of it still
-     * queued are cancelled, since each would start on a flow that is gone.
-     * Returns how many were.
+     * Before a flow is deleted: throws while a run of it is under way, and cancels
+     * its queued runs. Returns how many were cancelled.
      */
     clearForRemoval(flowId: string): number {
         if (this.isFlowRunning(flowId)) {
@@ -250,10 +237,8 @@ export class Watcher {
     // ── Polling ────────────────────────────────────────────────────────────
 
     /**
-     * Run a flow against a chosen email now, bypassing the watermark entirely.
-     * The trigger is named rather than looked up: which one a test starts from is
-     * the user's choice once a flow has more than one. Returns the id the run
-     * will have, which is what an agent asking for one needs to follow it.
+     * Queue a run of a chosen email from a chosen trigger, bypassing the
+     * watermark. Returns the id the run will have.
      */
     enqueueManual(flowId: string, nodeId: string, email: EmailEnvelope): string {
         const flow = getFlow(flowId);
@@ -325,9 +310,8 @@ export class Watcher {
                 // its marks are keys of, so none of the old ones would match.
                 const rekeyed = mark.primed && mark.keyedBy !== keyedBy;
 
-                // The first poll establishes a baseline; without it, switching a flow
-                // on would fire a run for every email already in the folder. A trigger
-                // whose marks no longer match takes a new one, for the same reason.
+                // The first poll (or one after re-keying) only records a baseline, so
+                // switching a flow on doesn't run every email already there.
                 if ((!mark.primed && !config.processBacklogOnStart) || rekeyed) {
                     mark.seen = emails.map(idOf).slice(-SEEN_LIMIT);
                     mark.primed = true;
@@ -400,11 +384,7 @@ export class Watcher {
 
     // ── Execution ──────────────────────────────────────────────────────────
 
-    /**
-     * How many runs may be under way at once. A run spends most of its life
-     * waiting on Claude, so several flows overlap comfortably; the cap is what
-     * keeps a morning's backlog from starting an agent per email.
-     */
+    /** How many runs may be under way at once: the Settings cap, clamped to its range. */
     private limit(): number {
         const { min, max } = CONCURRENT_RUNS_RANGE;
         const wanted = Math.trunc(getSettings().maxConcurrentRuns);
@@ -412,10 +392,8 @@ export class Watcher {
     }
 
     /**
-     * Start whatever the cap allows. Queue order is kept per flow rather than
-     * across the whole queue: an item whose flow is already running is passed
-     * over rather than holding up the ones behind it, which is the point of the
-     * cap — otherwise one slow flow would still be every other flow's queue.
+     * Start whatever the cap allows. Order is kept per flow: an item whose flow is
+     * busy is skipped rather than holding up other flows behind it.
      */
     private pump(): void {
         let started = false;

@@ -3,16 +3,9 @@ import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
 
 /**
- * Three kinds of window, one renderer build. The welcome window is the app's start
- * page — the flows this install holds, and everything you can do to one without
- * opening it. A canvas window holds one flow being drawn, and there may be
- * several of them: the canvas is the half that wants the desk, which is why the
- * start page is a window rather than a screen it has to make room for. The
- * settings window holds what belongs to the install rather than to any one flow,
- * so it is raised from any of the others instead of living in a canvas's panel.
- *
- * Which is which is the hash the window loads with, read before React renders,
- * so none paints another's layout first.
+ * Three kinds of window from one renderer build: the welcome window (the flow
+ * list), one canvas per open flow, and a single settings window. The hash each
+ * loads with says which, and is read before React renders.
  */
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -74,18 +67,14 @@ function make(frame: Frame): BrowserWindow {
     win.on('maximize', sendMaximized);
     win.on('unmaximize', sendMaximized);
 
-    // A file dropped anywhere nothing takes it — an email dragged out of Outlook
-    // that misses the trigger, say — is opened by Chromium in place of the app.
-    // The app moves between its own views by hash, so a navigation that leaves
-    // its page is one to refuse; a reload of the page itself is not.
+    // Chromium opens a file dropped outside any drop target (an Outlook email that
+    // misses a trigger) in place of the app. Refuse navigation off this page.
     win.webContents.on('will-navigate', (event) => {
         const page = (url: string): string => url.split('#')[0] ?? url;
         if (page(event.url) !== page(win.webContents.getURL())) event.preventDefault();
     });
 
-    // Dropping the default menu also dropped its zoomIn/zoomOut/resetZoom roles,
-    // which were what bound Ctrl+Plus, Ctrl+Minus and Ctrl+0. Rebind them on the
-    // window so the shortcuts survive without a menu bar to host them.
+    // Removing the default menu removed its zoom shortcuts; rebind Ctrl+Plus/Minus/0 here.
     win.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
 
@@ -117,11 +106,7 @@ function raise(win: BrowserWindow): void {
     win.focus();
 }
 
-/**
- * Keeps the list in the order the windows were last used, so the canvas the
- * welcome window offers to take over is the one whoever is choosing was just
- * looking at, rather than whichever opened first.
- */
+/** Keeps canvases in most-recently-used order, so the one offered for reuse is the one last looked at. */
 function track(project: Project): void {
     projects.unshift(project);
     project.win.on('focus', () => {
@@ -137,10 +122,8 @@ function track(project: Project): void {
 }
 
 /**
- * Where a second canvas goes. Left to itself Electron centres a window, which
- * puts it exactly on top of the one it was opened beside — from the front, a
- * second window and nothing happening look the same. So it steps off the last
- * canvas, and is pushed back inside that display rather than over its edge.
+ * Offset a new canvas from the last one, kept inside that display. Electron would
+ * centre it exactly on top, where it looks like nothing happened.
  */
 function beside(frame: Frame): Frame {
     const from = projects[0]?.win;
@@ -169,11 +152,7 @@ export function showWelcome(): void {
     load(welcome, 'welcome');
 }
 
-/**
- * The settings window, raised from the gear in any other window's bar. Only ever
- * one: two would be two drafts of the same file, each saving over the other. A
- * rail of pages and one short page beside it, so smaller than the start page.
- */
+/** The settings window. Only ever one, since two would save over each other. */
 export function showSettings(): void {
     if (settings && !settings.isDestroyed()) {
         raise(settings);
@@ -187,12 +166,9 @@ export function showSettings(): void {
 }
 
 /**
- * Put a flow on a canvas. A flow already on one raises that window instead of
- * opening a second copy: two canvases on one graph would be two editors of one
- * file, each saving over the other. Otherwise `where` decides — the canvas last
- * used takes this flow in place of its own, or a new one opens beside it — and
- * with no canvas open at all there is nothing to decide. The runs and the
- * console are the whole workspace's, so either answer shows the same ones.
+ * Put a flow on a canvas. A flow already open raises its window, since two
+ * canvases on one file would save over each other. Otherwise `where` picks the
+ * last-used canvas or a new one.
  */
 export function openFlow(flowId: string, where: OpenWhere = 'current'): void {
     const already = projects.find((p) => p.flowId === flowId);

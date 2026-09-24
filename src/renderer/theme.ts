@@ -19,10 +19,8 @@ export function readTheme(): Theme {
 }
 
 /**
- * The stylesheet keys every colour off this attribute, so setting it is the whole
- * of switching themes. Done before React renders rather than in an effect: the
- * canvas reads the same tokens as it draws, and an effect would leave it a frame
- * behind.
+ * Every colour keys off this attribute. Called before React renders, not in an
+ * effect, which would leave the canvas a frame behind.
  */
 export function applyTheme(theme: Theme): void {
     document.documentElement.dataset.theme = theme;
@@ -41,9 +39,7 @@ export function useTheme(): [Theme, (next: Theme) => void] {
         }
     }, []);
 
-    // Both windows are one origin, so the choice made in either reaches the other
-    // while both are open: the browser fires this in every document but the one
-    // that wrote the key.
+    // Follow a change made in another window; `storage` fires everywhere but the writer.
     useEffect(() => {
         const onStorage = (event: StorageEvent): void => {
             if (event.key !== null && event.key !== KEY) return;

@@ -24,12 +24,7 @@ export interface TriggerConfig {
     account: string;
     /** Inbox subfolder path, e.g. "Pre-Alerts". Empty means the Inbox itself. */
     folder: string;
-    /**
-     * Watch every folder below `folder` too — for a mailbox whose rules file mail
-     * away as it arrives. Mail is then known by sender, time and subject rather
-     * than by entry id, which Outlook rewrites whenever an email is moved, so
-     * filing one away does not make it new again.
-     */
+    /** Watch every folder below `folder` too, for a mailbox whose rules file mail away on arrival. */
     includeSubfolders: boolean;
     /**
      * With `includeSubfolders`: folders to leave out, by name or by path under
@@ -64,11 +59,7 @@ export interface ProcessorConfig {
     /** Free-text instruction prepended to the email context. */
     instruction: string;
     model: string;
-    /**
-     * One of the levels Claude Code lists for the model — which differ from model
-     * to model, so they are not written down here. Empty leaves it to the model's
-     * own default.
-     */
+    /** One of the levels Claude Code lists for this model (they vary). Empty uses the model's default. */
     effort: string;
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
@@ -115,8 +106,7 @@ export interface Flow {
 }
 
 // ── Ports ────────────────────────────────────────────────────────────────
-// Derived from config rather than stored, so a categorizer's ports follow its
-// categories and no edge can outlive the port it left from.
+// Derived from config rather than stored, so no edge can outlive its port.
 
 export type PortTone = 'flow' | 'match' | 'fallback' | 'error';
 
@@ -217,11 +207,7 @@ export function defaultNodeName(kind: NodeKind): string {
     }
 }
 
-/**
- * Presentation per node kind. `token` names the kind in CSS: `.kind-<token>`
- * exposes the accent as `--k` and `--k-<token>` is the accent itself, so every
- * colour stays defined once per theme in the stylesheet.
- */
+/** Presentation per node kind. `token` is the kind's CSS name: `.kind-<token>` sets `--k` from `--k-<token>`. */
 export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; token: string }> = {
     'trigger.outlook': {
         label: 'Outlook Trigger',
@@ -245,11 +231,7 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
     },
 };
 
-/**
- * Every trigger on the canvas, in the order the file lists them. A flow may hold
- * none — then there is nothing to watch — or several, each polling its own
- * mailbox and starting its own runs.
- */
+/** Every trigger in the flow, in file order. A flow may have none, or several. */
 export function findTriggers(flow: Flow): FlowNode[] {
     return flow.nodes.filter((n) => n.kind === 'trigger.outlook');
 }
@@ -267,11 +249,7 @@ export function makeNode(kind: NodeKind, id: string, position: { x: number; y: n
 /** Enough tail to tell two of a kind apart without becoming the name itself. */
 export const shortId = (): string => Math.random().toString(36).slice(2, 8);
 
-/**
- * An id for a new node that this flow does not already hold: `processor-4f2ab1`.
- * The canvas mints one when a node is dragged on and an agent's `add_node`
- * mints the same shape, so a flow reads the same however it was built.
- */
+/** A node id this flow doesn't hold yet, e.g. `processor-4f2ab1`. Used by both the canvas and `add_node`. */
 export function mintNodeId(flow: Flow, kind: NodeKind): string {
     const stem = kind.split('.')[0] ?? 'node';
     let id = `${stem}-${shortId()}`;
@@ -284,12 +262,8 @@ export const edgeId = (source: string, sourceHandle: string, target: string): st
     `${source}:${sourceHandle}->${target}`;
 
 /**
- * Run an edge from one node's output port to another node's input, replacing
- * whatever that port already led to — one edge per port, because a decision
- * leading two places would make the recorded path ambiguous. The port is not
- * checked here: the canvas only offers real ones, the agent tools say which
- * exist before calling, and `parseFlow` drops an edge that names one that does
- * not.
+ * Connect an output port to a node, replacing the port's existing edge: one edge
+ * per port keeps a run's path unambiguous. The port is not validated here.
  */
 export function connectNodes(flow: Flow, source: string, sourceHandle: string, target: string): Flow {
     const kept = flow.edges.filter((e) => !(e.source === source && e.sourceHandle === sourceHandle));
@@ -300,10 +274,8 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
 }
 
 /**
- * Re-point every Processor that ticks `before` at `after` — what a skill moving
- * library needs, since its name changes with it (`global:x` one way, a bare `x`
- * the other). Hands back the same flow when nothing ticked it, so a caller can
- * tell whether there is anything to save.
+ * Re-point every Processor ticking `before` at `after`, as when a skill changes
+ * library. Returns the same flow object when nothing changed.
  */
 export function retickSkill(flow: Flow, before: string, after: string): Flow {
     let changed = false;
@@ -412,12 +384,9 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
 }
 
 /**
- * Rebuild a flow from unknown JSON — a file exported from another install, or
- * one edited by hand. Anything the engine or canvas would trip over is repaired
- * here rather than mid-run: unknown node kinds and repeated ids are dropped, and
- * an edge survives only if it still joins a real output port to a node that
- * accepts input. However many triggers the file carries — none included — is
- * however many the flow opens with.
+ * Rebuild a flow from untrusted JSON (an import, a hand edit, an agent's write).
+ * Unknown kinds and duplicate ids are dropped, and an edge survives only if it
+ * joins a real output port to a node that takes input.
  */
 export function parseFlow(value: unknown, id: string, fallbackName: string): Flow {
     const raw = isObject(value) ? value : {};

@@ -13,10 +13,8 @@ import { now, type TraceEvent, truncate } from '@shared/trace';
 import { getSettings } from '../store/settingsStore';
 
 /**
- * The one place this app talks to Claude. Both AI node kinds come through here —
- * the Categorizer for a single structured answer with no tools, the Processor
- * for a full agent loop — so there is exactly one mapping from the SDK's message
- * stream onto the trace events a pass records.
+ * The one place the app talks to Claude, and so the one mapping from the SDK's
+ * message stream onto a pass's trace events.
  */
 
 export interface ClaudeRunRequest {
@@ -53,9 +51,8 @@ export interface ClaudeRunResult {
 }
 
 /**
- * Where the `claude` binary lives. An explicit setting wins; otherwise prefer an
- * existing Claude Code install, which saves re-downloading the ~200MB platform
- * binary. Undefined lets the SDK resolve its own.
+ * The `claude` binary: the setting, else an existing Claude Code install (saves a
+ * ~200MB download), else undefined for the SDK's own.
  */
 export function resolveClaudePath(): string | undefined {
     const configured = getSettings().claudeExecutablePath.trim();
@@ -67,11 +64,7 @@ export function resolveClaudePath(): string | undefined {
     return candidates.find((p) => existsSync(p));
 }
 
-/**
- * How long one answer to "which models?" is reused. The inspector asks on every
- * AI node it opens, and a new model is rarer than that — but the app runs for
- * days while Claude Code updates itself underneath it.
- */
+/** How long a model list is reused; Claude Code can update itself while the app runs. */
 const MODELS_TTL_MS = 10 * 60_000;
 
 let modelsAsked: { exe: string | undefined; at: number; list: Promise<ModelOption[]> } | null = null;
@@ -79,9 +72,8 @@ let modelsAsked: { exe: string | undefined; at: number; list: Promise<ModelOptio
 async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
-    // A prompt stream that stays open without a message on it: the CLI starts and
-    // answers control requests, and is closed before it has anything to run — so
-    // asking spends nothing.
+    // A prompt stream that never yields: the CLI answers control requests and is
+    // closed before it runs anything, so asking costs nothing.
     let release = (): void => {
     };
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -117,11 +109,7 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
     }
 }
 
-/**
- * The models the Claude login offers, as Claude Code's own model picker lists
- * them. Asked of the CLI rather than written into the app, so a model released
- * after this build shows up, and one retired from the account drops out.
- */
+/** The models the Claude login offers, asked of the CLI so the list never goes stale. */
 export function listModels(): Promise<ModelOption[]> {
     const exe = resolveClaudePath();
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {

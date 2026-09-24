@@ -45,8 +45,7 @@ function emailContext(email: EmailEnvelope, body: string | undefined): string {
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
-// The email is already in hand by the time a run exists; this pass only makes
-// the trace start where the canvas does.
+// The email is already in hand; this pass just starts the trace at the trigger.
 
 function runTrigger(config: TriggerConfig): NodeOutcome {
     return {

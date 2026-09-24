@@ -1,8 +1,4 @@
-/**
- * The console: what the app did outside any one run — polls, Outlook calls, the
- * agent server — and what went wrong there. A run explains why an email went
- * where it did; the console explains why there was, or was not, a run at all.
- */
+/** The console: what the app did outside any one run (polls, Outlook calls, the agent server). */
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

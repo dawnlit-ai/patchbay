@@ -8,11 +8,8 @@ import { IPC } from '@shared/ipc';
  */
 
 /**
- * Every call goes through here, so a handler's error reaches the window as the
- * sentence main wrote. Electron wraps a thrown error in the channel it crossed —
- * "Error invoking remote method 'flows:setFolder': Error: …" — and that prefix is
- * the one part of it nobody reading an error banner needs. Typed as the call it
- * wraps, so the contract in shared/ipc.ts is still what checks every method.
+ * `ipcRenderer.invoke` with Electron's "Error invoking remote method '…': Error: "
+ * prefix stripped, so the window shows the message main wrote.
  */
 const call: typeof ipcRenderer.invoke = async (channel, ...args) => {
     try {

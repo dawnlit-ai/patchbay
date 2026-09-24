@@ -1,8 +1,4 @@
-/**
- * The run record: one Run per email, one Pass per node it visited, and inside a
- * pass the events explaining why it left by the port it did. Plain JSON on disk,
- * so a run is still readable in a text editor months later.
- */
+/** The run record: one Run per email, one Pass per node visited, and the events explaining each pass. */
 
 import type { NodeKind } from './flow';
 
@@ -29,11 +25,7 @@ export interface EmailEnvelope {
 /** The moment a record is stamped with. One spelling, everywhere it happens. */
 export const now = (): string => new Date().toISOString();
 
-/**
- * A long detail, cut down with a note of how much is not shown. A prompt or a
- * tool payload can run to megabytes, and neither the trace file nor the agent
- * reading it back wants the whole of one.
- */
+/** Cut a long detail (a prompt, a tool payload) down, noting how much was dropped. */
 export function truncate(value: string, max = 4_000): string {
     return value.length <= max ? value : `${value.slice(0, max)}\n… (${value.length - max} more characters)`;
 }

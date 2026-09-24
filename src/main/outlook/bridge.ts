@@ -13,10 +13,8 @@ import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
 import { log } from '../log';
 
 /**
- * A thin seam over @dawnlit/outlook-bridge, which drives the real Outlook client
- * over COM: every call spawns PowerShell and can take seconds. Imported lazily,
- * so a machine without Outlook still opens a window — the failure belongs on the
- * node that needed a mailbox, not on startup.
+ * A thin seam over @dawnlit/outlook-bridge, which drives Outlook over COM (each
+ * call spawns PowerShell). Imported lazily so the app still starts without Outlook.
  */
 
 type BridgeModule = typeof import('@dawnlit/outlook-bridge');
@@ -29,20 +27,14 @@ async function bridge(): Promise<BridgeModule> {
 }
 
 /**
- * Outlook's COM automation is single-threaded: a second script blocks until the
- * first finishes, and against a slow call simply burns its timeout waiting. The
- * poller, the folder lookup and a skill's `read_email` all want the mailbox, so
- * every call queues here and they take turns.
+ * Outlook's COM automation is single-threaded, and a concurrent call just burns
+ * its timeout waiting, so every call queues here.
  */
 let chain: Promise<unknown> = Promise.resolve();
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
-/**
- * Every call is timed into the console, and the wait in the queue is reported
- * apart from the call itself: a call that was slow because another was slow is
- * the queue doing its job, not Outlook struggling.
- */
+/** Queues a call and times it into the console, reporting queue wait separately from the call itself. */
 function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
     const queuedAt = Date.now();
     const timed = async (): Promise<T> => {
@@ -91,10 +83,8 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
 }
 
 /**
- * A folder as a trigger stores it: its path relative to the Inbox — what
- * readInboxEmails takes as `folder` — and '' for the Inbox itself. Outlook
- * reports full paths (`\\team@example.com\Inbox\Mobile, AL`); null for one
- * outside the Inbox.
+ * A full Outlook path (`\\team@example.com\Inbox\Mobile, AL`) relative to the
+ * Inbox, as a trigger stores it: '' for the Inbox, null outside it.
  */
 function underInbox(folderPath: string): string | null {
     const lower = folderPath.toLowerCase();
@@ -149,10 +139,8 @@ export async function readInbox(
 }
 
 /**
- * A trigger's mail, newest first. Reading below a folder walks the whole Inbox
- * tree — where the bridge's search starts — and keeps what sits under `folder`.
- * That walk leaves bodies behind, so these envelopes carry no preview: a poll
- * only needs to know what arrived, and every node that wants a body reads it.
+ * A trigger's mail, newest first. With subfolders it searches the whole Inbox
+ * tree and keeps what is under `folder`; those envelopes carry no preview.
  */
 export async function readScope(scope: MailScope, lookbackDays: number, limit: number): Promise<EmailEnvelope[]> {
     const { account, folder } = scope;
@@ -180,9 +168,8 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
 const squash = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
 /**
- * Whether a drop is the email selected in Outlook. Outlook names its `.msg`
- * after the subject — less the characters a file name can't hold, and sometimes
- * shortened — and puts the subject in the text it offers alongside.
+ * Whether a drop is the email selected in Outlook, by its `.msg` name (the subject,
+ * sanitised and sometimes cut short) or the subject in the drag's text.
  */
 function dropNames(subject: string, drag: OutlookDrag, message: string | undefined): boolean {
     const wanted = squash(subject);
@@ -196,12 +183,9 @@ function dropNames(subject: string, drag: OutlookDrag, message: string | undefin
 }
 
 /**
- * The email dragged out of Outlook onto a trigger, found in that trigger's
- * mailbox. A drag carries no id, but Outlook selects an email as the drag
- * starts, so the selection is the dragged email — once the drag's own evidence
- * agrees, which is what stops a file dragged from anywhere else from running
- * whatever Outlook happens to have selected. The mailbox matters as much: a run
- * replies from, and files into, the mailbox its email sits in.
+ * The email dragged out of Outlook onto a trigger. A drag carries no id, so this
+ * takes Outlook's current selection, checked against the drag's own file name and
+ * text, then finds it in the trigger's mailbox.
  */
 export async function readDragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope> {
     const messages = drag.fileNames.filter((name) => /\.msg$/i.test(name));
@@ -242,11 +226,7 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
     return toEnvelope(account, { ...found, bodyPreview: selected.body.slice(0, 600) });
 }
 
-/**
- * The sender's own text. With `includeQuoted` the thread below it comes back
- * too, held to the same cap — what a reply was answering is often the only
- * place the facts it answers live.
- */
+/** The sender's own text, plus the quoted thread below it with `includeQuoted`, each held to `maxChars`. */
 export async function readBody(ref: EmailRef, maxChars: number, includeQuoted = false): Promise<EmailBodyResult> {
     const b = await bridge();
     return serialize(`Read a body in ${ref.account}`, () =>

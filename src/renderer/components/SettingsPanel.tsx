@@ -21,12 +21,7 @@ interface Props {
     onRegenerateToken(): void;
 }
 
-/**
- * The whole of the settings window: a rail of pages down the left, one page of
- * settings beside it, and Save beneath the page. The settings are few and each
- * page is short, so a page is one group of rows — what the setting is, what it
- * does, and the control for it — rather than a stack of fields to read through.
- */
+/** The settings window's content: a rail of pages, the current page, and Save. */
 
 type Page = 'claude' | 'runs' | 'servers' | 'agent';
 
@@ -38,10 +33,8 @@ const PAGES: { id: Page; label: string }[] = [
 ];
 
 /**
- * What each page edits, so the rail can mark a page holding unsaved changes and
- * Save can tell whether there is anything to save. The token is left out on
- * purpose: main keeps the stored one whatever is sent, so a copy of it here that
- * has gone stale is not a change.
+ * What each page edits, for marking unsaved pages. The token is left out: main
+ * ignores it on save, so a stale copy here is not a change.
  */
 const EDITS: Record<Page, (s: Settings) => unknown> = {
     claude: (s) => [s.claudeExecutablePath, s.skillSeedPath],
@@ -154,9 +147,8 @@ export function SettingsPanel({
         });
     };
 
-    // A new `settings` only ever arrives because Save went through, so its arrival
-    // is what "Changes saved" answers. Compared by identity, so the first render —
-    // and StrictMode's second run of this effect — say nothing.
+    // A new `settings` means Save went through. Compared by identity, so the first
+    // render (and StrictMode's rerun) say nothing.
     const shown = useRef(settings);
     useEffect(() => {
         if (shown.current === settings) return;

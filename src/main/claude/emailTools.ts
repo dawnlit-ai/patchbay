@@ -5,11 +5,9 @@ import type { ProcessorConfig } from '@shared/flow';
 import * as outlook from '../outlook/bridge';
 
 /**
- * The mailbox surface a Processor gets: an in-process MCP server whose tools are
- * bound to the one email this run is about. No tool here takes an entryId, so a
- * skill cannot wander into another message however it is prompted, and every
- * call lands in the pass trace. Anything beyond reading is opt-in per node, and
- * none of it sends mail.
+ * A Processor's mailbox tools, bound to this run's one email: none takes an
+ * entryId, so a skill cannot reach another message. Anything beyond reading is
+ * opt-in per node, and nothing sends mail.
  */
 
 export const EMAIL_SERVER_NAME = 'email';

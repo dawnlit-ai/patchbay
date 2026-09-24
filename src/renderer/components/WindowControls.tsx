@@ -1,11 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
-/**
- * The minimise, maximise and close buttons, since the window is frameless and the
- * OS no longer draws any. They sit at the end of the top bar, flush into the
- * corner the frame's own buttons used to hold.
- */
+/** Minimise, maximise and close, drawn by the app because the window is frameless. */
 
 /** Drawn rather than typed: the glyph characters for these differ per font. */
 const ICON = {
@@ -32,9 +28,8 @@ interface Props {
 export function WindowControls({ maximize = true }: Props): JSX.Element {
     const [maximized, setMaximized] = useState(false);
 
-    // The window can be maximised and restored without these buttons — a drag to
-    // the top edge, Win+Up, a double-click on the bar — so main reports the state
-    // rather than the click deciding it.
+    // The window can be maximised without these buttons (edge drag, Win+Up), so
+    // main reports the state.
     useEffect(() => {
         void window.api.window.isMaximized().then(setMaximized);
         return window.api.on.windowMaximized(setMaximized);

@@ -1,11 +1,6 @@
 import { useCallback, useState } from 'react';
 
-/**
- * The banner across the top of a window, and the one way anything reaches it:
- * run the action, and whatever it throws is what the person reads. Both windows
- * report failure the same way, so they share the plumbing rather than each
- * keeping their own copy of the same try/catch.
- */
+/** A window's error banner: run an action, and whatever it throws is shown. */
 export interface ErrorBanner {
     /** What to show, or null for nothing. */
     error: string | null;

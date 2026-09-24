@@ -7,10 +7,8 @@ import { triggerLabel, useRecentMail } from '../recentMail';
 import { Modal } from './Modal';
 
 /**
- * Push one real email through the flow on demand — wire it up, run a message you
- * already understand, read the trace, adjust. Ignores the watermark, so the same
- * email can be run repeatedly. A flow with several triggers is tested one trigger
- * at a time: the chosen one supplies the mailbox to list and starts the run.
+ * Run one chosen email through the flow, ignoring the watermark so it can be
+ * repeated. The chosen trigger supplies the mailbox and starts the run.
  */
 
 const DAYS = 7;

@@ -1,8 +1,4 @@
-/**
- * How the window writes a date. The runs list, the console and Settings all
- * print a clock time, and the flow list prints how long ago — one place, so
- * they agree with each other and with the machine's own locale.
- */
+/** Date formatting shared by every list, in the machine's locale. */
 
 /** Just the time of day: these lists are read the day they are written. */
 export const time = (iso: string): string => new Date(iso).toLocaleTimeString();

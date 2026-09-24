@@ -6,12 +6,7 @@ import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { useTheme } from './theme';
 
-/**
- * The settings window. What it holds is the install's — the Claude executable,
- * the servers every Processor is handed, the agent-control server — rather than
- * any one flow's, so it is a window the start page and every canvas raise alike,
- * and it can stay up beside a canvas while a change is tried out there.
- */
+/** The settings window: install-wide settings, raised from any other window. */
 export function SettingsWindow(): JSX.Element {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);

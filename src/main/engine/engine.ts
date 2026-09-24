@@ -4,11 +4,7 @@ import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
 import { indexRun, saveRun } from '../store/traceStore';
 
-/**
- * Walks one email through one flow. Deliberately linear: a node returns the one
- * port it leaves by and the engine follows the single edge attached to it, which
- * is what makes a run's path a list of node ids anyone can read.
- */
+/** Walks one email through one flow: each node picks one output port, and the engine follows its one edge. */
 
 /** A run that visits more nodes than this is looping; stop and say so. */
 const MAX_PASSES = 64;

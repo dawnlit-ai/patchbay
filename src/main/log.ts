@@ -4,10 +4,8 @@ import type { LogEntry, LogLevel, LogSource } from '@shared/log';
 import { logsDir } from './paths';
 
 /**
- * The app's console. Every entry goes three places: a bounded buffer the window
- * reads when it opens, a push to any window already open, and one JSONL file per
- * day in the workspace — the file survives a restart, and it is the one to attach
- * to a bug report.
+ * The app's console. Each entry goes to a bounded in-memory buffer, to any open
+ * window, and to a daily JSONL file that survives restarts.
  */
 
 /** A working day of polling, give or take, without holding every day of it. */
@@ -76,11 +74,7 @@ export function logEntries(): LogEntry[] {
     return [...buffer];
 }
 
-/**
- * One day's file, oldest first — what the buffer no longer holds once the app
- * has restarted or the window has cleared it. `day` is `YYYY-MM-DD`, local time,
- * and a day with no file is an empty one.
- */
+/** One day's file (`YYYY-MM-DD`, local time), oldest first; empty if there is none. */
 export function logEntriesOn(day: string): LogEntry[] {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`"${day}" is not a day. Write it as YYYY-MM-DD.`);
     const file = join(logsDir(), `${day}.jsonl`);

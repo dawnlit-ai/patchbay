@@ -1,11 +1,8 @@
 import { defineConfig, type Plugin } from 'vite';
 import { alias } from './vite.shared.mjs';
 
-// Electron Forge's preload config asks for a single chunk through rollup's
-// `output.inlineDynamicImports`, which rolldown now warns is deprecated on every
-// build. Restate the same intent with its replacement and drop the old key, which
-// a plain config merge cannot do. Remove once @electron-forge/plugin-vite moves
-// over to `codeSplitting`.
+// Swaps Forge's deprecated `inlineDynamicImports` for `codeSplitting: false` to
+// silence rolldown's warning. Remove once @electron-forge/plugin-vite does this.
 const preferCodeSplittingFlag = (): Plugin => ({
     name: 'patchbay:preload-code-splitting',
     config(config) {

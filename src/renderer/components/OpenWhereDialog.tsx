@@ -3,12 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { OpenWhere } from '@shared/ipc';
 import { Modal } from './Modal';
 
-/**
- * Which canvas a flow should open on. Asked only when there is something to
- * answer: a canvas is up, showing a different flow, and taking it over is as
- * likely to be wanted as drawing both at once. With no canvas open, or the flow
- * already on one, nothing is asked — there is one thing that can happen.
- */
+/** Which canvas a flow opens on: asked only when a canvas is up showing a different flow. */
 interface Props {
     /** The flow being opened. */
     name: string;

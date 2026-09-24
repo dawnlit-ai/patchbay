@@ -15,19 +15,10 @@ import { getSettings } from './settingsStore';
 import { GLOBAL_SKILL_PLUGIN, type SkillDetail, type SkillScope, type SkillSummary } from '@shared/settings';
 
 /**
- * Skills live in one of two libraries, both directories of `<name>/SKILL.md`
- * files. Files rather than rows, so a skill edited here, in an editor, or synced
- * from another project all agree.
- *
- * - **global** — shared by every flow in the install, kept in the plugin layout
- *   because that is what lets a run load skills from outside its own working
- *   directory.
- * - **flow** — one flow's own, under that flow's directory, which is the working
- *   directory its nodes run in. Deleted, exported and imported with the flow.
- *
- * Every call names the scope it means; `flowId` is read only when that scope is
- * `flow`, and the two libraries may hold the same name without either shadowing
- * the other.
+ * Two libraries of `<name>/SKILL.md` folders: **global**, shared by every flow and
+ * kept in plugin layout so runs can load it from outside their cwd; and **flow**,
+ * under one flow's directory and travelling with it. `flowId` is read only for
+ * the `flow` scope, and the two may hold the same name without shadowing.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -37,11 +28,7 @@ export function isValidSkillName(name: string): boolean {
     return NAME_RE.test(name) && name.length <= 64;
 }
 
-/**
- * What makes the global directory a plugin the SDK will load: a manifest beside
- * the `skills` folder. Written on the way past rather than at startup, so it is
- * there however the folder was first reached.
- */
+/** Writes the plugin manifest the SDK needs beside the global `skills` folder, if it is missing. */
 function ensureGlobalPlugin(): string {
     const manifest = join(globalPluginDir(), '.claude-plugin', 'plugin.json');
     if (!existsSync(manifest)) {
@@ -59,11 +46,7 @@ function libraryDir(scope: SkillScope, flowId: string): string {
     return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDir(flowId);
 }
 
-/**
- * The same library for reading, which does not make a flow's by looking at it:
- * a window refreshing its skill list as its flow is deleted would otherwise put
- * the flow's folder straight back.
- */
+/** `libraryDir` without creating anything, so reading a deleted flow's skills doesn't recreate its folder. */
 function libraryAt(scope: SkillScope, flowId: string): string {
     return scope === 'global' ? ensureGlobalPlugin() : flowSkillsDirAt(flowId);
 }
@@ -73,11 +56,7 @@ interface Frontmatter {
     description?: string;
 }
 
-/**
- * Pull `name` and `description` out of the leading `---` block — enough to list
- * and match a skill without a YAML parser for two scalar fields. Everything else
- * survives on disk, because the file is only ever written back whole.
- */
+/** Reads `name` and `description` from the frontmatter, without a YAML parser. */
 export function parseFrontmatter(content: string): Frontmatter {
     const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
     if (!match?.[1]) return {};
@@ -162,11 +141,8 @@ export function removeSkill(scope: SkillScope, flowId: string, name: string): vo
 }
 
 /**
- * Take a skill out of one library and put it in the other, folder and all — what
- * dragging a row onto the other tab does. Overwrites a skill of the same name
- * there; from here the two are just directories, so the asking is the caller's.
- * The `global:` prefix on a tick moves with it, which the renderer repairs in the
- * flow on screen.
+ * Move a skill folder to the other library, overwriting one of the same name
+ * there; confirming that is the caller's job. Re-pointing ticks is too.
  */
 export function moveSkill(
     from: SkillScope,
@@ -187,11 +163,7 @@ export function moveSkill(
     return summarize(to, name, readFileSync(file, 'utf8'), file);
 }
 
-/**
- * Copy `<dir>/<skill>/SKILL.md` trees into one library, overwriting a skill of
- * the same name, so re-importing picks up upstream edits. `only` narrows it to
- * the named skills, for a folder that holds more than the caller wants.
- */
+/** Copy `<dir>/<skill>/SKILL.md` folders into a library, overwriting same-named skills. `only` limits it to those. */
 export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string, only?: string[]): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
     const target = libraryDir(scope, flowId);
@@ -242,14 +214,9 @@ that email — you cannot reach any other message.
 `;
 
 /**
- * Fill the global library on first run, and only on first run. Flow libraries
- * start bare on purpose: everything a new flow needs is already on the global
- * shelf, and what goes in its own is whatever that flow alone should carry.
- *
- * Candidates in order: the folder named in Settings, then a `skills` directory
- * beside the app, and failing both the starter skill — so a Processor always has
- * something to tick. These are the app's own copies, editable without touching
- * whatever they came from. Returns the names imported.
+ * Fill an empty global library from the folder named in Settings, else a `skills`
+ * directory beside the app, else the starter skill, so a Processor always has
+ * something to tick. Returns the names imported.
  */
 export function seedGlobalLibrary(): string[] {
     const existing = listSkills('global', '');

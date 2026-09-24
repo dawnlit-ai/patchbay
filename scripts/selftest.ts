@@ -1,11 +1,7 @@
 /**
- * End-to-end smoke test, run under Electron so the real paths, stores and
- * Outlook bridge are exercised rather than stubbed.
- *
- * Takes the most recent email in the first Outlook account, pushes it through a
- * throwaway trigger → categorizer → terminal flow, and prints the trace. It
- * classifies (one Claude call, a cent or two) and reads a body; it never writes
- * to the mailbox.
+ * End-to-end smoke test under Electron: puts the newest email in the first Outlook
+ * account through a throwaway trigger → categorizer → terminal flow and prints the
+ * trace. Makes one Claude call; never writes to the mailbox.
  *
  *   npm run selftest
  */
