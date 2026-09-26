@@ -408,6 +408,16 @@ export function App({ initialFlowId }: Props): JSX.Element {
     };
 
     /**
+     * A run's email through its flow again, from the trigger it came in by. Queued
+     * edits go out first, as for a test run: the new run reads the flow as it is now.
+     */
+    const rerun = (runId: string): void => {
+        flushSave();
+        setSelectedRun(null);
+        void window.api.runs.rerun(runId).catch((e: Error) => setError(e.message));
+    };
+
+    /**
      * An email taken from Outlook — dragged out of it, or selected in it: found in
      * the trigger's mailbox first, then run like any other.
      */
@@ -550,6 +560,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                                 onReveal={() => void window.api.runs.revealFolder()}
                                 onCancel={(runId) => void window.api.engine.cancel(runId)}
                                 onRemove={(runId) => void removeRun(runId)}
+                                onRerun={rerun}
                             />
                         )}
                         {!dockCollapsed && dockTab === 'console' && (

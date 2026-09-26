@@ -258,6 +258,39 @@ async function inMailbox(account: string, selected: SelectedEmail): Promise<Emai
     return toEnvelope(account, { ...found, bodyPreview });
 }
 
+/**
+ * The email an earlier run handled, as a new run's envelope. Its id is tried first;
+ * filing the email since rewrites that id, so failing that it is found again by
+ * subject, sender and received time in the same mailbox. The body is left to be
+ * read afresh, like any other envelope's.
+ */
+export async function refind(email: EmailEnvelope): Promise<EmailEnvelope> {
+    const { ref } = email;
+    try {
+        await readBody(ref, 1);
+        return toEnvelope(ref.account, { ...email, ...ref });
+    } catch {
+        // Moved, deleted, or Outlook not answering: the search below says which.
+    }
+
+    const b = await bridge();
+    const found = await serialize(`Find "${email.subject}" again in ${ref.account}`, () =>
+        b.locateEmail({
+            subject: email.subject,
+            sender: email.senderEmail,
+            receivedTime: email.receivedTime,
+            emailAccount: ref.account,
+            folderPath: ref.folderPath,
+        }),
+    );
+    if (!found) {
+        throw new Error(
+            `"${email.subject || '(no subject)'}" from ${email.senderEmail} is no longer in ${ref.account}'s Inbox or its folders.`,
+        );
+    }
+    return toEnvelope(ref.account, { ...found, bodyPreview: email.bodyPreview });
+}
+
 /** The sender's own text, plus the quoted thread below it with `includeQuoted`, each held to `maxChars`. */
 export async function readBody(ref: EmailRef, maxChars: number, includeQuoted = false): Promise<EmailBodyResult> {
     const b = await bridge();

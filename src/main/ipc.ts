@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag, type WorkspaceChange } from '@shared/ipc';
-import type { Flow, MailScope } from '@shared/flow';
+import { type Flow, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
 import * as flowStore from './store/flowStore';
@@ -275,6 +275,17 @@ export function registerIpc(): void {
             throw new Error('That run is still in progress. Cancel it, or let it finish, before deleting it.');
         }
         traceStore.removeRun(id);
+    });
+    handle(IPC.runsRerun, async (id: string) => {
+        const run = traceStore.getRun(id);
+        if (!run) throw new Error('That run is no longer stored.');
+        const flow = flowStore.getFlow(run.flowId);
+        if (!flow) throw new Error(`“${run.flowName}”, the flow it ran in, has been deleted.`);
+        const trigger = flow.nodes.find((n) => n.id === run.path[0]);
+        if (!trigger || !triggerConfig(trigger)) {
+            throw new Error(`The trigger it came in by is no longer in “${flow.name}”.`);
+        }
+        return getWatcher().enqueueManual(flow.id, trigger.id, await outlook.refind(run.email));
     });
     handle(IPC.runsReveal, () => shell.openPath(runsDir()));
 

@@ -93,6 +93,10 @@ Every email produces a `Run`, and every node it touches produces a `Pass`:
 Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email traveled, with each node
 showing its pass number and outcome.
 
+Right-click a run to put its email through the flow again (once whatever stopped it has been fixed, say) or to
+delete it. The new run starts at the trigger the email came in by and reads the flow as it is now. An email filed
+since is found again by its subject, sender and received time.
+
 Runs are plain JSON in the app workspace — one file per run, plus a JSONL index. A database would be the reflex, but
 these records exist to be read when something has gone wrong, so a file you can open and paste into a bug report wins.
 

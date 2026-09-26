@@ -95,6 +95,7 @@ const api: Api = {
         get: (id) => call(IPC.runsGet, id),
         clear: () => call(IPC.runsClear),
         remove: (id) => call(IPC.runsRemove, id),
+        rerun: (id) => call(IPC.runsRerun, id),
         revealFolder: () => call(IPC.runsReveal),
     },
     log: {

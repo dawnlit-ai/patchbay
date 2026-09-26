@@ -204,6 +204,11 @@ export interface Api {
         clear(): Promise<void>;
         /** One run, with its trace and saved files. Refused while it is in progress. */
         remove(id: string): Promise<void>;
+        /**
+         * Put a run's email through its flow again, from the trigger it came in by,
+         * found again in Outlook if it has been filed since. Resolves to the new run's id.
+         */
+        rerun(id: string): Promise<string>;
         revealFolder(): Promise<void>;
     };
     /** The console: what the app did outside any one run. */
@@ -303,6 +308,7 @@ export const IPC = {
     runsGet: 'runs:get',
     runsClear: 'runs:clear',
     runsRemove: 'runs:remove',
+    runsRerun: 'runs:rerun',
     runsReveal: 'runs:reveal',
 
     logList: 'log:list',

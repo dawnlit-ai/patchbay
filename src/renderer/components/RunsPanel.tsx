@@ -76,16 +76,30 @@ interface Props {
     onCancel(runId: string): void;
 
     onRemove(runId: string): void;
+
+    onRerun(runId: string): void;
 }
 
-export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCancel, onRemove }: Props): JSX.Element {
+export function RunsPanel({
+                              runs,
+                              selected,
+                              onSelect,
+                              onClear,
+                              onReveal,
+                              onCancel,
+                              onRemove,
+                              onRerun
+                          }: Props): JSX.Element {
     const [menu, setMenu] = useState<{ run: RunSummary; x: number; y: number } | null>(null);
 
-    /** A run under way can only be stopped; one that has ended can go. */
+    /** A run under way can only be stopped; one that has ended can run again, or go. */
     const actions = (run: RunSummary): MenuItem[] =>
         run.status === 'running'
             ? [{ label: 'Cancel run', danger: true, onSelect: () => onCancel(run.id) }]
-            : [{ label: 'Delete run', danger: true, onSelect: () => onRemove(run.id) }];
+            : [
+                { label: 'Run this email again', onSelect: () => onRerun(run.id) },
+                { label: 'Delete run', separator: true, danger: true, onSelect: () => onRemove(run.id) },
+            ];
 
     return (
         <div className="runs">
