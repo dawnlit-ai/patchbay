@@ -3,7 +3,7 @@ import { watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
 import { getSettings } from '../store/settingsStore';
-import { findTriggers, type Flow, type FlowNode, triggerConfig, type TriggerConfig } from '@shared/flow';
+import { checkSlots, findTriggers, type Flow, type FlowNode, triggerConfig, type TriggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
@@ -125,8 +125,9 @@ export class Watcher {
     }
 
     /**
-     * Switch one flow on. Refused while polling is off in Settings, and for a flow
-     * with no trigger that names a mailbox.
+     * Switch one flow on. Refused while polling is off in Settings, for a flow
+     * with no trigger that names a mailbox, and for one with a node that reads a
+     * slot some path to it never fills.
      */
     start(flowId: string): EngineStatus {
         const flow = getFlow(flowId);
@@ -144,6 +145,10 @@ export class Watcher {
                     ? `"${flow.name}" has no trigger, so there is nothing to watch.`
                     : `No trigger in "${flow.name}" names a mailbox yet.`,
             );
+        }
+        const unfilled = checkSlots(flow).issues.filter((issue) => issue.severity === 'error');
+        if (unfilled.length > 0) {
+            throw new Error(`Not watching "${flow.name}": ${unfilled.map((issue) => issue.message).join(' ')}`);
         }
         this.lastError = undefined;
         this.flowIds.add(flowId);

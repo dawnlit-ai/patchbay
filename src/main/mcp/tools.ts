@@ -5,6 +5,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+    checkSlots,
     connectNodes,
     type Flow,
     type FlowNode,
@@ -113,13 +114,22 @@ function describeNode(flow: Flow, node: FlowNode) {
     };
 }
 
-const describeFlow = (flow: Flow) => ({
-    id: flow.id,
-    name: flow.name,
-    updatedAt: flow.updatedAt,
-    nodes: flow.nodes.map((node) => describeNode(flow, node)),
-    edges: flow.edges,
-});
+const describeFlow = (flow: Flow) => {
+    const { available, issues } = checkSlots(flow);
+    return {
+        id: flow.id,
+        name: flow.name,
+        updatedAt: flow.updatedAt,
+        nodes: flow.nodes.map((node) => ({
+            ...describeNode(flow, node),
+            // What a Processor here may list in `inputs`. Absent when no trigger reaches it.
+            slotsOnArrival: available.has(node.id) ? [...available.get(node.id)!.keys()] : undefined,
+        })),
+        edges: flow.edges,
+        // Errors keep the flow from being watched; warnings do not.
+        slotIssues: issues,
+    };
+};
 
 /** Enough of an email to choose one, and nothing of what it says. */
 const describeEmail = (email: EmailEnvelope) => ({

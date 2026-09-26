@@ -58,6 +58,8 @@ export interface ProcessorConfig {
     skills: string[];
     /** Free-text instruction prepended to the email context. */
     instruction: string;
+    /** Slots an earlier node filled, put into the prompt as JSON. */
+    inputs: string[];
     model: string;
     /** One of the levels Claude Code lists for this model (they vary). Empty uses the model's default. */
     effort: string;
@@ -144,6 +146,137 @@ export function hasInput(kind: NodeKind): boolean {
     return kind !== 'trigger.outlook';
 }
 
+// ── Data on the wire ─────────────────────────────────────────────────────
+// A run carries named slots. A node adds slots and never takes one away, so the
+// email is still there for the reply or the move at the end of the path.
+
+export type JsonSchema = Record<string, unknown>;
+
+export type SlotType = { kind: 'email' } | { kind: 'json'; schema: JsonSchema };
+
+export interface Slot {
+    name: string;
+    type: SlotType;
+}
+
+/** Every run starts holding this one slot, put there by its trigger. */
+export const EMAIL_SLOT: Slot = { name: 'email', type: { kind: 'email' } };
+
+/** A slot name a prompt, a template or a person can write without quoting it. */
+export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Slots a node adds to the run when it leaves by `port`. */
+export function provides(node: FlowNode, _port: string): Slot[] {
+    switch (node.config.kind) {
+        case 'trigger.outlook':
+            return [EMAIL_SLOT];
+        default:
+            return [];
+    }
+}
+
+/** Slots a node cannot run without. */
+export function requires(node: FlowNode): string[] {
+    switch (node.config.kind) {
+        case 'trigger.outlook':
+            return [];
+        case 'processor':
+            return [EMAIL_SLOT.name, ...node.config.inputs];
+        default:
+            return [EMAIL_SLOT.name];
+    }
+}
+
+/** Slot name → its type, as guaranteed on arrival at a node. */
+export type Available = Map<string, SlotType>;
+
+export interface FlowIssue {
+    nodeId: string;
+    severity: 'error' | 'warning';
+    message: string;
+}
+
+export interface SlotCheck {
+    /** By node id. A node no trigger reaches has no entry. */
+    available: Map<string, Available>;
+    issues: FlowIssue[];
+}
+
+const typeKey = (type: SlotType): string =>
+    type.kind === 'json' ? `json:${JSON.stringify(type.schema)}` : type.kind;
+
+/** The slots both sides hold with the same type. */
+function intersect(a: Available, b: Available): Available {
+    const out: Available = new Map();
+    for (const [name, type] of a) {
+        const other = b.get(name);
+        if (other && typeKey(other) === typeKey(type)) out.set(name, type);
+    }
+    return out;
+}
+
+/**
+ * What every node can count on holding, whichever trigger and path a run took to
+ * reach it, and where that falls short of what the node reads. A slot counts only
+ * when every path in brings it, so arriving sets are intersected; that only ever
+ * shrinks them, which is what lets a flow that loops settle.
+ */
+export function checkSlots(flow: Flow): SlotCheck {
+    const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+    const arriving = new Map<string, Available>();
+    const queue: string[] = [];
+    for (const trigger of findTriggers(flow)) {
+        arriving.set(trigger.id, new Map());
+        queue.push(trigger.id);
+    }
+
+    while (queue.length > 0) {
+        const id = queue.shift()!;
+        const node = byId.get(id)!;
+        const here = arriving.get(id)!;
+        for (const edge of flow.edges) {
+            const target = byId.get(edge.target);
+            if (edge.source !== id || !target || !hasInput(target.kind)) continue;
+            const leaving: Available = new Map(here);
+            for (const slot of provides(node, edge.sourceHandle)) leaving.set(slot.name, slot.type);
+
+            const before = arriving.get(edge.target);
+            const after = before ? intersect(before, leaving) : leaving;
+            if (!before || after.size !== before.size) {
+                arriving.set(edge.target, after);
+                queue.push(edge.target);
+            }
+        }
+    }
+
+    const issues: FlowIssue[] = [];
+    for (const node of flow.nodes) {
+        const held = arriving.get(node.id);
+        if (!held) continue;
+        for (const name of requires(node)) {
+            if (held.has(name)) continue;
+            issues.push({
+                nodeId: node.id,
+                severity: 'error',
+                message: `${node.name} reads "${name}", but not every path here fills it.`,
+            });
+        }
+        if (node.kind === 'trigger.outlook') continue;
+        const overwritten = new Set(
+            outputPorts(node).flatMap((port) => provides(node, port.id).map((slot) => slot.name)),
+        );
+        for (const name of overwritten) {
+            if (!held.has(name)) continue;
+            issues.push({
+                nodeId: node.id,
+                severity: 'warning',
+                message: `${node.name} overwrites "${name}", which an earlier node already filled.`,
+            });
+        }
+    }
+    return { available: arriving, issues };
+}
+
 // ── Defaults ─────────────────────────────────────────────────────────────
 
 /**
@@ -182,6 +315,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 kind,
                 skills: [],
                 instruction: 'Handle this email according to the selected skill.',
+                inputs: [],
                 model: DEFAULT_MODEL,
                 effort: 'high',
                 allowDraftReply: false,
@@ -367,6 +501,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 skills: strings(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
+                inputs: strings(from.inputs, base.inputs),
                 model: str(from.model, base.model),
                 effort: str(from.effort, base.effort),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),

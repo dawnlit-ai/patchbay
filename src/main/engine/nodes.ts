@@ -22,6 +22,8 @@ export interface NodeContext {
     flowId: string;
     node: FlowNode;
     email: EmailEnvelope;
+    /** Slots earlier nodes on this path filled, by name. */
+    data: Readonly<Record<string, unknown>>;
     scratchDir: string;
     signal: AbortSignal;
 
@@ -34,6 +36,8 @@ export interface NodeOutcome {
     summary: string;
     /** Set on a terminal node, recorded on the run. */
     disposition?: string;
+    /** Slots this node filled, by name, for the nodes after it. */
+    provided?: Record<string, unknown>;
     error?: string;
 }
 
@@ -43,6 +47,15 @@ function emailContext(email: EmailEnvelope, body: string | undefined): string {
         '',
         body ? `--- Body ---\n${body}` : `--- Preview (body not fetched) ---\n${email.bodyPreview}`,
     ].join('\n');
+}
+
+/** The slots a node reads, as JSON blocks after the email. */
+function slotContext(ctx: NodeContext, names: string[]): string[] {
+    return names.flatMap((name) => [
+        '',
+        `--- ${name} (filled by an earlier node in this flow) ---`,
+        JSON.stringify(ctx.data[name] ?? null, null, 2),
+    ]);
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
@@ -176,6 +189,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         '',
         '--- Email ---',
         emailContext(ctx.email, ctx.email.body),
+        ...slotContext(ctx, config.inputs),
         '',
         'When you are finished, return the structured result describing what you did.',
     ].join('\n');

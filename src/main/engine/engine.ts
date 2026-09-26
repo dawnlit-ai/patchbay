@@ -1,4 +1,4 @@
-import { type Flow, type FlowNode, outputPorts } from '@shared/flow';
+import { EMAIL_SLOT, type Flow, type FlowNode, outputPorts, requires } from '@shared/flow';
 import { type EmailEnvelope, now, type Pass, type Run, type TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
@@ -36,7 +36,9 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         path: [],
         edgePath: [],
         passes: [],
+        data: {},
     };
+    const data: Record<string, unknown> = run.data!;
 
     const publish = (): void => {
         saveRun(run);
@@ -86,11 +88,21 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         });
 
         let pass: Pass;
+        // The canvas refuses to watch a flow that would get here, but a test run
+        // of one being drawn still can.
+        const unfilled = requires(node).filter((name) => name !== EMAIL_SLOT.name && !(name in data));
+        if (unfilled.length > 0) {
+            const message = `${node.name} reads ${unfilled.map((n) => `"${n}"`).join(', ')}, which no node on this path filled.`;
+            run.passes.push(record({ status: 'error', outPort: null, summary: message, error: message }));
+            run.path.push(node.id);
+            return finish('failed', message);
+        }
         try {
             const outcome = await executeNode({
                 flowId: flow.id,
                 node,
                 email,
+                data,
                 scratchDir,
                 signal,
                 // Collected, not published: publishing per event would redraw the UI
@@ -104,6 +116,10 @@ export async function executeRun(request: RunRequest): Promise<Run> {
                 summary: outcome.summary,
                 error: outcome.error,
             });
+            if (outcome.provided) {
+                pass.provided = outcome.provided;
+                Object.assign(data, outcome.provided);
+            }
             if (outcome.disposition) run.disposition = outcome.disposition;
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);

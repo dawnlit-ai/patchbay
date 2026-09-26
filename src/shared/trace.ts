@@ -82,6 +82,8 @@ export interface Pass {
     /** One line a human can scan: why this node did what it did. */
     summary: string;
     events: TraceEvent[];
+    /** Slots this pass filled, by name. */
+    provided?: Record<string, unknown>;
     error?: string;
 }
 
@@ -102,6 +104,11 @@ export interface Run {
     /** Edge ids traversed, so the canvas can light the exact connections used. */
     edgePath: string[];
     passes: Pass[];
+    /**
+     * Every slot filled so far besides the email, which is `email` above. Absent on
+     * runs recorded before nodes could fill slots.
+     */
+    data?: Record<string, unknown>;
     /** Terminal disposition, when the run reached a terminal node. */
     disposition?: string;
     error?: string;
