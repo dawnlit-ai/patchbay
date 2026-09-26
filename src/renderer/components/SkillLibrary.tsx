@@ -307,8 +307,19 @@ export function SkillLibrary({
                     title="Delete skill"
                     message={
                         scope === 'global'
-                            ? `Delete “${deleting}” from the global library? Every flow that ticks it loses it${linked ? `, and its folder is deleted from ${linked}` : ''}.`
-                            : `Delete “${deleting}” from “${flowName}”? Its whole folder goes with it.`
+                            ? `Delete
+                                “
+                                ${deleting}
+                                ” from the global library? Every flow that ticks it loses it
+                                ${linked ? `, and its folder is deleted from ${linked}` : ''}
+                                .`
+                            : `Delete
+                                “
+                                ${deleting}
+                                ” from
+                                “
+                                ${flowName}
+                                ”? Its whole folder goes with it.`
                     }
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(null)}

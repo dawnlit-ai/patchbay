@@ -311,9 +311,13 @@ export function App({ initialFlowId }: Props): JSX.Element {
         answering.current = null;
     };
 
+    /** This flow only. Queued edits go out first: the watcher reads the flow off disk. */
     const toggleWatching = (): Promise<void> =>
         attempt(async () => {
-            setStatus(status?.running ? await window.api.engine.stop() : await window.api.engine.start());
+            if (!flow) return;
+            flushSave();
+            const on = status?.flowIds.includes(flow.id) === true;
+            setStatus(await (on ? window.api.engine.stop(flow.id) : window.api.engine.start(flow.id)));
         });
 
     /**
@@ -397,7 +401,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
         return <div className="empty loading">Loading…</div>;
     }
 
-    const watching = status?.running === true;
+    const watching = status?.flowIds.includes(flow.id) === true;
+    const mailboxes = status?.watching.filter((w) => w.flowId === flow.id).length ?? 0;
 
     return (
         <div className="app">
@@ -435,7 +440,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 )}
                 <span className="status-pill">
                     <span className={`dot ${watching ? 'live' : ''}`}/>
-                    {watching ? `Watching ${status?.watching.length ?? 0} mailbox(es)` : 'Not watching'}
+                    {watching ? `Watching ${mailboxes} mailbox(es)` : 'Not watching'}
                 </span>
                 <button className={watching ? '' : 'primary'} onClick={() => void toggleWatching()}>
                     {watching ? 'Stop' : 'Start watching'}

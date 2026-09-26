@@ -114,7 +114,10 @@ export interface SkillDetail extends SkillSummary {
 }
 
 export interface EngineStatus {
+    /** Whether any flow is switched on. */
     running: boolean;
+    /** Flows switched on, whether or not a trigger of theirs names a mailbox yet. */
+    flowIds: string[];
     /** One entry per trigger being polled — a flow may contribute several. */
     watching: {
         flowId: string;

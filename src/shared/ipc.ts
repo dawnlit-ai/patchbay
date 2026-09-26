@@ -160,8 +160,9 @@ export interface Api {
         unlink(): Promise<void>;
     };
     engine: {
-        start(): Promise<EngineStatus>;
-        stop(): Promise<EngineStatus>;
+        /** Watching is switched on and off per flow. */
+        start(flowId: string): Promise<EngineStatus>;
+        stop(flowId: string): Promise<EngineStatus>;
         status(): Promise<EngineStatus>;
         /**
          * Run one flow against one specific email, ignoring the watermark. The run

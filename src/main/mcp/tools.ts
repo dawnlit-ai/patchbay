@@ -662,7 +662,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Engine status',
             description:
-                'Whether the poller is running, which triggers it is watching, when it last polled and what is running now.',
+                'Which flows are switched on, which of their triggers are polled, when it last polled and what is running now.',
             inputSchema: {},
             annotations: { readOnlyHint: true },
         },
@@ -672,23 +672,23 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
     server.registerTool(
         'start_watching',
         {
-            title: 'Start watching',
+            title: 'Start watching a flow',
             description:
-                'Switch the poller on. Every trigger that names a mailbox starts polling it, and mail that arrives starts real runs that cost real money.',
-            inputSchema: {},
+                'Switch one flow on. Every trigger in it that names a mailbox starts polling it, and mail that arrives starts real runs that cost real money. Refused while polling is off in Settings, and for a flow with no trigger that names a mailbox.',
+            inputSchema: { flowId: flowIdArg },
         },
-        () => json(host.watcher().start()),
+        ({ flowId }) => json(host.watcher().start(requireFlow(flowId).id)),
     );
 
     server.registerTool(
         'stop_watching',
         {
-            title: 'Stop watching',
-            description: 'Switch the poller off. A run already under way is left to finish.',
-            inputSchema: {},
+            title: 'Stop watching a flow',
+            description: 'Switch one flow off. A run of it already under way is left to finish.',
+            inputSchema: { flowId: flowIdArg },
             annotations: { idempotentHint: true },
         },
-        () => json(host.watcher().stop()),
+        ({ flowId }) => json(host.watcher().stop(flowId)),
     );
 
     server.registerTool(

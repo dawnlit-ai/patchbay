@@ -270,7 +270,7 @@ export function SettingsPanel({
                                 <div className="set-group">
                                     <Row
                                         label="Watch mailboxes"
-                                        description="Lets flows check the Outlook folders their triggers name. While it's off, Start watching does nothing; test runs still work."
+                                        description="Lets flows check the Outlook folders their triggers name. While it's off, Start watching is refused; test runs still work."
                                         control={
                                             <Switch
                                                 on={draft.pollingEnabled}

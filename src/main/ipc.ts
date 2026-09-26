@@ -240,8 +240,8 @@ export function registerIpc(): void {
         skillStore.linkGlobalLibrary('');
     });
 
-    handle(IPC.engineStart, () => getWatcher().start());
-    handle(IPC.engineStop, () => getWatcher().stop());
+    handle(IPC.engineStart, (flowId: string) => getWatcher().start(flowId));
+    handle(IPC.engineStop, (flowId: string) => getWatcher().stop(flowId));
     handle(IPC.engineStatus, () => getWatcher().status());
     handle(IPC.engineTestRun, (flowId: string, nodeId: string, email: EmailEnvelope) =>
         getWatcher().enqueueManual(flowId, nodeId, email),

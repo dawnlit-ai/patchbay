@@ -72,8 +72,8 @@ const api: Api = {
         unlink: () => call(IPC.skillsUnlink),
     },
     engine: {
-        start: () => call(IPC.engineStart),
-        stop: () => call(IPC.engineStop),
+        start: (flowId) => call(IPC.engineStart, flowId),
+        stop: (flowId) => call(IPC.engineStop, flowId),
         status: () => call(IPC.engineStatus),
         testRun: (flowId, nodeId, email) => call(IPC.engineTestRun, flowId, nodeId, email),
         cancel: (runId) => call(IPC.engineCancel, runId),

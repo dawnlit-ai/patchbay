@@ -35,6 +35,13 @@ function shape(flow: Flow): string {
     return triggers === 0 ? `${nodes} · no trigger` : `${nodes} · ${triggers} trigger${triggers === 1 ? '' : 's'}`;
 }
 
+/** Why a flow's mail is not being polled, for the badge that says so. */
+function notWatchedWhy(flow: Flow, status: EngineStatus | null): string {
+    if (findTriggers(flow).length === 0) return 'This flow has no trigger';
+    if (status?.flowIds.includes(flow.id) !== true) return 'Watching is off for this flow';
+    return 'No trigger in this flow names a mailbox';
+}
+
 /**
  * A flow's path on one line, truncating the parent folders first so its own
  * folder always shows. Hovering shows the whole path in a panel below.
@@ -170,6 +177,11 @@ export function Welcome(): JSX.Element {
             refresh();
         });
 
+    const setWatching = (flowId: string, on: boolean): Promise<void> =>
+        attempt(async () => {
+            setStatus(await (on ? window.api.engine.start(flowId) : window.api.engine.stop(flowId)));
+        });
+
     const importFlow = (): Promise<void> =>
         attempt(async () => {
             const imported = await window.api.flows.pickAndImport();
@@ -190,6 +202,9 @@ export function Welcome(): JSX.Element {
     const actions = (entry: FlowEntry): MenuItem[] => [
         { label: 'Open', onSelect: () => void open(entry.flow) },
         { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
+        status?.flowIds.includes(entry.flow.id) === true
+            ? { label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false) }
+            : { label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true) },
         { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
         { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
         { label: 'Delete', separator: true, danger: true, onSelect: () => setDialog({ kind: 'delete', entry }) },
@@ -324,9 +339,13 @@ export function Welcome(): JSX.Element {
                                 <div className="grow">
                                     <div className="title">
                                         {entry.flow.name}
-                                        {watched.has(entry.flow.id) && (
+                                        {watched.has(entry.flow.id) ? (
                                             <span className="badge ok" title="A trigger in this flow is being polled">
                                                 <span className="dot live"/> watching
+                                            </span>
+                                        ) : (
+                                            <span className="badge" title={notWatchedWhy(entry.flow, status)}>
+                                                <span className="dot"/> not watching
                                             </span>
                                         )}
                                     </div>

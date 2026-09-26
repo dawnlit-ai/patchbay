@@ -57,6 +57,16 @@ interface WatchedTrigger {
     config: TriggerConfig;
 }
 
+/** A flow's triggers, whether or not they name a mailbox yet. */
+function triggersOf(flow: Flow): WatchedTrigger[] {
+    return findTriggers(flow).flatMap((node) => {
+        const config = triggerConfig(node);
+        return config ? [{ flow, node, config }] : [];
+    });
+}
+
+const namesMailbox = (t: WatchedTrigger): boolean => t.config.account.trim() !== '';
+
 /** A run under way: what stops it, and the flow whose turn it holds. */
 interface ActiveRun {
     controller: AbortController;
@@ -95,7 +105,10 @@ export interface QueuedRun {
 export type CancelOutcome = 'stopping' | 'dequeued' | 'unknown';
 
 export class Watcher {
+    /** Runs while any flow is switched on. */
     private timer: NodeJS.Timeout | null = null;
+    /** Flows switched on. Not persisted: after a relaunch, nothing polls until asked to. */
+    private flowIds = new Set<string>();
     private queue: QueueItem[] = [];
     private polling = false;
     private active = new Map<string, ActiveRun>();
@@ -111,21 +124,33 @@ export class Watcher {
     ) {
     }
 
-    start(): EngineStatus {
-        if (this.timer) return this.status();
+    /**
+     * Switch one flow on. Refused while polling is off in Settings, and for a flow
+     * with no trigger that names a mailbox.
+     */
+    start(flowId: string): EngineStatus {
+        const flow = getFlow(flowId);
+        if (!flow) throw new Error(`No flow ${flowId}`);
+        if (this.flowIds.has(flowId)) return this.status();
         if (!getSettings().pollingEnabled) {
-            this.lastError = 'Polling is switched off in Settings.';
-            log.warn('watcher', `Not watching: ${this.lastError}`);
-            this.onStatus();
-            return this.status();
+            log.warn('watcher', `Not watching ${flow.name}: polling is switched off in Settings`);
+            throw new Error('Polling is switched off in Settings.');
+        }
+        const triggers = triggersOf(flow);
+        const polled = triggers.filter(namesMailbox);
+        if (polled.length === 0) {
+            throw new Error(
+                triggers.length === 0
+                    ? `"${flow.name}" has no trigger, so there is nothing to watch.`
+                    : `No trigger in "${flow.name}" names a mailbox yet.`,
+            );
         }
         this.lastError = undefined;
+        this.flowIds.add(flowId);
         // A fixed tick; each trigger's own pollSeconds decides when its turn comes.
-        this.timer = setInterval(() => void this.poll(), 15_000);
-        const triggers = this.triggers();
-        const idle = triggers.filter((t) => t.config.account.trim() === '');
-        log.info('watcher', `Started watching ${triggers.length - idle.length} mailbox(es)`);
-        for (const { flow, node } of idle) {
+        this.timer ??= setInterval(() => void this.poll(), 15_000);
+        log.info('watcher', `Started watching ${flow.name}: ${polled.length} mailbox(es)`);
+        for (const { node } of triggers.filter((t) => !namesMailbox(t))) {
             log.warn('watcher', `${where(flow, node)} names no mailbox, so it is not polled`);
         }
         void this.poll();
@@ -133,22 +158,23 @@ export class Watcher {
         return this.status();
     }
 
-    stop(): EngineStatus {
-        if (this.timer) {
-            clearInterval(this.timer);
-            log.info('watcher', 'Stopped watching');
-        }
-        this.timer = null;
-        // A polled email was marked seen when it was queued, so one dropped here is
-        // never picked up again. Worth a line each: only a test run brings it back.
-        for (const item of this.queue) {
-            log.warn('watcher', `Dropped from the queue, not run: "${item.email.subject}"`, {
-                detail: `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`,
-            });
-        }
-        this.queue = [];
+    /** Switch one flow off. A run of it already under way is left to finish. */
+    stop(flowId: string): EngineStatus {
+        if (!this.flowIds.delete(flowId)) return this.status();
+        log.info('watcher', `Stopped watching ${getFlow(flowId)?.name ?? flowId}`);
+        this.dropQueued((item) => item.flow.id === flowId);
+        this.stopTimerIfIdle();
         this.onStatus();
         return this.status();
+    }
+
+    /** Switch every flow off, as closing the last window does. */
+    stopAll(): void {
+        if (this.flowIds.size > 0) log.info('watcher', 'Stopped watching every flow');
+        this.flowIds.clear();
+        this.dropQueued(() => true);
+        this.stopTimerIfIdle();
+        this.onStatus();
     }
 
     status(): EngineStatus {
@@ -162,6 +188,7 @@ export class Watcher {
         }));
         return {
             running: this.timer !== null,
+            flowIds: [...this.flowIds],
             watching,
             lastPollAt: this.lastPollAt,
             lastError: this.lastError,
@@ -229,12 +256,14 @@ export class Watcher {
                 'A run of this flow is in progress. Its folder is the directory that run works in, so the flow cannot be deleted until the run finishes or is cancelled.',
             );
         }
+        if (this.flowIds.delete(flowId)) {
+            this.stopTimerIfIdle();
+            this.onStatus();
+        }
         const queued = this.queue.filter((item) => item.flow.id === flowId);
         for (const item of queued) this.cancel(item.runId);
         return queued.length;
     }
-
-    // ── Polling ────────────────────────────────────────────────────────────
 
     /**
      * Queue a run of a chosen email from a chosen trigger, bypassing the
@@ -251,19 +280,33 @@ export class Watcher {
         return runId;
     }
 
-    /** Every trigger in the library, whether or not it names a mailbox yet. */
-    private triggers(): WatchedTrigger[] {
-        return listFlows().flatMap((flow) =>
-            findTriggers(flow).flatMap((node) => {
-                const config = triggerConfig(node);
-                return config ? [{ flow, node, config }] : [];
-            }),
-        );
+    private stopTimerIfIdle(): void {
+        if (this.flowIds.size > 0 || !this.timer) return;
+        clearInterval(this.timer);
+        this.timer = null;
+    }
+    
+    /**
+     * A polled email was marked seen when it was queued, so one dropped here is
+     * never picked up again. Worth a line each: only a test run brings it back.
+     */
+    private dropQueued(which: (item: QueueItem) => boolean): void {
+        for (const item of this.queue.filter(which)) {
+            log.warn('watcher', `Dropped from the queue, not run: "${item.email.subject}"`, {
+                detail: `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`,
+            });
+        }
+        this.queue = this.queue.filter((item) => !which(item));
     }
 
-    /** Those a poll can actually read. A trigger with no account yet is left alone. */
+    /** Every trigger in the library, whether or not it names a mailbox yet. */
+    private triggers(): WatchedTrigger[] {
+        return listFlows().flatMap(triggersOf);
+    }
+
+    /** Those a poll reads: in a flow switched on, and naming a mailbox. */
     private watchedTriggers(): WatchedTrigger[] {
-        return this.triggers().filter((t) => t.config.account.trim() !== '');
+        return this.triggers().filter((t) => this.flowIds.has(t.flow.id) && namesMailbox(t));
     }
 
     private async poll(): Promise<void> {
@@ -284,8 +327,10 @@ export class Watcher {
                 changed = true;
             }
 
-            for (const { flow, node, config } of triggers) {
-                if (config.account.trim() === '') continue;
+            // Marks are kept above for every trigger; only a switched-on flow's are read.
+            for (const trigger of triggers) {
+                const { flow, node, config } = trigger;
+                if (!this.flowIds.has(flow.id) || !namesMailbox(trigger)) continue;
                 const key = markKey(flow.id, node.id);
 
                 const due = (this.lastPollPerTrigger.get(key) ?? 0) + config.pollSeconds * 1000;
@@ -301,6 +346,8 @@ export class Watcher {
                     log.error('watcher', `Poll failed at ${this.lastError}`);
                     continue;
                 }
+                // Switched off while Outlook answered: left unmarked, for when it is back on.
+                if (!this.flowIds.has(flow.id)) continue;
 
                 const mark: Watermark = marks[key] ?? { seen: [], primed: false };
                 const keyedBy = keyedByFor(config);

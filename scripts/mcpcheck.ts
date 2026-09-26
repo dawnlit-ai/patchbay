@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { EngineStatus } from '../src/shared/settings';
 
 /** Not the default port: a check should not fight the app if it is running. */
 const PORT = 8799;
@@ -326,7 +327,10 @@ async function main(): Promise<void> {
     const settings = await call('get_settings');
     check('the token is withheld', settings.includes('(withheld)') && !settings.includes(TOKEN));
 
-    await call('get_status');
+    // Refused before any poll, so Outlook is never reached.
+    const unwatchable = await client.callTool({ name: 'start_watching', arguments: { flowId } });
+    check('a flow whose trigger names no mailbox is not switched on', unwatchable.isError === true);
+    check('nothing is being watched', (JSON.parse(await call('get_status')) as EngineStatus).flowIds.length === 0);
     await call('list_runs', { limit: 3 });
     await call('get_flow', { flowId });
     await call('delete_flow', { flowId });

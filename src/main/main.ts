@@ -29,7 +29,7 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
     // No window, no poller and no agent server.
-    getWatcher().stop();
+    getWatcher().stopAll();
     getAgentControl().stop();
     if (process.platform !== 'darwin') app.quit();
 });
