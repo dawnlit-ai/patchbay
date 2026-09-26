@@ -10,6 +10,7 @@ import {
     type FlowIssue,
     type FlowNode,
     hasInput,
+    type JsonSchema,
     NODE_KIND_META,
     type NodeConfig,
     outputPorts,
@@ -393,19 +394,25 @@ function slotNameProblem(name: string): string | null {
     return null;
 }
 
-function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Element {
-    const listing = useModels();
-    const pickModel = (model: string): void => {
-        const levels = findModel(listing.models, model)?.effortLevels ?? [];
-        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
-        patch(kept ? { model } : { model, effort: '' });
-    };
-
+/**
+ * The slot a node fills and the schema of what goes in it. `optional` lets the
+ * name be left blank, for a node that hands nothing on.
+ */
+function OutputFields({
+                          config,
+                          patch,
+                          hint,
+                          optional = false,
+                      }: Section<{ output: string; schema: JsonSchema }> & {
+    hint: string;
+    optional?: boolean
+}): JSX.Element {
     // Drafts, so a half-typed name or schema is never saved in place of the last good one.
     const [output, setOutput] = useState(config.output);
     const [schema, setSchema] = useState(() => JSON.stringify(config.schema, null, 2));
     const [schemaError, setSchemaError] = useState<string | null>(null);
-    const outputProblem = slotNameProblem(output);
+    const problem = (name: string): string | null => (optional && name === '' ? null : slotNameProblem(name));
+    const outputProblem = problem(output);
 
     const editSchema = (text: string): void => {
         setSchema(text);
@@ -424,33 +431,52 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
 
     return (
         <>
-            <Field
-                label="Output slot"
-                hint={outputProblem ?? 'Later nodes read the result by this name. It is filled only on Valid.'}
-            >
+            <Field label="Output slot" hint={outputProblem ?? hint}>
                 <input
                     value={output}
+                    placeholder={optional ? '(hands nothing on)' : undefined}
                     onChange={(e) => {
                         setOutput(e.target.value);
-                        if (!slotNameProblem(e.target.value)) patch({ output: e.target.value });
+                        if (!problem(e.target.value)) patch({ output: e.target.value });
                     }}
                 />
             </Field>
 
-            <Field
-                label="Schema"
-                hint={
-                    schemaError ??
-                    'JSON Schema for the result. Give each field a description: it is what Claude reads to find it.'
-                }
-            >
-                <textarea
-                    rows={12}
-                    spellCheck={false}
-                    value={schema}
-                    onChange={(e) => editSchema(e.target.value)}
-                />
-            </Field>
+            {config.output !== '' && (
+                <Field
+                    label="Schema"
+                    hint={
+                        schemaError ??
+                        'JSON Schema for the result. Give each field a description: it is what Claude reads to fill it.'
+                    }
+                >
+                    <textarea
+                        rows={12}
+                        spellCheck={false}
+                        value={schema}
+                        onChange={(e) => editSchema(e.target.value)}
+                    />
+                </Field>
+            )}
+        </>
+    );
+}
+
+function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Element {
+    const listing = useModels();
+    const pickModel = (model: string): void => {
+        const levels = findModel(listing.models, model)?.effortLevels ?? [];
+        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
+        patch(kept ? { model } : { model, effort: '' });
+    };
+
+    return (
+        <>
+            <OutputFields
+                config={config}
+                patch={patch}
+                hint="Later nodes read the result by this name. It is filled only on Valid."
+            />
 
             <Field label="Instruction"
                    hint="Anything the schema's descriptions leave out, like where in the email to look.">
@@ -562,6 +588,13 @@ function ProcessorFields({
                 />
             </Field>
 
+            <OutputFields
+                config={config}
+                patch={patch}
+                optional
+                hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
+            />
+
             {/* Not side by side: the model's hint says which version it is, and wants the width. */}
             <ModelField {...listing} value={config.model} onChange={pickModel}/>
             <EffortField
@@ -626,7 +659,8 @@ function InputsField({
 
     let hint: string;
     if (!available) hint = 'Connect this node to a trigger to see which data reaches it.';
-    else if (offered.length === 0) hint = 'No data from earlier nodes yet — an Extractor before this one fills a slot on Valid.';
+    else if (offered.length === 0)
+        hint = 'No data from earlier nodes yet — an Extractor, or a Processor with an output slot, before this one fills one.';
     else hint = 'Data goes into the prompt as JSON. Only slots every path here fills are offered.';
 
     return (
@@ -796,7 +830,7 @@ export function Inspector({ node, skills, available, issues, onChange, onDelete 
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'extractor' && <ExtractorFields key={node.id} config={config} patch={patch}/>}
             {config.kind === 'processor' && (
-                <ProcessorFields config={config} patch={patch} skills={skills} available={available}/>
+                <ProcessorFields key={node.id} config={config} patch={patch} skills={skills} available={available}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

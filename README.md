@@ -31,7 +31,9 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   and puts the result in a named slot. It leaves by *Valid* when every field was in the email and the result matches the
   schema, by *Incomplete* when something is missing or wrong, or by *Error*.
 - **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
-  by *Needs review* when it finished but a person has to decide or check something, or by *Error*.
+  by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
+  slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each
+  hand their work to the next — and a run that stops shows which step it stopped at.
 - **Terminal** — ends a path, records a disposition, optionally files the email.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
@@ -39,7 +41,9 @@ That constraint is what makes a run a readable path rather than a cloud of concu
 
 ### Data on the wire
 
-A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*.
+A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
+a Processor with an output slot fills it only on *Done*, and one that says *Done* with a result that doesn't match its
+schema leaves by *Error* instead.
 A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
 path. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
 or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act

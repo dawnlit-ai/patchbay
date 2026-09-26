@@ -278,6 +278,17 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 const PORT_FOR_OUTCOME: Record<string, string> = { done: 'done', 'needs-review': 'review', failed: 'error' };
 
 async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
+    // Built before Claude is asked, as the Extractor does, so a bad schema costs no run.
+    let validator: z.ZodType | undefined;
+    if (config.output) {
+        try {
+            validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
+        } catch (e) {
+            const message = `The schema of ${config.output} cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+            return { outPort: 'error', summary: message, error: message };
+        }
+    }
+
     const actions: string[] = [];
     const server = createEmailToolServer({
         email: ctx.email,
@@ -321,6 +332,12 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         ...slotContext(ctx, config.inputs),
         '',
         'When you are finished, return the structured result describing what you did.',
+        ...(config.output
+            ? [
+                `With the outcome "done", put your result in \`data\`: the nodes after this one read it`,
+                `as "${config.output}", and it is all of your work they get. Leave \`data\` out otherwise.`,
+            ]
+            : []),
     ].join('\n');
 
     // The global library lives outside the run's directory, so it arrives as a
@@ -358,6 +375,9 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
                 },
                 summary: { type: 'string' },
                 actions: { type: 'array', items: { type: 'string' } },
+                // Optional in the shape, since a run that stops for review has
+                // nothing to hand on; Done without it is caught below.
+                ...(config.output ? { data: config.schema } : {}),
             },
             required: ['outcome', 'summary', 'actions'],
             additionalProperties: false,
@@ -376,16 +396,38 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         outcome?: string;
         summary?: string;
         actions?: string[];
+        data?: unknown;
     };
     // Both what the tools recorded and what Claude says it did go in the summary.
     // The tool record wins any argument: it is the one that touched Outlook.
     const performed = actions.length > 0 ? ` [${actions.join('; ')}]` : '';
     const stated = (answer.actions ?? []).join('; ');
+    const summary = `${answer.summary ?? 'Processed'}${performed}${stated ? ` — ${stated}` : ''}`;
+    const outPort = PORT_FOR_OUTCOME[answer.outcome ?? ''] ?? 'done';
 
-    return {
-        outPort: PORT_FOR_OUTCOME[answer.outcome ?? ''] ?? 'done',
-        summary: `${answer.summary ?? 'Processed'}${performed}${stated ? ` — ${stated}` : ''}`,
-    };
+    if (!validator) return { outPort, summary };
+
+    if (answer.data !== undefined) {
+        ctx.onEvent({
+            at: now(),
+            type: 'note',
+            label: `Filled ${config.output}`,
+            detail: JSON.stringify(answer.data, null, 2),
+        });
+    }
+    if (outPort !== 'done') return { outPort, summary };
+
+    // The nodes after Done read this slot unconditionally, so a result that
+    // doesn't match is a broken run rather than a thinner one.
+    const checked = answer.data === undefined ? null : validator.safeParse(answer.data);
+    if (!checked?.success) {
+        const problems = checked
+            ? checked.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')
+            : 'it returned none';
+        const message = `Finished as done, but ${config.output} does not match its schema: ${problems}`;
+        return { outPort: 'error', summary: `${message} — ${summary}`, error: message };
+    }
+    return { outPort, summary, provided: { [config.output]: answer.data } };
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────

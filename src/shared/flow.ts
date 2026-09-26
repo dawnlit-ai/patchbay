@@ -80,6 +80,13 @@ export interface ProcessorConfig {
     readEmail: boolean;
     /** Slots an earlier node filled, put into the prompt as JSON. */
     inputs: string[];
+    /**
+     * The slot later nodes read this node's result by, filled when it leaves by
+     * Done. Empty fills nothing: the node reports how it went and hands on no data.
+     */
+    output: string;
+    /** JSON Schema that result has to match. Unused while `output` is empty. */
+    schema: JsonSchema;
     model: string;
     /** One of the levels Claude Code lists for this model (they vary). Empty uses the model's default. */
     effort: string;
@@ -209,6 +216,11 @@ export function provides(node: FlowNode, port: string): Slot[] {
         case 'extractor':
             // Only Valid promises the data: Incomplete may have left fields out.
             return port === 'valid'
+                ? [{ name: node.config.output, type: { kind: 'json', schema: node.config.schema } }]
+                : [];
+        case 'processor':
+            // Needs review may stop short of the result, so only Done promises it.
+            return port === 'done' && node.config.output
                 ? [{ name: node.config.output, type: { kind: 'json', schema: node.config.schema } }]
                 : [];
         default:
@@ -384,6 +396,8 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 instruction: 'Handle this email according to the selected skill.',
                 readEmail: true,
                 inputs: [],
+                output: '',
+                schema: { type: 'object', properties: {} },
                 model: DEFAULT_MODEL,
                 effort: 'high',
                 allowDraftReply: false,
@@ -583,13 +597,16 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
             };
         }
-        case 'processor':
+        case 'processor': {
+            const output = str(from.output, '');
             return {
                 ...base,
                 skills: strings(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
                 readEmail: bool(from.readEmail, base.readEmail),
                 inputs: strings(from.inputs, base.inputs),
+                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
+                schema: isObject(from.schema) ? from.schema : base.schema,
                 model: str(from.model, base.model),
                 effort: str(from.effort, base.effort),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
@@ -597,6 +614,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
             };
+        }
         case 'terminal':
             return {
                 ...base,

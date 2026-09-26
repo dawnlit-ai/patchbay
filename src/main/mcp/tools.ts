@@ -56,15 +56,23 @@ export const INSTRUCTIONS = `Patchbay wires email-processing flows on a canvas.
 
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
-rather than a fan-out. The four node kinds:
+rather than a fan-out. The five node kinds:
 
 - trigger.outlook — watches one mailbox folder and starts a run per new email.
 - categorizer     — an if/else written in prose: each category is an output port
                     and Claude picks exactly one, with an "unmatched" port for
                     the rest.
+- extractor       — pulls fields out of the email into its JSON \`schema\` and
+                    fills the slot named by \`output\`. Ports: "valid",
+                    "invalid" and "error"; only "valid" fills the slot.
 - processor       — runs Claude with the skills it ticks, scoped to one email.
                     Ports: "done", "review" (it needs a person) and "error".
+                    With \`output\` and \`schema\` set, its result fills that
+                    slot on "done" — how one step hands its work to the next.
 - terminal        — ends the path and records how the email came out.
+
+A later node reads a slot by listing it in \`inputs\` (a processor); get_flow's
+slotsOnArrival says which slots are sure to reach a node.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
