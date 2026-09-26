@@ -160,10 +160,10 @@ function describe(node: FlowNode): string {
             const fields = Object.keys((c.schema.properties as Record<string, unknown> | undefined) ?? {}).length;
             return `→ ${c.output} · ${fields} field${fields === 1 ? '' : 's'}${c.includeAttachments ? ' · reads attachments' : ''}`;
         }
-        case 'processor': {
-            const skills = c.skills.length > 0 ? `skills: ${c.skills.join(', ')}` : 'No skill assigned — instruction only';
-            return c.inputs.length > 0 ? `${skills} · reads ${c.inputs.join(', ')}` : skills;
-        }
+        case 'processor':
+            return c.skills.length > 0
+                ? `skills: ${c.skills.join(', ')}`
+                : 'No skill assigned — instruction only';
         case 'terminal':
             return c.moveToFolder ? `${c.disposition} · file in ${c.moveToFolder}` : c.disposition;
     }

@@ -13,13 +13,13 @@ import {
     NODE_KIND_META,
     type NodeConfig,
     outputPorts,
+    type ProcessorConfig,
     provides,
     requires,
-    type Slot,
-    slotTypeLabel,
-    type ProcessorConfig,
     shortId,
+    type Slot,
     SLOT_NAME,
+    slotTypeLabel,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -452,7 +452,8 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
                 />
             </Field>
 
-            <Field label="Instruction" hint="Anything the schema's descriptions leave out, like where in the email to look.">
+            <Field label="Instruction"
+                   hint="Anything the schema's descriptions leave out, like where in the email to look.">
                 <textarea
                     rows={3}
                     value={config.instruction}
@@ -571,10 +572,11 @@ function ProcessorFields({
             />
 
             <div className="section-title">What this node may do</div>
-            <label className="check">
+            <label className="check" title={config.readEmail ? undefined : 'Needs the email ticked under Reads.'}>
                 <input
                     type="checkbox"
-                    checked={config.allowSaveAttachments}
+                    disabled={!config.readEmail}
+                    checked={config.readEmail && config.allowSaveAttachments}
                     onChange={(e) => patch({ allowSaveAttachments: e.target.checked })}
                 />
                 Save attachments to the run folder
@@ -610,7 +612,7 @@ function ProcessorFields({
     );
 }
 
-/** Slots an earlier node filled, ticked to put them in the prompt. */
+/** What goes into the prompt: the email, slots an earlier node filled, or both. */
 function InputsField({
                          config,
                          patch,
@@ -623,13 +625,21 @@ function InputsField({
         patch({ inputs: on ? [...config.inputs, name] : config.inputs.filter((n) => n !== name) });
 
     let hint: string;
-    if (!available) hint = 'Connect this node to a trigger to see what reaches it.';
-    else if (offered.length === 0) hint = 'Nothing yet — an Extractor before this node fills a slot on its Valid port.';
-    else hint = 'Put into the prompt as JSON. Only slots every path here fills are offered.';
+    if (!available) hint = 'Connect this node to a trigger to see which data reaches it.';
+    else if (offered.length === 0) hint = 'No data from earlier nodes yet — an Extractor before this one fills a slot on Valid.';
+    else hint = 'Data goes into the prompt as JSON. Only slots every path here fills are offered.';
 
     return (
         <>
-            <Legend label="Data from earlier nodes" hint={hint}/>
+            <Legend label="Reads" hint={hint}/>
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.readEmail}
+                    onChange={(e) => patch({ readEmail: e.target.checked })}
+                />
+                The email — its body, and its attachments if allowed below
+            </label>
             {[...offered, ...stranded].map((name) => (
                 <label className="check" key={name}>
                     <input
@@ -724,8 +734,8 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
                     ports.length === 0
                         ? 'Nothing: the path ends here.'
                         : hasInput(node.kind)
-                          ? 'Everything it arrived with, plus what a port adds.'
-                          : undefined
+                            ? 'Everything it arrived with, plus what a port adds.'
+                            : undefined
                 }
             />
             {ports.map((port) => {

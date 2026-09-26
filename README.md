@@ -41,7 +41,9 @@ That constraint is what makes a run a readable path rather than a cloud of concu
 
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*.
 A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
-path. A Processor ticks the slots it wants under *Data from earlier nodes*, and gets each in its prompt as JSON.
+path. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
+or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
+on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone.
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
 for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
 to bring, and what leaves by each port.

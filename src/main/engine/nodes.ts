@@ -169,7 +169,11 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
             ctx.email.body = result.body;
             ctx.onEvent({ at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)` });
         } catch (e) {
-            return { outPort: 'error', summary: 'Could not read the body', error: e instanceof Error ? e.message : String(e) };
+            return {
+                outPort: 'error',
+                summary: 'Could not read the body',
+                error: e instanceof Error ? e.message : String(e)
+            };
         }
     }
 
@@ -182,7 +186,12 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         return { outPort: 'error', summary: message, error: message };
     }
 
-    const capabilities = { allowSaveAttachments: config.includeAttachments, allowDraftReply: false, allowMoveEmail: false };
+    const capabilities = {
+        readEmail: true,
+        allowSaveAttachments: config.includeAttachments,
+        allowDraftReply: false,
+        allowMoveEmail: false,
+    };
     const server = createEmailToolServer({
         email: ctx.email,
         scratchDir: ctx.scratchDir,
@@ -289,17 +298,26 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     }
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 
+    const acting = config.allowDraftReply || config.allowMoveEmail;
     const prompt = [
         config.instruction.trim(),
         '',
-        'You are handling exactly one email. Use the `mcp__email__*` tools to work with',
-        'it — they are bound to this message and cannot reach any other. Read the full',
-        'body before you decide anything.',
+        ...(config.readEmail
+            ? [
+                'You are handling exactly one email. Use the `mcp__email__*` tools to work with',
+                'it — they are bound to this message and cannot reach any other. Read the full',
+                'body before you decide anything.',
+            ]
+            : [
+                'You are working from the data below, which earlier steps took from one email;',
+                'the email itself is not yours to read.',
+                ...(acting
+                    ? ['The `mcp__email__*` tools act on that email and cannot reach any other.']
+                    : []),
+            ]),
         '',
         `Scratch folder for this run (save and read files here): ${ctx.scratchDir}`,
-        '',
-        '--- Email ---',
-        emailContext(ctx.email, ctx.email.body),
+        ...(config.readEmail ? ['', '--- Email ---', emailContext(ctx.email, ctx.email.body)] : []),
         ...slotContext(ctx, config.inputs),
         '',
         'When you are finished, return the structured result describing what you did.',

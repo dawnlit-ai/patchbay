@@ -12,8 +12,11 @@ import * as outlook from '../outlook/bridge';
 
 export const EMAIL_SERVER_NAME = 'email';
 
-/** The switches that add a tool beyond reading. A Processor's config is one. */
-export type EmailCapabilities = Pick<ProcessorConfig, 'allowSaveAttachments' | 'allowDraftReply' | 'allowMoveEmail'>;
+/** The switches that decide which tools are built. A Processor's config is one. */
+export type EmailCapabilities = Pick<
+    ProcessorConfig,
+    'readEmail' | 'allowSaveAttachments' | 'allowDraftReply' | 'allowMoveEmail'
+>;
 
 export interface EmailToolContext {
     email: EmailEnvelope;
@@ -41,44 +44,47 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         ctx.onEvent({ at: now(), type: 'outlook', label, detail });
     };
 
+    const readEmail = tool(
+        'read_email',
+        'Read the email this run is about: its sender, subject, attachment names and the sender\'s own text, with the quoted thread below it left off unless `includeQuoted` asks for it — so a figure from an earlier message is never mistaken for this sender\'s. Also gives the email\'s Outlook reference, for a record that should link back to it. Call this before deciding anything — the preview in the prompt is truncated.',
+        {
+            maxChars: z.number().int().min(500).max(200_000).optional(),
+            includeQuoted: z.boolean().optional(),
+        },
+        async ({ maxChars, includeQuoted }) => {
+            const limit = maxChars ?? 50_000;
+            const withQuoted = includeQuoted === true;
+            const result = await outlook.readBody(email.ref, limit, withQuoted);
+            log(
+                'read_email',
+                `${result.bodyLength} characters${withQuoted ? ` + ${result.quotedLength} quoted` : ''}, ${result.attachmentCount} attachment(s)`,
+            );
+            const lines = [
+                ...emailHeader(result),
+                `Outlook reference: mailbox ${email.ref.account}, folder ${email.ref.folderPath}, entryId ${email.ref.entryId}, storeId ${email.ref.storeId}`,
+            ];
+            if (result.truncated) lines.push(`(body truncated at ${limit} characters)`);
+            lines.push('', result.body);
+            if (withQuoted) {
+                const cut = result.quotedLength > result.quotedOriginal.length
+                    ? ` (first ${result.quotedOriginal.length} of ${result.quotedLength} characters)`
+                    : '';
+                lines.push(
+                    '',
+                    `--- Quoted thread${cut} ---`,
+                    result.quotedOriginal || '(no quoted thread found below the reply)',
+                );
+            }
+            return ok(lines.join('\n'));
+        },
+        { annotations: { readOnlyHint: true } },
+    );
+
     // Each tool has its own schema type, so the array is annotated rather than
     // inferred from its first element.
     const tools: SdkMcpToolDefinition<any>[] = [
-        tool(
-            'read_email',
-            'Read the email this run is about: its sender, subject, attachment names and the sender\'s own text, with the quoted thread below it left off unless `includeQuoted` asks for it — so a figure from an earlier message is never mistaken for this sender\'s. Also gives the email\'s Outlook reference, for a record that should link back to it. Call this before deciding anything — the preview in the prompt is truncated.',
-            {
-                maxChars: z.number().int().min(500).max(200_000).optional(),
-                includeQuoted: z.boolean().optional(),
-            },
-            async ({ maxChars, includeQuoted }) => {
-                const limit = maxChars ?? 50_000;
-                const withQuoted = includeQuoted === true;
-                const result = await outlook.readBody(email.ref, limit, withQuoted);
-                log(
-                    'read_email',
-                    `${result.bodyLength} characters${withQuoted ? ` + ${result.quotedLength} quoted` : ''}, ${result.attachmentCount} attachment(s)`,
-                );
-                const lines = [
-                    ...emailHeader(result),
-                    `Outlook reference: mailbox ${email.ref.account}, folder ${email.ref.folderPath}, entryId ${email.ref.entryId}, storeId ${email.ref.storeId}`,
-                ];
-                if (result.truncated) lines.push(`(body truncated at ${limit} characters)`);
-                lines.push('', result.body);
-                if (withQuoted) {
-                    const cut = result.quotedLength > result.quotedOriginal.length
-                        ? ` (first ${result.quotedOriginal.length} of ${result.quotedLength} characters)`
-                        : '';
-                    lines.push(
-                        '',
-                        `--- Quoted thread${cut} ---`,
-                        result.quotedOriginal || '(no quoted thread found below the reply)',
-                    );
-                }
-                return ok(lines.join('\n'));
-            },
-            { annotations: { readOnlyHint: true } },
-        ),
+        // Left out for a node that works from earlier nodes' data alone.
+        ...(config.readEmail ? [readEmail] : []),
 
         tool(
             'record_note',
@@ -92,7 +98,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         ),
     ];
 
-    if (config.allowSaveAttachments) {
+    if (config.readEmail && config.allowSaveAttachments) {
         tools.push(
             tool(
                 'save_attachment',
@@ -179,8 +185,9 @@ export function createEmailToolServer(ctx: EmailToolContext) {
 
 /** The allowlist entries matching the tools built above, for `dontAsk` mode. */
 export function emailToolNames(config: EmailCapabilities): string[] {
-    const names = ['read_email', 'record_note'];
-    if (config.allowSaveAttachments) names.push('save_attachment');
+    const names = ['record_note'];
+    if (config.readEmail) names.push('read_email');
+    if (config.readEmail && config.allowSaveAttachments) names.push('save_attachment');
     if (config.allowDraftReply) names.push('draft_reply');
     if (config.allowMoveEmail) names.push('move_email');
     return names.map((n) => `mcp__${EMAIL_SERVER_NAME}__${n}`);

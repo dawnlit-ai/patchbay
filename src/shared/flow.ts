@@ -72,6 +72,12 @@ export interface ProcessorConfig {
     skills: string[];
     /** Free-text instruction prepended to the email context. */
     instruction: string;
+    /**
+     * Whether Claude gets the email's content: its body in the prompt, `read_email`,
+     * and its attachments. Off, the node works from `inputs` alone; drafting a reply
+     * and moving the email still act on it.
+     */
+    readEmail: boolean;
     /** Slots an earlier node filled, put into the prompt as JSON. */
     inputs: string[];
     model: string;
@@ -216,7 +222,7 @@ export function requires(node: FlowNode): string[] {
         case 'trigger.outlook':
             return [];
         case 'processor':
-            return [EMAIL_SLOT.name, ...node.config.inputs];
+            return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
         default:
             return [EMAIL_SLOT.name];
     }
@@ -288,6 +294,13 @@ export function checkSlots(flow: Flow): SlotCheck {
     for (const node of flow.nodes) {
         const held = arriving.get(node.id);
         if (!held) continue;
+        if (requires(node).length === 0 && hasInput(node.kind)) {
+            issues.push({
+                nodeId: node.id,
+                severity: 'error',
+                message: `${node.name} reads nothing: give it the email, data from an earlier node, or both.`,
+            });
+        }
         for (const name of requires(node)) {
             if (held.has(name)) continue;
             issues.push({
@@ -369,6 +382,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 kind,
                 skills: [],
                 instruction: 'Handle this email according to the selected skill.',
+                readEmail: true,
                 inputs: [],
                 model: DEFAULT_MODEL,
                 effort: 'high',
@@ -574,6 +588,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 skills: strings(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
+                readEmail: bool(from.readEmail, base.readEmail),
                 inputs: strings(from.inputs, base.inputs),
                 model: str(from.model, base.model),
                 effort: str(from.effort, base.effort),
