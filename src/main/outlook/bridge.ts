@@ -6,6 +6,7 @@ import type {
     ReplyEmailParams,
     ReplyEmailResult,
     SavedAttachment,
+    SelectedEmail,
 } from '@dawnlit/outlook-bridge';
 import type { MailScope } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
@@ -188,8 +189,7 @@ const mailboxOf = (folderPath: string): string => /^\\\\([^\\]+)/.exec(folderPat
 /**
  * The email dragged out of Outlook onto a trigger. A drag carries no id, so this
  * takes Outlook's current selection, checked against the drag's own file name and
- * text. Any folder will do, but only in the trigger's mailbox: a run replies
- * from, and files into, the mailbox its email sits in.
+ * text.
  */
 export async function readDragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope> {
     const messages = drag.fileNames.filter((name) => /\.msg$/i.test(name));
@@ -197,11 +197,9 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
         throw new Error(`That was ${messages.length} emails. Drag one at a time — each one is a run of its own.`);
     }
 
-    const b = await bridge();
-    const selected = await serialize('Read the email selected in Outlook', () => b.readSelectedEmail());
-    const subject = selected.subject || '(no subject)';
-
+    const selected = await readSelection();
     if (!dropNames(selected.subject, drag, messages[0])) {
+        const subject = selected.subject || '(no subject)';
         log.warn('outlook', `A drop on a trigger did not match the email selected in Outlook, "${subject}"`, {
             detail: [
                 `formats: ${drag.types.join(', ') || '(none)'}`,
@@ -213,7 +211,27 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
             `That drop doesn't match the email selected in Outlook ("${subject}"). Drag a single email out of Outlook's message list.`,
         );
     }
+    return inMailbox(account, selected);
+}
 
+/**
+ * The email selected in Outlook, taken without a drag — on a Mac, where Outlook's
+ * drag never reaches the page, the only way to hand a trigger one email.
+ */
+export async function readSelected(account: string): Promise<EmailEnvelope> {
+    return inMailbox(account, await readSelection());
+}
+
+async function readSelection(): Promise<SelectedEmail> {
+    const b = await bridge();
+    return serialize('Read the email selected in Outlook', () => b.readSelectedEmail());
+}
+
+/**
+ * The selected email as a run's envelope. Any folder will do, but only in the
+ * trigger's mailbox: a run replies from, and files into, the mailbox its email sits in.
+ */
+async function inMailbox(account: string, selected: SelectedEmail): Promise<EmailEnvelope> {
     const bodyPreview = selected.body.slice(0, 600);
     if (mailboxOf(selected.folderPath).toLowerCase() === account.toLowerCase()) {
         return toEnvelope(account, { ...selected, bodyPreview });
@@ -221,7 +239,8 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
 
     // A profile can open a mailbox under a display name rather than its address,
     // so a path naming another mailbox is checked by a search before it is refused.
-    const found = await serialize(`Find the dragged email in ${account}`, () =>
+    const b = await bridge();
+    const found = await serialize(`Find the selected email in ${account}`, () =>
         b.locateEmail({
             subject: selected.subject,
             sender: selected.senderEmail,
@@ -230,6 +249,7 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
         }),
     );
     if (!found) {
+        const subject = selected.subject || '(no subject)';
         const where = selected.folderPath.replace(/^\\+/, '');
         throw new Error(
             `"${subject}" from ${selected.senderEmail} ${where ? `is in ${where}, not` : "isn't in"} ${account} — the mailbox this trigger watches.`,

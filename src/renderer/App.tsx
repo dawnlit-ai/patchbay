@@ -9,7 +9,6 @@ import {
     retickSkill,
     triggerConfig,
 } from '@shared/flow';
-import type { OutlookDrag } from '@shared/ipc';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
@@ -393,15 +392,18 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
-    /** An email dragged straight out of Outlook: found in the trigger's mailbox first, then run like any other. */
-    const runOutlookDrag = (nodeId: string, drag: OutlookDrag): void => {
+    /**
+     * An email taken from Outlook — dragged out of it, or selected in it: found in
+     * the trigger's mailbox first, then run like any other.
+     */
+    const runFromOutlook = (nodeId: string, take: (account: string) => Promise<EmailEnvelope>): void => {
         const trigger = flow?.nodes.find((n) => n.id === nodeId);
         const account = triggerConfig(trigger)?.account ?? '';
         if (!account) {
-            setError(`Choose a mailbox on “${trigger?.name ?? 'the trigger'}” first — the dragged email is looked for there.`);
+            setError(`Choose a mailbox on “${trigger?.name ?? 'the trigger'}” first — the email is looked for there.`);
             return;
         }
-        void window.api.outlook.dragged(account, drag).then(
+        void take(account).then(
             (email) => runEmail(nodeId, email),
             (e: Error) => setError(e.message),
         );
@@ -492,7 +494,10 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         slots={slots}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
-                        onRunOutlookDrag={runOutlookDrag}
+                        onRunOutlookDrag={(nodeId, drag) =>
+                            runFromOutlook(nodeId, (account) => window.api.outlook.dragged(account, drag))
+                        }
+                        onRunOutlookSelected={(nodeId) => runFromOutlook(nodeId, window.api.outlook.selected)}
                     />
                     <div className={`dock${dockCollapsed ? ' collapsed' : ''}`}>
                         <div className="dock-tabs">

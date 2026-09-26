@@ -37,6 +37,7 @@ import {
 } from '@shared/flow';
 import type { Pass } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
+import { ContextMenu } from './ContextMenu';
 
 /**
  * The canvas. The Flow is the only source of truth: React Flow's nodes are derived
@@ -246,6 +247,9 @@ export interface FlowCanvasProps {
 
     /** Something dragged in from outside the app — an email out of Outlook — was dropped on a trigger. */
     onRunOutlookDrag(nodeId: string, drag: OutlookDrag): void;
+
+    /** A trigger was asked to run the email selected in Outlook — the Mac's stand-in for a drag. */
+    onRunOutlookSelected(nodeId: string): void;
 }
 
 /** What the node palette puts on a drag: the kind of node to place. */
@@ -259,12 +263,15 @@ export function FlowCanvas({
                                onChange,
                                onSelect,
                                onRunOutlookDrag,
+                               onRunOutlookSelected,
                            }: FlowCanvasProps): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
     /** The trigger a dragged email is over. Only read while `mailDrag` holds. */
     const [dropTarget, setDropTarget] = useState<string | null>(null);
     /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
     const [mailDrag, setMailDrag] = useState(false);
+    /** The trigger right-clicked, and where. */
+    const [menu, setMenu] = useState<{ node: FlowNode; x: number; y: number } | null>(null);
     /**
      * Each card's last measured size, handed back on every rebuilt node. React Flow
      * hides a node without one, which blanked the canvas on every frame of a drag.
@@ -433,6 +440,12 @@ export function FlowCanvas({
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onNodeClick={(_e, node) => onSelect(node.id)}
+                onNodeContextMenu={(e, node) => {
+                    const { flowNode } = node.data as NodeData;
+                    if (flowNode.kind !== 'trigger.outlook') return;
+                    e.preventDefault();
+                    setMenu({ node: flowNode, x: e.clientX, y: e.clientY });
+                }}
                 onPaneClick={() => onSelect(null)}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
@@ -462,6 +475,21 @@ export function FlowCanvas({
                     nodeColor={(n) => cssVar(`--k-${NODE_KIND_META[(n.data as NodeData).flowNode.kind].token}`)}
                 />
             </ReactFlow>
+
+            {menu && (
+                <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    label={menu.node.name}
+                    items={[
+                        {
+                            label: 'Run the email selected in Outlook',
+                            onSelect: () => onRunOutlookSelected(menu.node.id),
+                        },
+                    ]}
+                    onClose={() => setMenu(null)}
+                />
+            )}
 
             {flow.nodes.length === 0 && (
                 <div className="canvas-empty">

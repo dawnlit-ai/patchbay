@@ -55,6 +55,7 @@ const api: Api = {
         folders: (account) => call(IPC.outlookFolders, account),
         recent: (scope, days, limit) => call(IPC.outlookRecent, scope, days, limit),
         dragged: (account, drag) => call(IPC.outlookDragged, account, drag),
+        selected: (account) => call(IPC.outlookSelected, account),
     },
     claude: {
         models: () => call(IPC.claudeModels),

@@ -197,6 +197,7 @@ export function registerIpc(): void {
         outlook.readScope(scope, days, limit),
     );
     handle(IPC.outlookDragged, (account: string, drag: OutlookDrag) => outlook.readDragged(account, drag));
+    handle(IPC.outlookSelected, (account: string) => outlook.readSelected(account));
 
     handle(IPC.claudeModels, () => listModels());
 

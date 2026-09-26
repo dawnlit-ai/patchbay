@@ -189,6 +189,11 @@ flow, wire it, write, import and move skills, queue and cancel a run, read the c
    A drag from Outlook carries no id, so the app takes the email Outlook has selected — the one being dragged — once
    the drag's `.msg` name or text agrees with it, and runs it only if it is in the trigger's mailbox. It is always
    taken as a copy: Outlook keeps the email. One email per drop.
+
+   **On a Mac, select the email in Outlook and right-click the trigger → *Run the email selected in Outlook*.**
+   Outlook for Mac's drag carries only a promise to write the email out as a file, which Chromium never hands to
+   the page, so the trigger doesn't light up under it. The right-click takes the selected email with no drag to
+   check it against, and works on Windows too.
 5. When the path looks right, **Start watching**.
 
 The trigger does not process mail already sitting in the folder unless you ask it to — switching a flow on shouldn't

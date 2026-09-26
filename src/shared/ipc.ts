@@ -128,6 +128,8 @@ export interface Api {
          * Outlook's selection or lives in another mailbox.
          */
         dragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope>;
+        /** The email selected in Outlook, for a trigger. Refused if it lives in another mailbox. */
+        selected(account: string): Promise<EmailEnvelope>;
     };
     claude: {
         /** The models the Claude login offers now, asked of Claude Code rather than written into the app. */
@@ -265,6 +267,7 @@ export const IPC = {
     outlookFolders: 'outlook:folders',
     outlookRecent: 'outlook:recent',
     outlookDragged: 'outlook:dragged',
+    outlookSelected: 'outlook:selected',
 
     claudeModels: 'claude:models',
 
