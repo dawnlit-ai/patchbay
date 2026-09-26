@@ -27,12 +27,26 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   than by entry id — Outlook rewrites the id whenever an email moves, so filing one away doesn't make it new again.
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
+- **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
+  and puts the result in a named slot. It leaves by *Valid* when every field was in the email and the result matches the
+  schema, by *Incomplete* when something is missing or wrong, or by *Error*.
 - **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
   by *Needs review* when it finished but a person has to decide or check something, or by *Error*.
 - **Terminal** — ends a path, records a disposition, optionally files the email.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
+
+### Data on the wire
+
+A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*.
+A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
+path. A Processor ticks the slots it wants under *Data from earlier nodes*, and gets each in its prompt as JSON.
+
+A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `shipment`
+behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,
+and the flow cannot be watched until that is fixed: an email down the skipping branch would reach it with nothing
+there. A test run of such a flow stops at that node and says why.
 
 ## The welcome window
 

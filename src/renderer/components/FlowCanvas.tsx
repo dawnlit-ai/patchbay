@@ -21,6 +21,7 @@ import {
 import {
     connectNodes,
     type Flow,
+    type FlowIssue,
     type FlowNode,
     hasInput,
     makeNode,
@@ -51,6 +52,8 @@ interface NodeData extends Record<string, unknown> {
      * run at, `over` on the one it would land on if let go now.
      */
     drop?: 'ready' | 'over';
+    /** What `checkSlots` found wrong with the slots this node reads or fills. */
+    issues: FlowIssue[];
 }
 
 interface EdgeData extends Record<string, unknown> {
@@ -58,7 +61,7 @@ interface EdgeData extends Record<string, unknown> {
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass, drop } = data as NodeData;
+    const { flowNode, pass, drop, issues } = data as NodeData;
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
 
@@ -99,6 +102,12 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                 </div>
             )}
 
+            {issues.map((issue) => (
+                <div key={issue.message} className={`node-issue ${issue.severity}`}>
+                    {issue.message}
+                </div>
+            ))}
+
             {pass && <div className="node-note">{pass.summary}</div>}
         </div>
     );
@@ -114,10 +123,14 @@ function describe(node: FlowNode): string {
                 : 'No mailbox selected yet';
         case 'categorizer':
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${c.model}`;
-        case 'processor':
-            return c.skills.length > 0
-                ? `skills: ${c.skills.join(', ')}`
-                : 'No skill assigned — instruction only';
+        case 'extractor': {
+            const fields = Object.keys((c.schema.properties as Record<string, unknown> | undefined) ?? {}).length;
+            return `→ ${c.output} · ${fields} field${fields === 1 ? '' : 's'}${c.includeAttachments ? ' · reads attachments' : ''}`;
+        }
+        case 'processor': {
+            const skills = c.skills.length > 0 ? `skills: ${c.skills.join(', ')}` : 'No skill assigned — instruction only';
+            return c.inputs.length > 0 ? `${skills} · reads ${c.inputs.join(', ')}` : skills;
+        }
         case 'terminal':
             return c.moveToFolder ? `${c.disposition} · file in ${c.moveToFolder}` : c.disposition;
     }
@@ -192,6 +205,7 @@ export interface FlowCanvasProps {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
+    issues: FlowIssue[];
 
     onChange(flow: Flow): void;
 
@@ -208,6 +222,7 @@ export function FlowCanvas({
                                flow,
                                selectedNodeId,
                                highlight,
+                               issues,
                                onChange,
                                onSelect,
                                onRunOutlookDrag,
@@ -234,10 +249,15 @@ export function FlowCanvas({
                     position: n.position,
                     measured: measured.current.get(n.id),
                     selected: n.id === selectedNodeId,
-                    data: { flowNode: n, pass: highlight?.passes.get(n.id), drop } satisfies NodeData,
+                    data: {
+                        flowNode: n,
+                        pass: highlight?.passes.get(n.id),
+                        drop,
+                        issues: issues.filter((issue) => issue.nodeId === n.id),
+                    } satisfies NodeData,
                 };
             }),
-        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget],
+        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget, issues],
     );
 
     const removeEdge = useCallback(

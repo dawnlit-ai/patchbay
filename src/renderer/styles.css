@@ -53,6 +53,7 @@
     /* Node accents, per kind. */
     --k-trigger: #0f9d58;
     --k-categorizer: #2563eb;
+    --k-extractor: #0d9488;
     --k-processor: #7c3aed;
     --k-terminal: #64748b;
 
@@ -108,6 +109,7 @@
 
     --k-trigger: #4ade80;
     --k-categorizer: #60a5fa;
+    --k-extractor: #2dd4bf;
     --k-processor: #c084fc;
     --k-terminal: #9aa0a6;
 }
@@ -135,6 +137,10 @@ body {
 
 .kind-categorizer {
     --k: var(--k-categorizer);
+}
+
+.kind-extractor {
+    --k: var(--k-extractor);
 }
 
 .kind-processor {
@@ -1621,6 +1627,32 @@ button.wide {
     color: var(--muted);
     border-top: 1px solid var(--line-soft);
     background: var(--accent-soft);
+}
+
+/* A slot a node reads that some path to it never fills, or one it overwrites. */
+.node-issue {
+    padding: 6px 10px;
+    font-size: 11px;
+    border-top: 1px solid var(--line-soft);
+}
+
+.node-issue.error {
+    color: var(--err);
+    background: var(--err-soft);
+}
+
+.node-issue.warning {
+    color: var(--warn);
+}
+
+/* The inspector's form of the same. */
+.warn-banner {
+    border: 1px solid var(--warn-line);
+    color: var(--warn);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
 }
 
 /* ── Dock: runs and console, under the canvas ─────────────────────────── */

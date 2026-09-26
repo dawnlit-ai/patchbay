@@ -1,6 +1,14 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Flow, type FlowNode, NODE_KIND_META, type NodeKind, retickSkill, triggerConfig } from '@shared/flow';
+import {
+    checkSlots,
+    type Flow,
+    type FlowNode,
+    NODE_KIND_META,
+    NODE_KINDS,
+    retickSkill,
+    triggerConfig,
+} from '@shared/flow';
 import type { OutlookDrag } from '@shared/ipc';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
@@ -18,7 +26,6 @@ import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { useTheme } from './theme';
 
-const PALETTE: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
 
 /** Matches what main keeps, so the window never holds lines main has let go. */
 const LOG_LIMIT = 2_000;
@@ -255,6 +262,9 @@ export function App({ initialFlowId }: Props): JSX.Element {
         [flow, selectedNodeId],
     );
 
+    /** Which slots reach each node, and what falls short — redrawn with every edit. */
+    const slots = useMemo(() => (flow ? checkSlots(flow) : null), [flow]);
+
     const updateNode = useCallback(
         (node: FlowNode) => {
             if (!flow) return;
@@ -455,7 +465,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
             <div className="body">
                 <div className="side">
                     <div className="section-title">Drag onto the canvas</div>
-                    {PALETTE.map((kind) => {
+                    {NODE_KINDS.map((kind) => {
                         const meta = NODE_KIND_META[kind];
                         return (
                             <div
@@ -479,6 +489,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         flow={flow}
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
+                        issues={slots?.issues ?? []}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
                         onRunOutlookDrag={runOutlookDrag}
@@ -547,6 +558,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
                             <Inspector
                                 node={selectedNode}
                                 skills={skills}
+                                available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
+                                issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
                                 onChange={updateNode}
                                 onDelete={deleteNode}
                             />

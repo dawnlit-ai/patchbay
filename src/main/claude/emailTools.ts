@@ -12,11 +12,14 @@ import * as outlook from '../outlook/bridge';
 
 export const EMAIL_SERVER_NAME = 'email';
 
+/** The switches that add a tool beyond reading. A Processor's config is one. */
+export type EmailCapabilities = Pick<ProcessorConfig, 'allowSaveAttachments' | 'allowDraftReply' | 'allowMoveEmail'>;
+
 export interface EmailToolContext {
     email: EmailEnvelope;
     /** Where saved attachments and skill output go for this run. */
     scratchDir: string;
-    config: ProcessorConfig;
+    config: EmailCapabilities;
     /** Side effects worth surfacing in the run summary, in the order they happened. */
     actions: string[];
 
@@ -175,7 +178,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
 }
 
 /** The allowlist entries matching the tools built above, for `dontAsk` mode. */
-export function emailToolNames(config: ProcessorConfig): string[] {
+export function emailToolNames(config: EmailCapabilities): string[] {
     const names = ['read_email', 'record_note'];
     if (config.allowSaveAttachments) names.push('save_attachment');
     if (config.allowDraftReply) names.push('draft_reply');

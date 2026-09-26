@@ -3,13 +3,13 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
-export type NodeKind = 'trigger.outlook' | 'categorizer' | 'processor' | 'terminal';
+export type NodeKind = 'trigger.outlook' | 'categorizer' | 'extractor' | 'processor' | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
 // Listed as values as well as types: the inspector offers them and the importer
 // checks against them, and neither should carry its own copy.
-export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'processor', 'terminal'];
+export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'extractor', 'processor', 'terminal'];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
 
 /** One branch of a categorizer — the description is what the model matches on. */
@@ -53,6 +53,20 @@ export interface CategorizerConfig {
     bodyMaxChars: number;
 }
 
+export interface ExtractorConfig {
+    /** The slot later nodes read the result by, e.g. "shipment". */
+    output: string;
+    /** JSON Schema the result has to match to leave by Valid. */
+    schema: JsonSchema;
+    /** What to extract and from where, beyond what the schema's descriptions say. */
+    instruction: string;
+    model: string;
+    /** One of the levels Claude Code lists for this model. Empty uses the model's default. */
+    effort: string;
+    /** Let it save the attachments and read them, not just the body. */
+    includeAttachments: boolean;
+}
+
 export interface ProcessorConfig {
     /** Skill names from the app's own library, passed to the Agent SDK. */
     skills: string[];
@@ -80,6 +94,7 @@ export interface TerminalConfig {
 export type NodeConfig =
     | ({ kind: 'trigger.outlook' } & TriggerConfig)
     | ({ kind: 'categorizer' } & CategorizerConfig)
+    | ({ kind: 'extractor' } & ExtractorConfig)
     | ({ kind: 'processor' } & ProcessorConfig)
     | ({ kind: 'terminal' } & TerminalConfig);
 
@@ -131,6 +146,12 @@ export function outputPorts(node: FlowNode): Port[] {
                 ),
                 { id: UNMATCHED_PORT, label: 'Unmatched', tone: 'fallback' },
             ];
+        case 'extractor':
+            return [
+                { id: 'valid', label: 'Valid', tone: 'flow' },
+                { id: 'invalid', label: 'Incomplete', tone: 'fallback' },
+                { id: 'error', label: 'Error', tone: 'error' },
+            ];
         case 'processor':
             return [
                 { id: 'done', label: 'Done', tone: 'flow' },
@@ -166,10 +187,15 @@ export const EMAIL_SLOT: Slot = { name: 'email', type: { kind: 'email' } };
 export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Slots a node adds to the run when it leaves by `port`. */
-export function provides(node: FlowNode, _port: string): Slot[] {
+export function provides(node: FlowNode, port: string): Slot[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
             return [EMAIL_SLOT];
+        case 'extractor':
+            // Only Valid promises the data: Incomplete may have left fields out.
+            return port === 'valid'
+                ? [{ name: node.config.output, type: { kind: 'json', schema: node.config.schema } }]
+                : [];
         default:
             return [];
     }
@@ -310,6 +336,25 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
+        case 'extractor':
+            return {
+                kind,
+                output: 'extracted',
+                schema: {
+                    type: 'object',
+                    properties: {
+                        reference: {
+                            type: 'string',
+                            description: 'The shipment, order or booking reference the email is about.',
+                        },
+                    },
+                    required: ['reference'],
+                },
+                instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
+                model: DEFAULT_MODEL,
+                effort: '',
+                includeAttachments: false,
+            };
         case 'processor':
             return {
                 kind,
@@ -334,6 +379,8 @@ export function defaultNodeName(kind: NodeKind): string {
             return 'Outlook Inbox';
         case 'categorizer':
             return 'Categorize';
+        case 'extractor':
+            return 'Extract';
         case 'processor':
             return 'Process';
         case 'terminal':
@@ -352,6 +399,11 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         label: 'Categorizer',
         blurb: 'Sorts the email down one branch by matching your descriptions.',
         token: 'categorizer',
+    },
+    extractor: {
+        label: 'Extractor',
+        blurb: 'Pulls fields out of the email into a JSON shape later nodes can read.',
+        token: 'extractor',
     },
     processor: {
         label: 'Processor',
@@ -494,6 +546,18 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 model: str(from.model, base.model),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
+            };
+        }
+        case 'extractor': {
+            const output = str(from.output, '');
+            return {
+                ...base,
+                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
+                schema: isObject(from.schema) ? from.schema : base.schema,
+                instruction: str(from.instruction, base.instruction),
+                model: str(from.model, base.model),
+                effort: str(from.effort, base.effort),
+                includeAttachments: bool(from.includeAttachments, base.includeAttachments),
             };
         }
         case 'processor':

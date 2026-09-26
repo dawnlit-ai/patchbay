@@ -1,5 +1,7 @@
+import { z } from 'zod';
 import {
     type CategorizerConfig,
+    type ExtractorConfig,
     type FlowNode,
     type ProcessorConfig,
     type TerminalConfig,
@@ -152,6 +154,115 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     };
 }
 
+// ── Extractor ────────────────────────────────────────────────────────────
+
+/** How much of the body goes into an Extractor's prompt. */
+const EXTRACT_BODY_CHARS = 50_000;
+
+async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<NodeOutcome> {
+    // Read up front, so an extraction from the body alone is a single turn.
+    let body = ctx.email.body;
+    if (body === undefined) {
+        try {
+            const result = await outlook.readBody(ctx.email.ref, EXTRACT_BODY_CHARS);
+            body = result.body;
+            ctx.email.body = result.body;
+            ctx.onEvent({ at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)` });
+        } catch (e) {
+            return { outPort: 'error', summary: 'Could not read the body', error: e instanceof Error ? e.message : String(e) };
+        }
+    }
+
+    // Built before Claude is asked, so a schema zod cannot follow fails fast.
+    let validator: z.ZodType;
+    try {
+        validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
+    } catch (e) {
+        const message = `The schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+        return { outPort: 'error', summary: message, error: message };
+    }
+
+    const capabilities = { allowSaveAttachments: config.includeAttachments, allowDraftReply: false, allowMoveEmail: false };
+    const server = createEmailToolServer({
+        email: ctx.email,
+        scratchDir: ctx.scratchDir,
+        config: capabilities,
+        onEvent: ctx.onEvent,
+        actions: [],
+    });
+    const allowedTools = emailToolNames(capabilities);
+    if (config.includeAttachments) allowedTools.push('Read');
+
+    const prompt = [
+        'Extract the data described by the schema of `data` from the email below.',
+        config.instruction.trim(),
+        '',
+        'Take every value from the email itself. When the email does not give a field, do',
+        'not guess one: leave it out if the schema allows that, or give an empty value if it',
+        'does not, and list the field\'s path (e.g. "containers.0.number") in `missing`.',
+        config.includeAttachments
+            ? 'The attachments may hold what the body does not: save the ones that could, with `mcp__email__save_attachment`, and read them with Read.'
+            : 'Work from the body alone; the attachments are not available here.',
+        '',
+        '--- Email ---',
+        emailContext(ctx.email, body),
+    ].join('\n');
+
+    const result = await runClaude({
+        prompt,
+        model: config.model,
+        effort: config.effort,
+        cwd: flowDir(ctx.flowId),
+        additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
+        tools: config.includeAttachments ? ['Read'] : [],
+        allowedTools,
+        mcpServers: { [EMAIL_SERVER_NAME]: server },
+        signal: ctx.signal,
+        onEvent: ctx.onEvent,
+        jsonSchema: {
+            type: 'object',
+            properties: {
+                data: config.schema,
+                missing: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Path of every field the email did not give.',
+                },
+                note: { type: 'string', description: 'Anything a person should know about this extraction.' },
+            },
+            required: ['data', 'missing', 'note'],
+            additionalProperties: false,
+        },
+    });
+
+    if (!result.ok) {
+        return { outPort: 'error', summary: result.error ?? 'Extraction failed', error: result.error };
+    }
+
+    const answer = (result.structured ?? {}) as { data?: unknown; missing?: string[]; note?: string };
+    ctx.onEvent({
+        at: now(),
+        type: 'note',
+        label: `Extracted ${config.output}`,
+        detail: JSON.stringify(answer, null, 2),
+    });
+
+    const checked = validator.safeParse(answer.data);
+    const problems = [
+        ...(answer.missing ?? []).map((path) => `${path}: not in the email`),
+        ...(checked.success ? [] : checked.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)),
+    ];
+    const note = answer.note?.trim() ? ` — ${answer.note.trim()}` : '';
+    if (problems.length > 0) {
+        return { outPort: 'invalid', summary: `${config.output} incomplete: ${problems.join('; ')}${note}` };
+    }
+    return {
+        outPort: 'valid',
+        summary: `${config.output} extracted${note}`,
+        provided: { [config.output]: answer.data },
+    };
+}
+
 // ── Processor ────────────────────────────────────────────────────────────
 
 /** How each outcome the agent may report leaves the node. */
@@ -291,6 +402,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runTrigger(config);
         case 'categorizer':
             return runCategorizer(ctx, config);
+        case 'extractor':
+            return runExtractor(ctx, config);
         case 'processor':
             return runProcessor(ctx, config);
         case 'terminal':

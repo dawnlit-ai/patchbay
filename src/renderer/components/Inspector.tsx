@@ -1,14 +1,19 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import {
+    type Available,
     type CategorizerConfig,
     type Disposition,
     DISPOSITIONS,
+    EMAIL_SLOT,
+    type ExtractorConfig,
+    type FlowIssue,
     type FlowNode,
     NODE_KIND_META,
     type NodeConfig,
     type ProcessorConfig,
     shortId,
+    SLOT_NAME,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -375,13 +380,116 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
     );
 }
 
+/** Why a slot name will not do, or null when it will. */
+function slotNameProblem(name: string): string | null {
+    if (!SLOT_NAME.test(name)) return 'Letters, digits and _ only, not starting with a digit.';
+    if (name === EMAIL_SLOT.name) return '"email" is the slot every run starts with.';
+    return null;
+}
+
+function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Element {
+    const listing = useModels();
+    const pickModel = (model: string): void => {
+        const levels = findModel(listing.models, model)?.effortLevels ?? [];
+        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
+        patch(kept ? { model } : { model, effort: '' });
+    };
+
+    // Drafts, so a half-typed name or schema is never saved in place of the last good one.
+    const [output, setOutput] = useState(config.output);
+    const [schema, setSchema] = useState(() => JSON.stringify(config.schema, null, 2));
+    const [schemaError, setSchemaError] = useState<string | null>(null);
+    const outputProblem = slotNameProblem(output);
+
+    const editSchema = (text: string): void => {
+        setSchema(text);
+        try {
+            const parsed: unknown = JSON.parse(text);
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                setSchemaError('The schema has to be a JSON object.');
+                return;
+            }
+            setSchemaError(null);
+            patch({ schema: parsed as Record<string, unknown> });
+        } catch (e) {
+            setSchemaError((e as Error).message);
+        }
+    };
+
+    return (
+        <>
+            <Field
+                label="Output slot"
+                hint={outputProblem ?? 'Later nodes read the result by this name. It is filled only on Valid.'}
+            >
+                <input
+                    value={output}
+                    onChange={(e) => {
+                        setOutput(e.target.value);
+                        if (!slotNameProblem(e.target.value)) patch({ output: e.target.value });
+                    }}
+                />
+            </Field>
+
+            <Field
+                label="Schema"
+                hint={
+                    schemaError ??
+                    'JSON Schema for the result. Give each field a description: it is what Claude reads to find it.'
+                }
+            >
+                <textarea
+                    rows={12}
+                    spellCheck={false}
+                    value={schema}
+                    onChange={(e) => editSchema(e.target.value)}
+                />
+            </Field>
+
+            <Field label="Instruction" hint="Anything the schema's descriptions leave out, like where in the email to look.">
+                <textarea
+                    rows={3}
+                    value={config.instruction}
+                    onChange={(e) => patch({ instruction: e.target.value })}
+                />
+            </Field>
+
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.includeAttachments}
+                    onChange={(e) => patch({ includeAttachments: e.target.checked })}
+                />
+                Read the attachments too, not just the body
+            </label>
+
+            <ModelField {...listing} value={config.model} onChange={pickModel}/>
+            <EffortField
+                value={config.effort}
+                model={findModel(listing.models, config.model)}
+                loading={!listing.models && !listing.error}
+                onChange={(effort) => patch({ effort })}
+            />
+
+            <div className="hint">
+                Leaves by Valid when every field is in the email and the result matches the schema, and by
+                Incomplete when something is missing or wrong. Nothing is filled on Incomplete.
+            </div>
+        </>
+    );
+}
+
 const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
 
 function ProcessorFields({
                              config,
                              patch,
                              skills,
-                         }: Section<ProcessorConfig> & { skills: SkillSummary[] }): JSX.Element {
+                             available,
+                         }: Section<ProcessorConfig> & {
+    skills: SkillSummary[];
+    available: Available | undefined;
+}): JSX.Element {
     const toggle = (ref: string, on: boolean): void =>
         patch({ skills: on ? [...config.skills, ref] : config.skills.filter((s) => s !== ref) });
 
@@ -436,6 +544,8 @@ function ProcessorFields({
             )}
 
             <div className="gap"/>
+
+            <InputsField config={config} patch={patch} available={available}/>
 
             <Field label="Instruction" hint="Prepended to the email. Say what a good outcome looks like.">
                 <textarea
@@ -494,6 +604,42 @@ function ProcessorFields({
     );
 }
 
+/** Slots an earlier node filled, ticked to put them in the prompt. */
+function InputsField({
+                         config,
+                         patch,
+                         available,
+                     }: Section<ProcessorConfig> & { available: Available | undefined }): JSX.Element {
+    const offered = [...(available?.keys() ?? [])].filter((name) => name !== EMAIL_SLOT.name);
+    // Ticked but not sure to arrive: shown, so the tick can be taken off.
+    const stranded = config.inputs.filter((name) => !offered.includes(name));
+    const toggle = (name: string, on: boolean): void =>
+        patch({ inputs: on ? [...config.inputs, name] : config.inputs.filter((n) => n !== name) });
+
+    let hint: string;
+    if (!available) hint = 'Connect this node to a trigger to see what reaches it.';
+    else if (offered.length === 0) hint = 'Nothing yet — an Extractor before this node fills a slot on its Valid port.';
+    else hint = 'Put into the prompt as JSON. Only slots every path here fills are offered.';
+
+    return (
+        <>
+            <Legend label="Data from earlier nodes" hint={hint}/>
+            {[...offered, ...stranded].map((name) => (
+                <label className="check" key={name}>
+                    <input
+                        type="checkbox"
+                        checked={config.inputs.includes(name)}
+                        onChange={(e) => toggle(name, e.target.checked)}
+                    />
+                    {name}
+                    {stranded.includes(name) && <span className="hint"> — not filled on every path here</span>}
+                </label>
+            ))}
+            <div className="gap"/>
+        </>
+    );
+}
+
 function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element {
     return (
         <>
@@ -524,13 +670,16 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
 interface Props {
     node: FlowNode | null;
     skills: SkillSummary[];
+    /** Slots every path into this node fills. Undefined when no trigger reaches it. */
+    available: Available | undefined;
+    issues: FlowIssue[];
 
     onChange(node: FlowNode): void;
 
     onDelete(nodeId: string): void;
 }
 
-export function Inspector({ node, skills, onChange, onDelete }: Props): JSX.Element {
+export function Inspector({ node, skills, available, issues, onChange, onDelete }: Props): JSX.Element {
     if (!node) {
         return (
             <div className="empty">
@@ -548,13 +697,23 @@ export function Inspector({ node, skills, onChange, onDelete }: Props): JSX.Elem
         <div>
             <div className={`section-title accented kind-${meta.token}`}>{meta.label}</div>
 
+            {issues.map((issue) => (
+                <div key={issue.message} className={issue.severity === 'error' ? 'err-banner' : 'warn-banner'}>
+                    {issue.message}
+                    {issue.severity === 'error' && ' The flow cannot be watched until it is fixed.'}
+                </div>
+            ))}
+
             <Field label="Name">
                 <input value={node.name} onChange={(e) => onChange({ ...node, name: e.target.value })}/>
             </Field>
 
             {config.kind === 'trigger.outlook' && <TriggerFields config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
-            {config.kind === 'processor' && <ProcessorFields config={config} patch={patch} skills={skills}/>}
+            {config.kind === 'extractor' && <ExtractorFields key={node.id} config={config} patch={patch}/>}
+            {config.kind === 'processor' && (
+                <ProcessorFields config={config} patch={patch} skills={skills} available={available}/>
+            )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 
             <div className="gap"/>
