@@ -9,8 +9,14 @@ import {
     type ExtractorConfig,
     type FlowIssue,
     type FlowNode,
+    hasInput,
     NODE_KIND_META,
     type NodeConfig,
+    outputPorts,
+    provides,
+    requires,
+    type Slot,
+    slotTypeLabel,
     type ProcessorConfig,
     shortId,
     SLOT_NAME,
@@ -667,6 +673,74 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
     );
 }
 
+/** One slot as a row: its name, and its type or why there is none. */
+function SlotRow({ name, type, problem }: { name: string; type?: string; problem?: string }): JSX.Element {
+    return (
+        <div className="slot-row">
+            <span className="slot-chip">{name}</span>
+            <span className={problem ? 'slot-problem' : 'slot-type'}>{problem ?? type}</span>
+        </div>
+    );
+}
+
+/** What the node reads, what reaches it, and what leaves by each port. */
+function DataSection({ node, available }: { node: FlowNode; available: Available | undefined }): JSX.Element {
+    const reads = requires(node);
+    const ports = outputPorts(node);
+    const arriving = [...(available ?? new Map())];
+    const adds = (slots: Slot[]): string =>
+        slots.map((slot) => `+ ${slot.name} (${slotTypeLabel(slot.type)})`).join(', ');
+
+    return (
+        <>
+            <div className="section-title">Data</div>
+
+            {hasInput(node.kind) && (
+                <>
+                    <Legend label="Reads"/>
+                    {reads.map((name) => {
+                        const type = available?.get(name);
+                        let problem: string | undefined;
+                        if (!available) problem = 'not known until a trigger reaches this node';
+                        else if (!type) problem = 'not filled on every path here';
+                        return (
+                            <SlotRow key={name} name={name} type={type && slotTypeLabel(type)} problem={problem}/>
+                        );
+                    })}
+
+                    <Legend
+                        label="Arrives with"
+                        hint={available ? 'Every path here fills these.' : 'No trigger reaches this node yet.'}
+                    />
+                    {arriving.map(([name, type]) => (
+                        <SlotRow key={name} name={name} type={slotTypeLabel(type)}/>
+                    ))}
+                </>
+            )}
+
+            <Legend
+                label="Leaves with"
+                hint={
+                    ports.length === 0
+                        ? 'Nothing: the path ends here.'
+                        : hasInput(node.kind)
+                          ? 'Everything it arrived with, plus what a port adds.'
+                          : undefined
+                }
+            />
+            {ports.map((port) => {
+                const added = provides(node, port.id);
+                return (
+                    <div key={port.id} className="slot-row">
+                        <span className={`port-name ${port.tone}`}>{port.label}</span>
+                        <span className="slot-type">{added.length > 0 ? adds(added) : 'nothing new'}</span>
+                    </div>
+                );
+            })}
+        </>
+    );
+}
+
 interface Props {
     node: FlowNode | null;
     skills: SkillSummary[];
@@ -715,6 +789,8 @@ export function Inspector({ node, skills, available, issues, onChange, onDelete 
                 <ProcessorFields config={config} patch={patch} skills={skills} available={available}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
+
+            <DataSection node={node} available={available}/>
 
             <div className="gap"/>
             <button className="danger" onClick={() => onDelete(node.id)}>

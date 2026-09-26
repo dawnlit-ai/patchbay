@@ -42,6 +42,9 @@ That constraint is what makes a run a readable path rather than a cloud of concu
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*.
 A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
 path. A Processor ticks the slots it wants under *Data from earlier nodes*, and gets each in its prompt as JSON.
+Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
+for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
+to bring, and what leaves by each port.
 
 A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `shipment`
 behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,

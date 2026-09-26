@@ -19,6 +19,7 @@ import {
     ReactFlow,
 } from '@xyflow/react';
 import {
+    type Available,
     connectNodes,
     type Flow,
     type FlowIssue,
@@ -29,6 +30,10 @@ import {
     NODE_KIND_META,
     type NodeKind,
     outputPorts,
+    provides,
+    requires,
+    type SlotCheck,
+    slotTypeLabel,
 } from '@shared/flow';
 import type { Pass } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
@@ -54,6 +59,8 @@ interface NodeData extends Record<string, unknown> {
     drop?: 'ready' | 'over';
     /** What `checkSlots` found wrong with the slots this node reads or fills. */
     issues: FlowIssue[];
+    /** The slots every path here fills. Undefined when no trigger reaches the node. */
+    available?: Available;
 }
 
 interface EdgeData extends Record<string, unknown> {
@@ -61,7 +68,8 @@ interface EdgeData extends Record<string, unknown> {
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass, drop, issues } = data as NodeData;
+    const { flowNode, pass, drop, issues, available } = data as NodeData;
+    const reads = requires(flowNode);
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
 
@@ -83,6 +91,26 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
             <div className="node-title">{flowNode.name}</div>
             <div className="node-sub">{describe(flowNode)}</div>
 
+            {reads.length > 0 && (
+                <div className="node-io">
+                    <span className="io-label">reads</span>
+                    {reads.map((name) => {
+                        const type = available?.get(name);
+                        // Unknown until a trigger reaches the node; missing once one does.
+                        const missing = available !== undefined && !type;
+                        return (
+                            <span
+                                key={name}
+                                className={`slot-chip${missing ? ' missing' : ''}`}
+                                title={type ? slotTypeLabel(type) : missing ? 'Not filled on every path here' : undefined}
+                            >
+                                {name}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+
             {ports.length > 0 && (
                 <div className="node-ports">
                     {ports.map((port) => (
@@ -91,6 +119,11 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                             className={`node-port ${port.tone}${pass?.outPort === port.id ? ' taken' : ''}`}
                         >
                             {port.label}
+                            {provides(flowNode, port.id).map((slot) => (
+                                <span key={slot.name} className="slot-chip adds" title={slotTypeLabel(slot.type)}>
+                                    + {slot.name}
+                                </span>
+                            ))}
                             <Handle
                                 type="source"
                                 position={Position.Right}
@@ -205,7 +238,7 @@ export interface FlowCanvasProps {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
-    issues: FlowIssue[];
+    slots: SlotCheck | null;
 
     onChange(flow: Flow): void;
 
@@ -222,7 +255,7 @@ export function FlowCanvas({
                                flow,
                                selectedNodeId,
                                highlight,
-                               issues,
+                               slots,
                                onChange,
                                onSelect,
                                onRunOutlookDrag,
@@ -253,11 +286,12 @@ export function FlowCanvas({
                         flowNode: n,
                         pass: highlight?.passes.get(n.id),
                         drop,
-                        issues: issues.filter((issue) => issue.nodeId === n.id),
+                        issues: slots?.issues.filter((issue) => issue.nodeId === n.id) ?? [],
+                        available: slots?.available.get(n.id),
                     } satisfies NodeData,
                 };
             }),
-        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget, issues],
+        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget, slots],
     );
 
     const removeEdge = useCallback(

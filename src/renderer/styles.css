@@ -1629,6 +1629,44 @@ button.wide {
     background: var(--accent-soft);
 }
 
+/* The slots a node reads, under its title; the ones a port adds sit on the port. */
+.node-io {
+    padding: 0 10px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.io-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--dim);
+    margin-right: 2px;
+}
+
+.slot-chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    padding: 0 6px;
+    border-radius: var(--pill);
+    background: var(--chip);
+    color: var(--text);
+}
+
+.slot-chip.missing {
+    background: var(--err-soft);
+    color: var(--err);
+}
+
+.node-port .slot-chip.adds {
+    margin-left: 6px;
+    background: color-mix(in srgb, var(--k) 14%, transparent);
+    color: var(--k);
+}
+
 /* A slot a node reads that some path to it never fills, or one it overwrites. */
 .node-issue {
     padding: 6px 10px;
@@ -1643,6 +1681,36 @@ button.wide {
 
 .node-issue.warning {
     color: var(--warn);
+}
+
+/* The inspector's Data section: one slot, or one port, per row. */
+.slot-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 11.5px;
+}
+
+.slot-type {
+    color: var(--muted);
+}
+
+.slot-problem {
+    color: var(--err);
+}
+
+.slot-row .port-name {
+    min-width: 72px;
+    color: var(--muted);
+}
+
+.slot-row .port-name.match {
+    color: var(--accent);
+}
+
+.slot-row .port-name.error {
+    color: var(--err);
 }
 
 /* The inspector's form of the same. */

@@ -186,6 +186,15 @@ export const EMAIL_SLOT: Slot = { name: 'email', type: { kind: 'email' } };
 /** A slot name a prompt, a template or a person can write without quoting it. */
 export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** A slot's type as the canvas and inspector name it, e.g. "JSON · 3 fields". */
+export function slotTypeLabel(type: SlotType): string {
+    if (type.kind === 'email') return 'Email';
+    const properties = type.schema.properties;
+    if (typeof properties !== 'object' || properties === null) return 'JSON';
+    const count = Object.keys(properties).length;
+    return `JSON · ${count} field${count === 1 ? '' : 's'}`;
+}
+
 /** Slots a node adds to the run when it leaves by `port`. */
 export function provides(node: FlowNode, port: string): Slot[] {
     switch (node.config.kind) {

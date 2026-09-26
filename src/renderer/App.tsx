@@ -489,7 +489,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         flow={flow}
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
-                        issues={slots?.issues ?? []}
+                        slots={slots}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
                         onRunOutlookDrag={runOutlookDrag}
