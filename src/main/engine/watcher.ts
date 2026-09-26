@@ -243,6 +243,11 @@ export class Watcher {
         return 'dequeued';
     }
 
+    /** Whether this run is under way or waiting its turn: its trace is still being written. */
+    isRunPending(runId: string): boolean {
+        return this.active.has(runId) || this.queue.some((item) => item.runId === runId);
+    }
+
     /**
      * Whether a run of this flow is under way. Its directory is the working
      * directory of that run, so whoever wants to move one asks first.

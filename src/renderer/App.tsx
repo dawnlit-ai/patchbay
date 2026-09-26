@@ -359,7 +359,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const openRunFromLog = async (runId: string): Promise<void> => {
         const run = await window.api.runs.get(runId);
         if (!run) {
-            setError('That run is no longer stored — the runs were cleared after it was logged.');
+            setError('That run is no longer stored — it was deleted after it was logged.');
             return;
         }
         setSelectedRun(run);
@@ -377,6 +377,21 @@ export function App({ initialFlowId }: Props): JSX.Element {
             await window.api.runs.clear();
             setRuns([]);
             setSelectedRun(null);
+        });
+    };
+
+    const removeRun = async (id: string): Promise<void> => {
+        const subject = runs.find((r) => r.id === id)?.subject || '(no subject)';
+        const ok = await ask({
+            title: 'Delete run',
+            message: `Delete the run of “${subject}”? Its trace and saved files go too.`,
+            confirmLabel: 'Delete',
+        });
+        if (!ok) return;
+        await attempt(async () => {
+            await window.api.runs.remove(id);
+            setRuns((prev) => prev.filter((r) => r.id !== id));
+            setSelectedRun((current) => (current?.id === id ? null : current));
         });
     };
 
@@ -534,6 +549,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                                 onClear={() => void clearRuns()}
                                 onReveal={() => void window.api.runs.revealFolder()}
                                 onCancel={(runId) => void window.api.engine.cancel(runId)}
+                                onRemove={(runId) => void removeRun(runId)}
                             />
                         )}
                         {!dockCollapsed && dockTab === 'console' && (

@@ -270,6 +270,12 @@ export function registerIpc(): void {
     handle(IPC.runsList, (limit: number) => traceStore.listRuns(limit));
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));
     handle(IPC.runsClear, () => traceStore.clearRuns());
+    handle(IPC.runsRemove, (id: string) => {
+        if (getWatcher().isRunPending(id)) {
+            throw new Error('That run is still in progress. Cancel it, or let it finish, before deleting it.');
+        }
+        traceStore.removeRun(id);
+    });
     handle(IPC.runsReveal, () => shell.openPath(runsDir()));
 
     handle(IPC.logList, () => logEntries());

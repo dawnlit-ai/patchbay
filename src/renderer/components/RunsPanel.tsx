@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import { useState } from 'react';
 import type { Pass, Run, RunSummary, TraceEvent } from '@shared/trace';
 import { time } from '../format';
+import { ContextMenu, type MenuItem } from './ContextMenu';
 
 /**
  * The run log. The list is the audit trail; the detail is the "why" — each pass
@@ -73,9 +74,19 @@ interface Props {
     onReveal(): void;
 
     onCancel(runId: string): void;
+
+    onRemove(runId: string): void;
 }
 
-export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCancel }: Props): JSX.Element {
+export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCancel, onRemove }: Props): JSX.Element {
+    const [menu, setMenu] = useState<{ run: RunSummary; x: number; y: number } | null>(null);
+
+    /** A run under way can only be stopped; one that has ended can go. */
+    const actions = (run: RunSummary): MenuItem[] =>
+        run.status === 'running'
+            ? [{ label: 'Cancel run', danger: true, onSelect: () => onCancel(run.id) }]
+            : [{ label: 'Delete run', danger: true, onSelect: () => onRemove(run.id) }];
+
     return (
         <div className="runs">
             <div className="runs-list">
@@ -98,6 +109,10 @@ export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCance
                         key={run.id}
                         className={`run-row${selected?.id === run.id ? ' active' : ''}`}
                         onClick={() => onSelect(run.id)}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            setMenu({ run, x: e.clientX, y: e.clientY });
+                        }}
                     >
                         <div className="subject">{run.subject || '(no subject)'}</div>
                         <div className="meta">
@@ -123,9 +138,13 @@ export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCance
                             <strong>{selected.email.subject || '(no subject)'}</strong>
                             <span className="spacer"/>
                             {statusBadge(selected.status)}
-                            {selected.status === 'running' && (
+                            {selected.status === 'running' ? (
                                 <button className="danger" onClick={() => onCancel(selected.id)}>
                                     Cancel
+                                </button>
+                            ) : (
+                                <button className="ghost" onClick={() => onRemove(selected.id)} title="Delete this run">
+                                    Delete
                                 </button>
                             )}
                         </div>
@@ -159,6 +178,16 @@ export function RunsPanel({ runs, selected, onSelect, onClear, onReveal, onCance
                     </>
                 )}
             </div>
+
+            {menu && (
+                <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    label={menu.run.subject || '(no subject)'}
+                    items={actions(menu.run)}
+                    onClose={() => setMenu(null)}
+                />
+            )}
         </div>
     );
 }

@@ -202,6 +202,8 @@ export interface Api {
         list(limit: number): Promise<RunSummary[]>;
         get(id: string): Promise<Run | null>;
         clear(): Promise<void>;
+        /** One run, with its trace and saved files. Refused while it is in progress. */
+        remove(id: string): Promise<void>;
         revealFolder(): Promise<void>;
     };
     /** The console: what the app did outside any one run. */
@@ -300,6 +302,7 @@ export const IPC = {
     runsList: 'runs:list',
     runsGet: 'runs:get',
     runsClear: 'runs:clear',
+    runsRemove: 'runs:remove',
     runsReveal: 'runs:reveal',
 
     logList: 'log:list',
