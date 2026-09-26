@@ -536,21 +536,28 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
     );
 
     server.registerTool(
-        'link_global_skills',
+        'set_global_skill_folders',
         {
-            title: 'Link the global library to a folder',
+            title: 'Set the folders linked into the global library',
             description:
-                'Point the global shelf at a folder of skills on this machine — ~/.claude/skills, say — so it reads and writes that folder in place instead of holding copies. From then on write_skill, delete_skill, import_skills and move_skill on the global library change that folder. The library’s own skills stay in the workspace and come back on unlinking. An empty dir unlinks.',
+                'Replace the folders linked into the global shelf, highest first. Each is an absolute path to a folder whose subfolders hold a SKILL.md — ~/.claude/skills, say — read and written in place. The app workspace’s own folder is always read, after them, and takes new skills. When two folders hold a skill of the same name, the higher one’s is used. write_skill, delete_skill, import_skills and move_skill change the copy in use. A folder left off keeps its skills; they are just not offered. An empty list unlinks them all.',
             inputSchema: {
-                dir: z
-                    .string()
-                    .describe('Absolute path to a folder whose subfolders each hold a SKILL.md, or "" to unlink.'),
+                folders: z.array(z.string()).describe('Absolute paths, highest first.'),
             },
         },
-        ({ dir }) => {
-            const skills = skillStore.linkGlobalLibrary(dir ? absoluteDir(dir) : '');
+        ({ folders }) => {
+            const shelf = skillStore.setGlobalFolders(folders.map(absoluteDir));
             host.changed({ flows: false, skills: true });
-            return json({ linkedTo: skillStore.linkedGlobalFolder() || null, skills: skills.map((s) => s.name) });
+            return json(
+                shelf.map((folder) => ({
+                    folder: folder.workspace ? 'app workspace' : folder.path,
+                    missing: folder.missing || undefined,
+                    skills: folder.skills.filter((s) => !s.shadowed).map((s) => s.name),
+                    shadowed: folder.skills.some((s) => s.shadowed)
+                        ? folder.skills.filter((s) => s.shadowed).map((s) => s.name)
+                        : undefined,
+                })),
+            );
         },
     );
 

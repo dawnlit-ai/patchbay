@@ -7,6 +7,7 @@ import type {
     AboutInfo,
     AgentControlStatus,
     EngineStatus,
+    GlobalSkillFolder,
     Settings,
     SkillDetail,
     SkillScope,
@@ -152,12 +153,14 @@ export interface Api {
             scope: SkillScope,
             flowId: string,
         ): Promise<{ dir: string; imported: string[] } | null>;
-        /** The folder the global library is linked to, or '' while it keeps its own. */
-        linkedFolder(): Promise<string>;
-        /** Ask the user for a folder, then have the global library read and write it in place. */
-        pickAndLink(): Promise<{ dir: string; names: string[] } | null>;
-        /** Put the global library back on its own folder in the workspace. */
-        unlink(): Promise<void>;
+        /** The folders the global library reads, highest first — the linked ones, then the workspace's — with what each holds. */
+        folders(): Promise<GlobalSkillFolder[]>;
+        /** Replace the linked folders, highest first. A higher folder wins a name two share. */
+        setFolders(paths: string[]): Promise<GlobalSkillFolder[]>;
+        /** Ask the user for a folder to link. Only asks: linking it is `setFolders`. */
+        pickFolder(): Promise<string | null>;
+        /** Show one of the library's folders in the file manager. */
+        revealFolder(path: string): Promise<void>;
     };
     engine: {
         /** Watching is switched on and off per flow. */
@@ -271,9 +274,10 @@ export const IPC = {
     skillsRemove: 'skills:remove',
     skillsMove: 'skills:move',
     skillsPickAndImport: 'skills:pickAndImport',
-    skillsLinkedFolder: 'skills:linkedFolder',
-    skillsPickAndLink: 'skills:pickAndLink',
-    skillsUnlink: 'skills:unlink',
+    skillsFolders: 'skills:folders',
+    skillsSetFolders: 'skills:setFolders',
+    skillsPickFolder: 'skills:pickFolder',
+    skillsRevealFolder: 'skills:revealFolder',
 
     engineStart: 'engine:start',
     engineStop: 'engine:stop',

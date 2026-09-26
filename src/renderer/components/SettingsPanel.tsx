@@ -5,10 +5,13 @@ import {
     type AgentControlSettings,
     type AgentControlStatus,
     CONCURRENT_RUNS_RANGE,
+    type GlobalSkillFolder,
     type McpServerSetting,
     type Settings,
+    type SkillSummary,
 } from '@shared/settings';
 import { time } from '../format';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface Props {
     settings: Settings;
@@ -23,25 +26,33 @@ interface Props {
 
 /** The settings window's content: a rail of pages, the current page, and Save. */
 
-type Page = 'claude' | 'runs' | 'servers' | 'agent';
+type Page = 'claude' | 'skills' | 'runs' | 'servers' | 'agent';
 
 const PAGES: { id: Page; label: string }[] = [
     { id: 'claude', label: 'Claude' },
+    { id: 'skills', label: 'Global skills' },
     { id: 'runs', label: 'Runs' },
     { id: 'servers', label: 'MCP servers' },
     { id: 'agent', label: 'Agent control' },
 ];
 
 /**
- * What each page edits, for marking unsaved pages. The token is left out: main
- * ignores it on save, so a stale copy here is not a change.
+ * What each page edits, for marking unsaved pages. The token and the skills link
+ * are left out: main ignores both on save, so a stale copy here is not a change.
  */
 const EDITS: Record<Page, (s: Settings) => unknown> = {
-    claude: (s) => [s.claudeExecutablePath, s.skillSeedPath],
+    claude: (s) => s.claudeExecutablePath,
+    skills: (s) => s.skillSeedPath,
     runs: (s) => [s.pollingEnabled, s.maxConcurrentRuns],
     servers: (s) => s.mcpServers,
     agent: (s) => [s.agentControl.enabled, s.agentControl.port],
 };
+
+/** The skills the global library offers: each name once, from the highest folder holding it. */
+const onShelf = (folders: GlobalSkillFolder[]): SkillSummary[] =>
+    folders
+        .flatMap((f) => f.skills.filter((s) => !s.shadowed))
+        .toSorted((a, b) => a.name.localeCompare(b.name));
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
@@ -114,6 +125,14 @@ export function SettingsPanel({
     /** Which copy button just put something on the clipboard. */
     const [copied, setCopied] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
+    /** Every folder the global library reads, highest first, the workspace's last. Changed at once, not on Save. */
+    const [folders, setFolders] = useState<GlobalSkillFolder[]>([]);
+    const shelfSkills = onShelf(folders);
+    const linkedFolders = folders.filter((f) => !f.workspace);
+    const workspacePath = folders.find((f) => f.workspace)?.path;
+    /** The global skill the delete question is about, while it is on screen. */
+    const [deleting, setDeleting] = useState<SkillSummary | null>(null);
+    const [skillsMessage, setSkillsMessage] = useState<{ text: string; bad: boolean } | null>(null);
 
     const edited = (p: Page): boolean => !same(EDITS[p](draft), EDITS[p](settings));
     const dirty = PAGES.some((p) => edited(p.id));
@@ -139,6 +158,101 @@ export function SettingsPanel({
 
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({ ...d, agentControl: { ...d.agentControl, ...partial } }));
+
+    const refreshSkills = async (): Promise<void> => {
+        setFolders(await window.api.skills.folders());
+    };
+
+    // A canvas or an agent may change the library, and its folders are edited in
+    // other apps too; coming back is when to look again.
+    useEffect(() => {
+        const refresh = (): void => void refreshSkills();
+        refresh();
+        window.addEventListener('focus', refresh);
+        const off = window.api.on.workspaceChanged((change) => change.skills && refresh());
+        return () => {
+            window.removeEventListener('focus', refresh);
+            off();
+        };
+    }, []);
+
+    const skillsAction = async (act: () => Promise<string | null>): Promise<void> => {
+        setSkillsMessage(null);
+        try {
+            const text = await act();
+            if (text) setSkillsMessage({ text, bad: false });
+        } catch (e) {
+            setSkillsMessage({ text: e instanceof Error ? e.message : String(e), bad: true });
+        }
+    };
+
+    /** Save a new folder list, saying which skills it stops offering: ticks on those now find nothing. */
+    const changeFolders = (paths: string[], said = ''): Promise<void> =>
+        skillsAction(async () => {
+            const next = await window.api.skills.setFolders(paths);
+            setFolders(next);
+            const offered = new Set(onShelf(next).map((s) => s.name));
+            const dropped = shelfSkills.map((s) => s.name).filter((n) => !offered.has(n));
+            const text = `${said}${dropped.length > 0 ? ` No longer offered: ${dropped.join(', ')}.` : ''}`.trim();
+            return text || null;
+        });
+
+    const linkedPaths = linkedFolders.map((f) => f.path);
+
+    const linkFolder = (): Promise<void> =>
+        skillsAction(async () => {
+            const dir = await window.api.skills.pickFolder();
+            if (dir) await changeFolders([...linkedPaths, dir], `Linked ${dir}.`);
+            return null;
+        });
+
+    const importSkills = (): Promise<void> =>
+        skillsAction(async () => {
+            const result = await window.api.skills.pickAndImport('global', '');
+            if (!result) return null;
+            await refreshSkills();
+            return result.imported.length > 0
+                ? `Imported ${result.imported.length} from ${result.dir}: ${result.imported.join(', ')}.`
+                : `No folders holding a SKILL.md were found in ${result.dir}.`;
+        });
+
+    /** A copy of the same name further down, which takes over once this one goes. */
+    const nextInLine = (skill: SkillSummary): GlobalSkillFolder | undefined =>
+        folders.find((f) => f.skills.some((s) => s.name === skill.name && s.shadowed));
+
+    const deleteSkill = (skill: SkillSummary): Promise<void> =>
+        skillsAction(async () => {
+            await window.api.skills.remove('global', '', skill.name);
+            await refreshSkills();
+            const next = nextInLine(skill);
+            return next
+                ? `Deleted “${skill.name}”. The copy in ${next.workspace ? 'the app workspace' : next.path} is used now.`
+                : `Deleted “${skill.name}”.`;
+        });
+
+    const deleteQuestion = (skill: SkillSummary): string => {
+        const next = nextInLine(skill);
+        const where = skill.folder === workspacePath ? 'the app workspace' : skill.folder;
+        return (
+            `Delete “${skill.name}”? Its whole folder is deleted from ${where}. ` +
+            (next
+                ? `Flows that tick it get the copy in ${next.workspace ? 'the app workspace' : next.path} instead.`
+                : 'Every flow that ticks it loses it.')
+        );
+    };
+
+    const moveFolder = (from: number, to: number): Promise<void> => {
+        const next = [...linkedPaths];
+        const [path] = next.splice(from, 1);
+        next.splice(to, 0, path!);
+        return changeFolders(next);
+    };
+
+    const revealFolder = (path: string): Promise<void> =>
+        skillsAction(async () => {
+            await window.api.skills.revealFolder(path);
+            return null;
+        });
 
     const copy = (what: string, text: string): void => {
         void window.api.copyText(text).then(() => {
@@ -173,6 +287,7 @@ export function SettingsPanel({
 
     /** What the rail says about a page besides its name. */
     const meta = (p: Page): ReactNode => {
+        if (p === 'skills') return <span className="meta">{shelfSkills.length}</span>;
         if (p === 'runs' && !draft.pollingEnabled) return <span className="meta">Off</span>;
         if (p === 'servers' && draft.mcpServers.length > 0) return <span className="meta">{enabledServers}</span>;
         if (p === 'agent' && agentControl?.running) {
@@ -222,8 +337,7 @@ export function SettingsPanel({
                         {page === 'claude' && (
                             <>
                                 <PageHead title="Claude">
-                                    Which Claude your Processor nodes run, and where the global skill library
-                                    starts from.
+                                    Which Claude your Processor nodes run.
                                 </PageHead>
                                 <div className="set-group">
                                     <Row
@@ -239,13 +353,165 @@ export function SettingsPanel({
                                             />
                                         }
                                     />
+                                </div>
+                            </>
+                        )}
+
+                        {page === 'skills' && (
+                            <>
+                                <PageHead title="Global skills">
+                                    The shared shelf every flow can tick skills from. It holds the skills kept in
+                                    the app workspace, where new ones are saved, and those in any folder linked
+                                    here, read in place. When two hold a skill of the same name, the higher linked
+                                    folder's copy is used, and the app workspace's comes last.
+                                </PageHead>
+                                <div className="set-group">
+                                    {linkedFolders.length === 0 && (
+                                        <div className="set-empty">
+                                            No folders linked. Link one, such as <code>~/.claude/skills</code>, to use
+                                            its skills where they are rather than copying them in.
+                                        </div>
+                                    )}
+                                    {linkedFolders.map((folder, i) => {
+                                        const shadowed = folder.skills.filter((s) => s.shadowed).map((s) => s.name);
+                                        const count = folder.skills.length - shadowed.length;
+                                        return (
+                                            <Row
+                                                key={folder.path}
+                                                label={<span className="mono path">{folder.path}</span>}
+                                                description={
+                                                    folder.missing ? (
+                                                        <span className="set-warn">
+                                                            Not there. Its skills are not offered until it is back.
+                                                        </span>
+                                                    ) : (
+                                                        <>
+                                                            {count} skill{count === 1 ? '' : 's'}
+                                                            {shadowed.length > 0 &&
+                                                                ` · Hidden by a folder above: ${shadowed.join(', ')}`}
+                                                        </>
+                                                    )
+                                                }
+                                                control={
+                                                    <>
+                                                        <button
+                                                            className="ghost"
+                                                            aria-label={`Move ${folder.path} up`}
+                                                            title="Move up"
+                                                            disabled={i === 0}
+                                                            onClick={() => void moveFolder(i, i - 1)}
+                                                        >
+                                                            ↑
+                                                        </button>
+                                                        <button
+                                                            className="ghost"
+                                                            aria-label={`Move ${folder.path} down`}
+                                                            title="Move down"
+                                                            disabled={i === linkedFolders.length - 1}
+                                                            onClick={() => void moveFolder(i, i + 1)}
+                                                        >
+                                                            ↓
+                                                        </button>
+                                                        <button
+                                                            disabled={folder.missing}
+                                                            onClick={() => void revealFolder(folder.path)}
+                                                        >
+                                                            Show
+                                                        </button>
+                                                        <button
+                                                            className="ghost danger"
+                                                            title="Stop reading this folder. Nothing in it is deleted."
+                                                            onClick={() =>
+                                                                void changeFolders(
+                                                                    linkedPaths.filter((p) => p !== folder.path),
+                                                                    `Unlinked ${folder.path}. Its files are untouched.`,
+                                                                )
+                                                            }
+                                                        >
+                                                            Unlink
+                                                        </button>
+                                                    </>
+                                                }
+                                            />
+                                        );
+                                    })}
+                                </div>
+                                <div className="set-actions">
+                                    <button
+                                        onClick={() => void linkFolder()}
+                                        title="Use a folder of skills where it is: changes there show up here"
+                                    >
+                                        Link folder…
+                                    </button>
+                                    <button
+                                        onClick={() => void importSkills()}
+                                        title="Copy a folder's skills into the app workspace, replacing any of the same name"
+                                    >
+                                        Import…
+                                    </button>
+                                </div>
+
+                                {skillsMessage && (
+                                    <div className={`set-message ${skillsMessage.bad ? 'err-banner' : 'notice'}`}>
+                                        {skillsMessage.text}
+                                    </div>
+                                )}
+
+                                <div className="set-subhead">
+                                    {shelfSkills.length} skill{shelfSkills.length === 1 ? '' : 's'} on the shelf
+                                </div>
+                                <div className="set-group">
+                                    {shelfSkills.length === 0 && (
+                                        <div className="set-empty">No global skills yet.</div>
+                                    )}
+                                    {shelfSkills.map((skill) => (
+                                        <Row
+                                            key={skill.name}
+                                            label={<span className="mono">{skill.name}</span>}
+                                            description={
+                                                <>
+                                                    {skill.description || 'No description.'}
+                                                    {folders.length > 1 && (
+                                                        <span className="set-from">
+                                                            {skill.folder === workspacePath ? 'App workspace' : skill.folder}
+                                                        </span>
+                                                    )}
+                                                </>
+                                            }
+                                            control={
+                                                <button
+                                                    className="ghost danger"
+                                                    aria-label={`Delete ${skill.name}`}
+                                                    onClick={() => setDeleting(skill)}
+                                                >
+                                                    Delete
+                                                </button>
+                                            }
+                                        />
+                                    ))}
+                                </div>
+
+                                {deleting && (
+                                    <ConfirmDialog
+                                        title="Delete skill"
+                                        message={deleteQuestion(deleting)}
+                                        confirmLabel="Delete"
+                                        onCancel={() => setDeleting(null)}
+                                        onConfirm={() => {
+                                            void deleteSkill(deleting);
+                                            setDeleting(null);
+                                        }}
+                                    />
+                                )}
+
+                                <div className="set-subhead">Seeding</div>
+                                <div className="set-group">
                                     <Row
                                         label="Seed the global library from"
                                         description={
                                             <>
-                                                A folder of <code>&lt;name&gt;/SKILL.md</code> folders, copied in
-                                                once while the global library is empty. To add skills later, use
-                                                Import on a canvas's Skills tab.
+                                                A folder of <code>&lt;name&gt;/SKILL.md</code> folders, copied
+                                                into the app workspace once while the shelf is empty.
                                             </>
                                         }
                                         below={
@@ -259,6 +525,11 @@ export function SettingsPanel({
                                         }
                                     />
                                 </div>
+                                <p className="set-note">
+                                    Linking, unlinking and reordering take effect at once, and unlinking deletes
+                                    nothing. Import copies skills in, replacing the copy in use of any skill with the
+                                    same name. To write or edit a skill, open a canvas's Skills tab.
+                                </p>
                             </>
                         )}
 

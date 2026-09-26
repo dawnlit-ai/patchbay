@@ -2,7 +2,7 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { NameDialog } from './NameDialog';
-import { SKILL_SCOPES, type SkillScope, type SkillSummary } from '@shared/settings';
+import { type GlobalSkillFolder, SKILL_SCOPES, type SkillScope, type SkillSummary, } from '@shared/settings';
 
 const TEMPLATE = (name: string): string => `---
 name: ${name}
@@ -66,18 +66,25 @@ export function SkillLibrary({
     const [dropOn, setDropOn] = useState<SkillScope | null>(null);
     /** A move worth asking about first: it overwrites, or it abandons other flows. */
     const [confirming, setConfirming] = useState<string | null>(null);
-    /** The folder the global library reads and writes in place, or '' while it keeps its own. */
-    const [linked, setLinked] = useState('');
+    /** The global library's folders, highest first, so the tab can say where a skill lives. */
+    const [folders, setFolders] = useState<GlobalSkillFolder[]>([]);
 
     const shown = skills.filter((s) => s.scope === scope);
     const other: SkillScope = scope === 'global' ? 'flow' : 'global';
     const libraryName = (which: SkillScope): string =>
         which === 'global' ? 'the global library' : `“${flowName}”`;
 
-    // Re-read with the list, which is what refreshes when another window or an agent links it.
+    // Re-read with the list, which is what refreshes when another window or an agent changes them.
     useEffect(() => {
-        void window.api.skills.linkedFolder().then(setLinked);
+        void window.api.skills.folders().then(setFolders);
     }, [skills]);
+
+    /** The linked folder a global skill is kept in, or null when it is in the workspace. */
+    const whereKept = (name: string): string | null => {
+        const folder = folders.find((f) => f.skills.some((s) => s.name === name && !s.shadowed));
+        return folder && !folder.workspace ? folder.path : null;
+    };
+    const linkedCount = folders.filter((f) => !f.workspace).length;
 
     useEffect(() => {
         if (!editing) return;
@@ -122,7 +129,8 @@ export function SkillLibrary({
                 `It leaves the global shelf, so the ${otherFlowCount} other flow${otherFlowCount === 1 ? '' : 's'} can no longer tick it. This flow’s own ticks are re-pointed for you.`,
             );
         }
-        if (scope === 'global' && linked) warnings.push(`Its folder is taken out of ${linked}.`);
+        const kept = scope === 'global' ? whereKept(name) : null;
+        if (kept) warnings.push(`Its folder is taken out of ${kept}.`);
         return warnings;
     };
 
@@ -170,36 +178,6 @@ export function SkillLibrary({
         }
     };
 
-    const link = async (): Promise<void> => {
-        setMessage(null);
-        try {
-            const result = await window.api.skills.pickAndLink();
-            if (!result) return;
-            // Ticks on these now find nothing, until the library is unlinked.
-            const aside = shown.filter((s) => !result.names.includes(s.name)).map((s) => s.name);
-            setLinked(result.dir);
-            onRefresh();
-            say(
-                `Linked to ${result.dir}: ${result.names.length} skill${result.names.length === 1 ? '' : 's'}.` +
-                (aside.length > 0 ? ` Not offered while linked: ${aside.join(', ')}.` : ''),
-            );
-        } catch (e) {
-            failed(e);
-        }
-    };
-
-    const unlink = async (): Promise<void> => {
-        setMessage(null);
-        try {
-            await window.api.skills.unlink();
-            setLinked('');
-            onRefresh();
-            say('The global library is back on its own skills in the workspace.');
-        } catch (e) {
-            failed(e);
-        }
-    };
-
     if (editing) {
         return (
             <div>
@@ -219,10 +197,10 @@ export function SkillLibrary({
                     spellCheck={false}
                 />
                 <div className="hint">
-                    {scope === 'global' && linked ? (
+                    {scope === 'global' && whereKept(editing) ? (
                         <>
-                            Saved as <code>{editing}/SKILL.md</code> in <code>{linked}</code>, and offered to
-                            every flow.
+                            Saved as <code>{editing}/SKILL.md</code> in <code>{whereKept(editing)}</code>, and
+                            offered to every flow.
                         </>
                     ) : scope === 'global' ? (
                         <>
@@ -246,12 +224,12 @@ export function SkillLibrary({
                 <strong>Skills</strong>
                 <span className="spacer"/>
                 <button onClick={() => void importSkills()}>Import…</button>
-                {scope === 'global' && !linked && (
+                {scope === 'global' && (
                     <button
-                        onClick={() => void link()}
-                        title="Use a folder of skills where it is, rather than copying them in"
+                        onClick={() => void window.api.window.showSettings()}
+                        title="Link folders of skills into the global library, in Settings → Global skills"
                     >
-                        Link…
+                        Folders…
                     </button>
                 )}
                 <button className="primary" onClick={() => setNaming(true)}>
@@ -307,19 +285,8 @@ export function SkillLibrary({
                     title="Delete skill"
                     message={
                         scope === 'global'
-                            ? `Delete
-                                “
-                                ${deleting}
-                                ” from the global library? Every flow that ticks it loses it
-                                ${linked ? `, and its folder is deleted from ${linked}` : ''}
-                                .`
-                            : `Delete
-                                “
-                                ${deleting}
-                                ” from
-                                “
-                                ${flowName}
-                                ”? Its whole folder goes with it.`
+                            ? `Delete “${deleting}” from the global library? Every flow that ticks it loses it${whereKept(deleting) ? `, and its folder is deleted from ${whereKept(deleting)}` : ''}.`
+                            : `Delete “${deleting}” from “${flowName}”? Its whole folder goes with it.`
                     }
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(null)}
@@ -345,18 +312,9 @@ export function SkillLibrary({
 
             {message && <div className={message.bad ? 'err-banner' : 'notice'}>{message.text}</div>}
 
-            {scope === 'global' && linked && (
-                <div className="notice linked-folder">
-                    <span className="grow">
-                        Linked to <code>{linked}</code>
-                    </span>
-                    <button onClick={() => void unlink()}>Unlink</button>
-                </div>
-            )}
-
             <div className="hint block">
-                {scope === 'global' && linked
-                    ? 'The shared shelf, kept in that folder: editing, adding or deleting a skill here changes it there, and what changes there shows up here.'
+                {scope === 'global' && linkedCount > 0
+                    ? `The shared shelf, including ${linkedCount} linked folder${linkedCount === 1 ? '' : 's'} read in place: editing or deleting a skill from one changes it there, and what changes there shows up here. New skills are saved in the app workspace.`
                     : scope === 'global'
                         ? 'The shared shelf: any flow can tick these, and editing one changes it everywhere.'
                         : `Kept inside this flow’s own folder: only “${flowName}” sees them, and they travel with it when you export.`}
@@ -366,11 +324,9 @@ export function SkillLibrary({
 
             {shown.length === 0 && (
                 <div className="empty">
-                    {scope === 'global' && linked
-                        ? `Nothing in ${linked} holds a SKILL.md.`
-                        : scope === 'global'
-                            ? 'No global skills yet. Create one, import a folder of existing Claude Code skills, or link one.'
-                            : 'Nothing specific to this flow. Create one here when a skill should not follow every other flow.'}
+                    {scope === 'global'
+                        ? 'No global skills yet. Create one, import a folder of existing Claude Code skills, or link a folder of them under Folders….'
+                        : 'Nothing specific to this flow. Create one here when a skill should not follow every other flow.'}
                 </div>
             )}
 

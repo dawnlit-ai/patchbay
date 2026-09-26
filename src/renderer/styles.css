@@ -853,6 +853,47 @@ button.wide {
     line-height: 1.55;
 }
 
+/* A heading between two groups on one page. */
+.set-subhead {
+    margin: 22px 2px 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.set-page .set-label .mono {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.set-page .set-label .path {
+    overflow-wrap: anywhere;
+}
+
+.set-warn {
+    color: var(--err);
+}
+
+/* Which folder a skill on the shelf came from, when there is more than one. */
+.set-from {
+    display: block;
+    margin-top: 2px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.set-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.set-page .set-message {
+    margin: 12px 0 0;
+}
+
 /* One MCP server: its name on top, what starts it underneath. */
 .set-row.server {
     align-items: start;
@@ -2111,19 +2152,6 @@ button.wide {
     padding: 8px 10px;
     margin-bottom: 10px;
     font-size: 12px;
-}
-
-/* The folder the global library is linked to, and the way back off it. */
-.linked-folder {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.linked-folder .grow {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
 }
 
 /* The app-level banner, between the topbar and the panels. */

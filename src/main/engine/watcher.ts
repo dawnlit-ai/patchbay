@@ -285,7 +285,7 @@ export class Watcher {
         clearInterval(this.timer);
         this.timer = null;
     }
-    
+
     /**
      * A polled email was marked seen when it was queued, so one dropped here is
      * never picked up again. Worth a line each: only a test run brings it back.

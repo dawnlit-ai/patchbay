@@ -172,12 +172,12 @@ export function registerIpc(): void {
     });
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => {
-        // Keep the stored token and skills link: a panel opened before a regeneration
-        // or a link would send the old one back.
-        const { globalSkillsPath, agentControl } = getSettings();
+        // Keep the stored token and skill folders: a panel opened before a regeneration
+        // or a folder change would send the old ones back.
+        const { globalSkillFolders, agentControl } = getSettings();
         const saved = saveSettings({
             ...settings,
-            globalSkillsPath,
+            globalSkillFolders,
             agentControl: { ...settings.agentControl, token: agentControl.token },
         });
         // Switching the agent-control server on, off, or onto another port is an
@@ -225,19 +225,22 @@ export function registerIpc(): void {
         if (picked.canceled || !dir) return null;
         return { dir, imported: skillStore.importSkillsFrom(scope, flowId, dir) };
     });
-    handle(IPC.skillsLinkedFolder, () => skillStore.linkedGlobalFolder());
+    handle(IPC.skillsFolders, () => skillStore.globalShelf());
     // Every flow's global skills change at once, so every window re-reads them.
-    handleWrite({ flows: false, skills: true }, IPC.skillsPickAndLink, async () => {
+    handleWrite({ flows: false, skills: true }, IPC.skillsSetFolders, (paths: string[]) =>
+        skillStore.setGlobalFolders(paths),
+    );
+    handle(IPC.skillsPickFolder, async () => {
         const picked = await dialog.showOpenDialog({
-            title: 'Choose a folder of skills for every flow to use in place',
+            title: 'Choose a folder of skills to link for every flow to use in place',
             properties: ['openDirectory'],
         });
-        const dir = picked.filePaths[0];
-        if (picked.canceled || !dir) return null;
-        return { dir, names: skillStore.linkGlobalLibrary(dir).map((s) => s.name) };
+        return picked.canceled ? null : (picked.filePaths[0] ?? null);
     });
-    handleWrite({ flows: false, skills: true }, IPC.skillsUnlink, () => {
-        skillStore.linkGlobalLibrary('');
+    handle(IPC.skillsRevealFolder, async (path: string) => {
+        // openPath reports failure as a message rather than throwing: the folder may be gone.
+        const failure = await shell.openPath(skillStore.globalFolderPath(path));
+        if (failure) throw new Error(failure);
     });
 
     handle(IPC.engineStart, (flowId: string) => getWatcher().start(flowId));

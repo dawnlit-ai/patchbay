@@ -67,9 +67,10 @@ const api: Api = {
         remove: (scope, flowId, name) => call(IPC.skillsRemove, scope, flowId, name),
         move: (from, to, flowId, name) => call(IPC.skillsMove, from, to, flowId, name),
         pickAndImport: (scope, flowId) => call(IPC.skillsPickAndImport, scope, flowId),
-        linkedFolder: () => call(IPC.skillsLinkedFolder),
-        pickAndLink: () => call(IPC.skillsPickAndLink),
-        unlink: () => call(IPC.skillsUnlink),
+        folders: () => call(IPC.skillsFolders),
+        setFolders: (paths) => call(IPC.skillsSetFolders, paths),
+        pickFolder: () => call(IPC.skillsPickFolder),
+        revealFolder: (path) => call(IPC.skillsRevealFolder, path),
     },
     engine: {
         start: (flowId) => call(IPC.engineStart, flowId),

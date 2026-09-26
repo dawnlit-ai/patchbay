@@ -5,7 +5,7 @@
  *   npm run mcpcheck
  */
 import { app } from 'electron';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -196,50 +196,100 @@ async function main(): Promise<void> {
     );
     await call('delete_flow', { flowId: other });
 
-    // Linked, the global shelf is that folder: writes land in it, and a run gets
-    // a copy of just the skills it ticks, laid out as a plugin.
-    const linkedShelf = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-linked-'));
-    mkdirSync(join(linkedShelf, 'gamma'));
-    writeFileSync(join(linkedShelf, 'gamma', 'SKILL.md'), '---\nname: gamma\ndescription: Linked.\n---\n');
-    const linked = JSON.parse(await call('link_global_skills', { dir: linkedShelf })) as { skills: string[] };
-    check('a linked folder’s skills are the global library', linked.skills.join() === 'gamma');
+    // The global shelf reads the linked folders in place, then the workspace's own.
+    // The first to hold a name has the copy in use, a write goes over that copy or
+    // into the workspace, and a run gets a copy of just the ticked skills as a plugin.
+    const writeSkill = (dir: string, name: string, description: string): void => {
+        mkdirSync(join(dir, name), { recursive: true });
+        writeFileSync(join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n`);
+    };
+    const upper = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-upper-'));
+    const lower = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-lower-'));
+    writeSkill(upper, 'gamma', 'Upper.');
+    writeSkill(lower, 'gamma', 'Lower.');
+    writeSkill(lower, 'epsilon', 'Lower only.');
+    const own = join(workspace, 'workspace', 'global', 'skills');
+    writeSkill(own, 'gamma', 'Stale copy in the workspace.');
+    type Shelf = { folder: string; skills: string[]; shadowed?: string[] }[];
+    const folders = JSON.parse(
+        await call('set_global_skill_folders', { folders: [upper, lower] }),
+    ) as Shelf;
+    check(
+        'the higher folder wins a name two folders share',
+        folders[0]?.skills.join() === 'gamma' &&
+        folders[1]?.skills.join() === 'epsilon' &&
+        folders[1]?.shadowed?.join() === 'gamma' &&
+        folders[2]?.folder === 'app workspace' &&
+        folders[2]?.shadowed?.includes('gamma') === true,
+        JSON.stringify(folders),
+    );
+    const offered = listAllSkills(flowId).filter((s) => s.scope === 'global');
+    check(
+        'the library offers each name once, from where it is in use',
+        offered.filter((s) => s.name === 'gamma').length === 1 &&
+        offered.find((s) => s.name === 'gamma')?.folder === upper,
+    );
     await call('write_skill', {
         scope: 'global',
         name: 'delta',
-        content: '---\nname: delta\ndescription: Written while linked.\n---\n',
+        content: '---\nname: delta\ndescription: New.\n---\n',
     });
-    check('a write to the linked library lands in the folder', existsSync(join(linkedShelf, 'delta', 'SKILL.md')));
-    const plugin = globalPluginFor(['gamma', 'missing']);
     check(
-        'a run gets only the ticked skills, as a plugin',
+        'a new skill is saved in the workspace, not a linked folder',
+        existsSync(join(own, 'delta', 'SKILL.md')) && !existsSync(join(upper, 'delta')),
+    );
+    await call('write_skill', {
+        scope: 'global',
+        name: 'epsilon',
+        content: '---\nname: epsilon\ndescription: Edited.\n---\n',
+    });
+    check(
+        'an edit goes over the copy in use, wherever it is',
+        !existsSync(join(upper, 'epsilon')) && readFileSync(join(lower, 'epsilon', 'SKILL.md'), 'utf8').includes('Edited.'),
+    );
+    const plugin = globalPluginFor(['gamma', 'epsilon', 'missing']);
+    check(
+        'a run gets only the ticked skills, each from where it is in use, as a plugin',
         existsSync(join(plugin.path, '.claude-plugin', 'plugin.json')) &&
-        existsSync(join(plugin.path, 'skills', 'gamma', 'SKILL.md')) &&
+        readFileSync(join(plugin.path, 'skills', 'gamma', 'SKILL.md'), 'utf8').includes('Upper.') &&
+        existsSync(join(plugin.path, 'skills', 'epsilon', 'SKILL.md')) &&
         !existsSync(join(plugin.path, 'skills', 'delta')),
     );
     plugin.dispose();
     check(
-        'the run’s copy goes, and the folder stays',
-        !existsSync(plugin.path) && existsSync(join(linkedShelf, 'gamma', 'SKILL.md')),
+        'the run’s copy goes, and the folders stay',
+        !existsSync(plugin.path) && existsSync(join(upper, 'gamma', 'SKILL.md')),
     );
     // Under Electron, rmSync follows a junction and empties its target.
     const outside = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-outside-'));
     writeFileSync(join(outside, 'keep.md'), 'Not the skill’s to delete.\n');
-    symlinkSync(outside, join(linkedShelf, 'delta', 'shared'), 'junction');
-    await call('delete_skill', { scope: 'global', name: 'delta' });
+    writeSkill(upper, 'zeta', 'Linked.');
+    symlinkSync(outside, join(upper, 'zeta', 'shared'), 'junction');
+    await call('delete_skill', { scope: 'global', name: 'zeta' });
     check(
         'deleting a skill removes a link inside it, not what it points at',
-        !existsSync(join(linkedShelf, 'delta')) && existsSync(join(outside, 'keep.md')),
+        !existsSync(join(upper, 'zeta')) && existsSync(join(outside, 'keep.md')),
     );
-    const linkedSkill = await client.callTool({
-        name: 'link_global_skills',
-        arguments: { dir: join(linkedShelf, 'gamma') },
+    await call('delete_skill', { scope: 'global', name: 'gamma' });
+    check(
+        'deleting the copy in use lets the one below take over',
+        !existsSync(join(upper, 'gamma')) &&
+        listAllSkills(flowId).find((s) => s.scope === 'global' && s.name === 'gamma')?.folder === lower,
+    );
+    const skillAsFolder = await client.callTool({
+        name: 'set_global_skill_folders',
+        arguments: { folders: [join(lower, 'gamma')] },
     });
-    check('a skill folder is refused as a link', linkedSkill.isError === true);
-    const unlinked = JSON.parse(await call('link_global_skills', { dir: '' })) as {
-        linkedTo: string | null;
-        skills: string[];
-    };
-    check('unlinking puts the library’s own skills back', unlinked.linkedTo === null && !unlinked.skills.includes('gamma'));
+    check('a skill folder is refused as a library folder', skillAsFolder.isError === true);
+    const unlinked = JSON.parse(await call('set_global_skill_folders', { folders: [] })) as Shelf;
+    check(
+        'unlinking them all leaves the workspace’s own skills',
+        unlinked.length === 1 &&
+        unlinked[0]?.skills.includes('gamma') === true &&
+        unlinked[0]?.skills.includes('delta') === true &&
+        !unlinked[0]?.skills.includes('epsilon'),
+        JSON.stringify(unlinked),
+    );
 
     // A run has an id from the moment it is queued. A trigger wired to nothing
     // ends its path at once, so these runs touch neither Outlook nor Claude; two

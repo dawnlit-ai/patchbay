@@ -88,7 +88,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     }, [flowId]);
 
     useEffect(refreshSkills, [refreshSkills]);
-    // A linked library is edited in other apps too; coming back is when to look again.
+    // The global library's folders are edited in other apps too; coming back is when to look again.
     useEffect(() => {
         window.addEventListener('focus', refreshSkills);
         return () => window.removeEventListener('focus', refreshSkills);
