@@ -93,7 +93,7 @@ function underInbox(folderPath: string): string | null {
     return lower.endsWith('\\inbox') ? '' : null;
 }
 
-/** What an envelope is built from — a folder listing's row, or a tree search's match. */
+/** What an envelope is built from — a folder listing's row, a tree search's match, or Outlook's selection. */
 type ListedEmail = Pick<
     InboxEmail,
     | 'entryId'
@@ -182,10 +182,14 @@ function dropNames(subject: string, drag: OutlookDrag, message: string | undefin
     return wanted !== '' && squash(drag.text).includes(wanted);
 }
 
+/** The mailbox a full Outlook path starts with (`\\team@example.com\Inbox` → `team@example.com`), or ''. */
+const mailboxOf = (folderPath: string): string => /^\\\\([^\\]+)/.exec(folderPath)?.[1] ?? '';
+
 /**
  * The email dragged out of Outlook onto a trigger. A drag carries no id, so this
  * takes Outlook's current selection, checked against the drag's own file name and
- * text, then finds it in the trigger's mailbox.
+ * text. Any folder will do, but only in the trigger's mailbox: a run replies
+ * from, and files into, the mailbox its email sits in.
  */
 export async function readDragged(account: string, drag: OutlookDrag): Promise<EmailEnvelope> {
     const messages = drag.fileNames.filter((name) => /\.msg$/i.test(name));
@@ -210,6 +214,13 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
         );
     }
 
+    const bodyPreview = selected.body.slice(0, 600);
+    if (mailboxOf(selected.folderPath).toLowerCase() === account.toLowerCase()) {
+        return toEnvelope(account, { ...selected, bodyPreview });
+    }
+
+    // A profile can open a mailbox under a display name rather than its address,
+    // so a path naming another mailbox is checked by a search before it is refused.
     const found = await serialize(`Find the dragged email in ${account}`, () =>
         b.locateEmail({
             subject: selected.subject,
@@ -219,11 +230,12 @@ export async function readDragged(account: string, drag: OutlookDrag): Promise<E
         }),
     );
     if (!found) {
+        const where = selected.folderPath.replace(/^\\+/, '');
         throw new Error(
-            `"${subject}" from ${selected.senderEmail} isn't in ${account}'s Inbox or the folders under it — the mailbox this trigger watches.`,
+            `"${subject}" from ${selected.senderEmail} ${where ? `is in ${where}, not` : "isn't in"} ${account} — the mailbox this trigger watches.`,
         );
     }
-    return toEnvelope(account, { ...found, bodyPreview: selected.body.slice(0, 600) });
+    return toEnvelope(account, { ...found, bodyPreview });
 }
 
 /** The sender's own text, plus the quoted thread below it with `includeQuoted`, each held to `maxChars`. */

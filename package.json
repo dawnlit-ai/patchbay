@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.280",
-    "@dawnlit/outlook-bridge": "^2.0.0",
+    "@dawnlit/outlook-bridge": "file:../outlook-bridge",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@xyflow/react": "^12.11.6",
     "react": "^19.3.0",
