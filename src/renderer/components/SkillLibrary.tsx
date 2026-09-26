@@ -167,11 +167,11 @@ export function SkillLibrary({
             const result = await window.api.skills.pickAndImport(scope, flowId);
             if (result) {
                 onRefresh();
-                say(
+                const said =
                     result.imported.length > 0
-                        ? `Imported ${result.imported.length}: ${result.imported.join(', ')}`
-                        : 'No folders containing a SKILL.md were found there.',
-                );
+                        ? `Imported ${result.imported.length}: ${result.imported.join(', ')}.`
+                        : 'Nothing imported.';
+                say(result.skipped.length > 0 ? `${said} Skipped ${result.skipped.join('; ')}.` : said);
             }
         } catch (e) {
             failed(e);
@@ -285,8 +285,19 @@ export function SkillLibrary({
                     title="Delete skill"
                     message={
                         scope === 'global'
-                            ? `Delete “${deleting}” from the global library? Every flow that ticks it loses it${whereKept(deleting) ? `, and its folder is deleted from ${whereKept(deleting)}` : ''}.`
-                            : `Delete “${deleting}” from “${flowName}”? Its whole folder goes with it.`
+                            ? `Delete
+                                “
+                                ${deleting}
+                                ” from the global library? Every flow that ticks it loses it
+                                ${whereKept(deleting) ? `, and its folder is deleted from ${whereKept(deleting)}` : ''}
+                                .`
+                            : `Delete
+                                “
+                                ${deleting}
+                                ” from
+                                “
+                                ${flowName}
+                                ”? Its whole folder goes with it.`
                     }
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(null)}
@@ -325,7 +336,7 @@ export function SkillLibrary({
             {shown.length === 0 && (
                 <div className="empty">
                     {scope === 'global'
-                        ? 'No global skills yet. Create one, import a folder of existing Claude Code skills, or link a folder of them under Folders….'
+                        ? 'No global skills yet. Create one, import existing SKILL.md files, or link a folder of them under Folders….'
                         : 'Nothing specific to this flow. Create one here when a skill should not follow every other flow.'}
                 </div>
             )}

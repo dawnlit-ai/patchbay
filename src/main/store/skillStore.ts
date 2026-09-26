@@ -13,7 +13,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { flowSkillsDir, flowSkillsDirAt, globalPluginDir, globalSkillsDir } from '../paths';
 import { getSettings, saveSettings } from './settingsStore';
 import {
@@ -321,6 +321,44 @@ export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string,
         imported.push(entry.name);
     }
     return imported;
+}
+
+/**
+ * Import skills from picked `.md` files, overwriting same-named skills. A `SKILL.md`
+ * brings its whole folder, scripts and references included, named after that
+ * folder; any other `.md` becomes a skill of that one file. Either falls back to
+ * the frontmatter `name` when the folder or file name is not a valid skill name.
+ */
+export function importSkillFiles(
+    scope: SkillScope,
+    flowId: string,
+    files: string[],
+): { imported: string[]; skipped: string[] } {
+    const imported: string[] = [];
+    const skipped: string[] = [];
+    for (const file of files) {
+        const content = readFileSync(file, 'utf8');
+        const whole = basename(file) === 'SKILL.md';
+        const own = whole ? basename(dirname(file)) : basename(file, extname(file)).toLowerCase();
+        const name = isValidSkillName(own) ? own : parseFrontmatter(content).name;
+        if (!name || !isValidSkillName(name)) {
+            skipped.push(`${file} (no usable name: give it a lowercase-and-hyphens name in its frontmatter)`);
+            continue;
+        }
+        if (!whole) {
+            saveSkill(scope, flowId, name, content);
+        } else {
+            const source = resolve(dirname(file));
+            const target = resolve(join(writeDir(scope, flowId, name), name));
+            if (source === target) {
+                skipped.push(`${name} (already in the library)`);
+                continue;
+            }
+            cpSync(source, target, { recursive: true });
+        }
+        imported.push(name);
+    }
+    return { imported, skipped };
 }
 
 const STARTER_SKILL_NAME = 'summarize-and-file';

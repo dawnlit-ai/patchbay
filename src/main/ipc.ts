@@ -217,13 +217,13 @@ export function registerIpc(): void {
         const picked = await dialog.showOpenDialog({
             title:
                 scope === 'global'
-                    ? 'Choose a folder of skills to add to every flow'
-                    : 'Choose a folder of skills to add to this flow',
-            properties: ['openDirectory'],
+                    ? 'Choose SKILL.md files to add to every flow'
+                    : 'Choose SKILL.md files to add to this flow',
+            filters: [{ name: 'Skills', extensions: ['md'] }],
+            properties: ['openFile', 'multiSelections'],
         });
-        const dir = picked.filePaths[0];
-        if (picked.canceled || !dir) return null;
-        return { dir, imported: skillStore.importSkillsFrom(scope, flowId, dir) };
+        if (picked.canceled || picked.filePaths.length === 0) return null;
+        return skillStore.importSkillFiles(scope, flowId, picked.filePaths);
     });
     handle(IPC.skillsFolders, () => skillStore.globalShelf());
     // Every flow's global skills change at once, so every window re-reads them.

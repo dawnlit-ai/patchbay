@@ -502,7 +502,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 dir: z
                     .string()
                     .describe(
-                        'Absolute path to a folder whose subfolders each hold a SKILL.md — ~/.claude/skills, say. The same shape the window’s Import… button takes.',
+                        'Absolute path to a folder whose subfolders each hold a SKILL.md — ~/.claude/skills, say.',
                     ),
                 names: z
                     .array(z.string())

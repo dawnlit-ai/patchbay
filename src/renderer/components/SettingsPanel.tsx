@@ -211,9 +211,11 @@ export function SettingsPanel({
             const result = await window.api.skills.pickAndImport('global', '');
             if (!result) return null;
             await refreshSkills();
-            return result.imported.length > 0
-                ? `Imported ${result.imported.length} from ${result.dir}: ${result.imported.join(', ')}.`
-                : `No folders holding a SKILL.md were found in ${result.dir}.`;
+            const said =
+                result.imported.length > 0
+                    ? `Imported ${result.imported.length}: ${result.imported.join(', ')}.`
+                    : 'Nothing imported.';
+            return result.skipped.length > 0 ? `${said} Skipped ${result.skipped.join('; ')}.` : said;
         });
 
     /** A copy of the same name further down, which takes over once this one goes. */
@@ -234,7 +236,12 @@ export function SettingsPanel({
         const next = nextInLine(skill);
         const where = skill.folder === workspacePath ? 'the app workspace' : skill.folder;
         return (
-            `Delete “${skill.name}”? Its whole folder is deleted from ${where}. ` +
+            `Delete
+            “
+            ${skill.name}
+            ”? Its whole folder is deleted from
+            ${where}
+            . ` +
             (next
                 ? `Flows that tick it get the copy in ${next.workspace ? 'the app workspace' : next.path} instead.`
                 : 'Every flow that ticks it loses it.')
@@ -445,7 +452,7 @@ export function SettingsPanel({
                                     </button>
                                     <button
                                         onClick={() => void importSkills()}
-                                        title="Copy a folder's skills into the app workspace, replacing any of the same name"
+                                        title="Copy the skills of chosen SKILL.md files into the app workspace, replacing any of the same name"
                                     >
                                         Import…
                                     </button>

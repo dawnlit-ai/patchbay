@@ -148,11 +148,11 @@ export interface Api {
          * the same name there. The caller asks first, and repairs the ticks.
          */
         move(from: SkillScope, to: SkillScope, flowId: string, name: string): Promise<SkillSummary>;
-        /** Ask the user for a folder, then copy the SKILL.md folders in it into the library. */
+        /** Ask the user for SKILL.md files, then copy each one's skill into the library. */
         pickAndImport(
             scope: SkillScope,
             flowId: string,
-        ): Promise<{ dir: string; imported: string[] } | null>;
+        ): Promise<{ imported: string[]; skipped: string[] } | null>;
         /** The folders the global library reads, highest first — the linked ones, then the workspace's — with what each holds. */
         folders(): Promise<GlobalSkillFolder[]>;
         /** Replace the linked folders, highest first. A higher folder wins a name two share. */
