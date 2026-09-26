@@ -130,7 +130,9 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                     templateSubject: z.string().min(1).optional(),
                     templateFolder: z.string().min(1).optional(),
                     templateSection: z.string().min(1).optional(),
-                    templatePlaceholders: z.record(z.string(), z.string()).optional(),
+                    // Not z.record: its `propertyNames` keyword makes the SDK list none of
+                    // this server's tools, read_email included, while calling it connected.
+                    templatePlaceholders: z.object({}).catchall(z.string()).optional(),
                     signatureName: z.string().min(1).optional(),
                     replyAll: z.boolean().optional(),
                 },
