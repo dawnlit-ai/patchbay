@@ -26,12 +26,24 @@ import type { SkillScope } from '@shared/settings';
  * the id inside the file cannot, since runs and watermarks are keyed by it.
  */
 
+/**
+ * A flow file, repaired the way an import is, so a node saved before a config
+ * field existed arrives with that field's default rather than without it.
+ */
+function readFlowFile(path: string): Flow | null {
+    const raw = readJson<Record<string, unknown> | null>(path, null);
+    if (!raw || typeof raw.id !== 'string') return null;
+    const flow = parseFlow(raw, raw.id, typeof raw.name === 'string' ? raw.name : 'Untitled flow');
+    // Kept as written: it is the version a canvas saves against.
+    return typeof raw.updatedAt === 'string' ? { ...flow, updatedAt: raw.updatedAt } : flow;
+}
+
 export function listFlows(): Flow[] {
     const dir = flowsDir();
     const byId = new Map<string, Flow>();
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        const flow = readJson<Flow | null>(join(dir, entry.name, FLOW_FILE), null);
+        const flow = readFlowFile(join(dir, entry.name, FLOW_FILE));
         // A copied directory carries the same id; keep the first, as `flowFolder` does.
         if (flow && !byId.has(flow.id)) byId.set(flow.id, flow);
     }
@@ -41,7 +53,7 @@ export function listFlows(): Flow[] {
 export function getFlow(id: string): Flow | null {
     // Not through flowFile, which makes the directory it names: asking after a
     // flow that was deleted, or never was, should not leave a folder behind.
-    return readJson<Flow | null>(join(flowDirAt(flowFolder(id)), FLOW_FILE), null);
+    return readFlowFile(join(flowDirAt(flowFolder(id)), FLOW_FILE));
 }
 
 export function saveFlow(flow: Flow): Flow {
