@@ -6,6 +6,7 @@ import {
     type CategorizerConfig,
     type ExtractorConfig,
     type FlowNode,
+    needsField,
     type ProcessorConfig,
     type TerminalConfig,
     type TriggerConfig,
@@ -261,18 +262,24 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         detail: JSON.stringify(answer, null, 2),
     });
 
+    // Claude lists every field the email left out, but only a required one stands
+    // in `data` as an empty value; an optional one is simply not there.
+    const missing = answer.missing ?? [];
+    const needed = missing.filter((path) => needsField(config.schema, answer.data, path));
     const checked = validator.safeParse(answer.data);
     const problems = [
-        ...(answer.missing ?? []).map((path) => `${path}: not in the email`),
+        ...needed.map((path) => `${path}: not in the email`),
         ...(checked.success ? [] : checked.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)),
     ];
     const note = answer.note?.trim() ? ` — ${answer.note.trim()}` : '';
     if (problems.length > 0) {
         return { outPort: 'invalid', summary: `${config.output} incomplete: ${problems.join('; ')}${note}` };
     }
+    const optional = missing.length - needed.length;
+    const leftOut = optional > 0 ? ` · ${optional} optional field${optional === 1 ? '' : 's'} not in the email` : '';
     return {
         outPort: 'valid',
-        summary: `${config.output} extracted${note}`,
+        summary: `${config.output} extracted${leftOut}${note}`,
         provided: { [config.output]: answer.data },
     };
 }

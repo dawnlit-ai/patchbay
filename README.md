@@ -28,8 +28,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
-  and puts the result in a named slot. It leaves by *Valid* when every field was in the email and the result matches the
-  schema, by *Incomplete* when something is missing or wrong, or by *Error*.
+  and puts the result in a named slot. It leaves by *Valid* when every required field was in the email and the result
+  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*.
 - **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
   by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
   slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each

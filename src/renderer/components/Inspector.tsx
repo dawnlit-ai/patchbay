@@ -505,7 +505,7 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
             />
 
             <div className="hint">
-                Leaves by Valid when every field is in the email and the result matches the schema, and by
+                Leaves by Valid when every required field is in the email and the result matches the schema, and by
                 Incomplete when something is missing or wrong. Nothing is filled on Incomplete.
             </div>
         </>

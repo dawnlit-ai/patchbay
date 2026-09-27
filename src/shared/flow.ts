@@ -224,6 +224,44 @@ export function slotTypeLabel(type: SlotType): string {
     return `JSON · ${count} field${count === 1 ? '' : 's'}`;
 }
 
+/** A schema this module cannot follow into, and so cannot say what it requires. */
+const opaque = (schema: unknown): boolean =>
+    !isObject(schema) || ['$ref', 'allOf', 'anyOf', 'oneOf'].some((key) => key in schema);
+
+/**
+ * Whether `data` falls short of `schema` without the field at `path`, e.g.
+ * "containers.0.number": the object that would hold it is in `data`, and its
+ * schema lists the field in `required`. A field under an object `data` left out
+ * is not needed, and one the schema cannot be followed to counts as needed.
+ */
+export function needsField(schema: JsonSchema, data: unknown, path: string): boolean {
+    const steps = path.split(/[.[\]]+/).filter(Boolean);
+    const field = steps.pop();
+    if (field === undefined) return true;
+    let shape: unknown = schema;
+    let holder: unknown = data;
+    for (const step of steps) {
+        if (opaque(shape)) return true;
+        const at = shape as Json;
+        if (Array.isArray(holder)) {
+            shape = at.items;
+            holder = holder[Number(step)];
+        } else if (isObject(holder)) {
+            const properties = isObject(at.properties) ? at.properties : {};
+            shape = Object.hasOwn(properties, step) ? properties[step] : at.additionalProperties;
+            holder = holder[step];
+        } else {
+            return false;
+        }
+    }
+    // An array's items are never in `required`: how many it needs is `minItems`,
+    // which the schema check sees for itself.
+    if (!isObject(holder)) return false;
+    if (opaque(shape)) return true;
+    const required = (shape as Json).required;
+    return Array.isArray(required) && required.includes(field);
+}
+
 /** Slots a node adds to the run when it leaves by `port`. */
 export function provides(node: FlowNode, port: string): Slot[] {
     switch (node.config.kind) {
