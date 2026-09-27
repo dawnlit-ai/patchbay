@@ -361,6 +361,10 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // bare name for one of the flow's own.
         skills: config.skills.length > 0 ? config.skills : undefined,
         allowedTools,
+        // Without file-system access the run still reads its own two folders,
+        // which `dontAsk` allows; the shell goes, since `dontAsk` would let its
+        // read-only commands through too, and "read-only" is the shell's own guess.
+        disallowedTools: config.allowFileSystem ? undefined : ['Bash', 'PowerShell'],
         mcpServers,
         signal: ctx.signal,
         onEvent: ctx.onEvent,

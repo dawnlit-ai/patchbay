@@ -620,8 +620,13 @@ function ProcessorFields({
                     checked={config.allowFileSystem}
                     onChange={(e) => patch({ allowFileSystem: e.target.checked })}
                 />
-                Read and write files (Read, Write, Edit, Bash)
+                Read and write files anywhere, and run commands (Read, Write, Edit, Bash)
             </label>
+            {!config.allowFileSystem && (
+                <div className="hint">
+                    Off, it still reads its run folder — saved attachments — and saves files there, with no shell.
+                </div>
+            )}
             <label className="check">
                 <input
                     type="checkbox"

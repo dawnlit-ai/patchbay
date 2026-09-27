@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk';
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
@@ -96,6 +98,26 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             },
             { annotations: { readOnlyHint: true } },
         ),
+
+        // The one way a node without file-system access writes anything, so the
+        // name is held to a bare file name: no path can lead out of the run folder.
+        tool(
+            'save_file',
+            'Save a text file into this run\'s folder — a report, or anything else worth keeping beside the run — and return its path. Give a bare file name such as "fix-report.md"; saving it again replaces it.',
+            { fileName: z.string().min(1).max(120), content: z.string() },
+            async ({ fileName, content }) => {
+                const name = fileName.trim();
+                if (!/^[^\\/:*?"<>|\0]+$/.test(name) || name.startsWith('.')) {
+                    return fail(`"${fileName}" is not a bare file name. Give one such as "fix-report.md".`);
+                }
+                await mkdir(ctx.scratchDir, { recursive: true });
+                const path = join(ctx.scratchDir, name);
+                await writeFile(path, content, 'utf8');
+                ctx.actions.push(`saved ${name}`);
+                ctx.onEvent({ at: now(), type: 'note', label: `Saved ${name}`, detail: `${path}\n\n${content}` });
+                return ok(`Saved: ${path}`);
+            },
+        ),
     ];
 
     if (config.readEmail && config.allowSaveAttachments) {
@@ -187,7 +209,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
 
 /** The allowlist entries matching the tools built above, for `dontAsk` mode. */
 export function emailToolNames(config: EmailCapabilities): string[] {
-    const names = ['record_note'];
+    const names = ['record_note', 'save_file'];
     if (config.readEmail) names.push('read_email');
     if (config.readEmail && config.allowSaveAttachments) names.push('save_attachment');
     if (config.allowDraftReply) names.push('draft_reply');

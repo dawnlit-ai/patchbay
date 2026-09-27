@@ -263,9 +263,15 @@ Inside a Processor run, a skill gets an MCP server whose tools are bound to the 
 |-------------------|--------|------------------------------------------------------------------------------------|
 | `read_email`      | ✅     | The sender's own text, sender, attachment names — and the quoted thread on request |
 | `record_note`     | ✅     | Writes a note into the run trace                                                   |
+| `save_file`       | ✅     | Saves a text file into the run folder, by a bare file name, and returns its path   |
 | `save_attachment` | opt-in | Saves into the run folder, returns paths                                           |
 | `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email            |
 | `move_email`      | opt-in | Files the email into an Inbox subfolder                                            |
+
+A Processor's own file access is a separate switch, *Read and write files anywhere, and run commands*, and it starts
+off. Off, Claude reads the run folder — the saved attachments — and the flow's folder, writes only through `save_file`,
+and has no shell at all. That is what a node reading mail from outside should get: an email written to steer the agent
+reading it can then reach nothing beyond its own run. Switch it on only for a skill that has to run a script.
 
 There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
 here sends mail.** A drafted reply waits in Outlook for a person. `read_email` does hand back this email's own entry id,

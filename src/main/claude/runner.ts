@@ -35,6 +35,11 @@ export interface ClaudeRunRequest {
     allowedTools: string[];
     /** `[]` disables every built-in tool — right for a pure classification call. */
     tools?: string[];
+    /**
+     * Built-in tools taken out of the run altogether. Stronger than leaving them
+     * out of `allowedTools`: `dontAsk` still lets read-only shell commands through.
+     */
+    disallowedTools?: string[];
     mcpServers?: Record<string, McpServerConfig>;
     /** When set, the run is constrained to this shape and `structured` is filled. */
     jsonSchema?: Record<string, unknown>;
@@ -193,6 +198,7 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         options.additionalDirectories = request.additionalDirectories;
     }
     if (request.tools) options.tools = request.tools;
+    if (request.disallowedTools?.length) options.disallowedTools = request.disallowedTools;
     // The SDK's type names only the levels it knew when it was built; the node's
     // came from the CLI's own list for the model.
     if (request.effort) options.effort = request.effort as Options['effort'];

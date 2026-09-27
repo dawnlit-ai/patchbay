@@ -94,7 +94,11 @@ export interface ProcessorConfig {
     allowDraftReply: boolean;
     allowMoveEmail: boolean;
     allowSaveAttachments: boolean;
-    /** Read/Write/Edit/Bash inside the workspace directory. */
+    /**
+     * Read, Write, Edit and Bash anywhere on the machine. Off, Claude reads only
+     * the flow's folder and the run folder, writes only through `save_file`, and
+     * has no shell — which is what a node reading mail from outside should get.
+     */
     allowFileSystem: boolean;
 }
 
@@ -403,7 +407,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
-                allowFileSystem: true,
+                allowFileSystem: false,
             };
         case 'terminal':
             return { kind, disposition: 'done', moveToFolder: '' };
