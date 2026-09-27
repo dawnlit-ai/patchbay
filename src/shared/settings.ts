@@ -34,12 +34,7 @@ export interface Settings {
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
     skillSeedPath: string;
-    /**
-     * Folders of `<name>/SKILL.md` directories the user linked, which the global
-     * library reads and writes in place, highest first. The workspace's own folder
-     * is read after them and takes new skills. The first to hold a name is the copy
-     * used. Set from Settings → Global skills.
-     */
+    /** Folders of `<name>/SKILL.md` directories linked into the global library, highest first. */
     globalSkillFolders: string[];
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
@@ -48,7 +43,6 @@ export interface Settings {
      * one flow never runs twice at once, whatever this is set to.
      */
     maxConcurrentRuns: number;
-    /** The app's own MCP server, for an agent driving Patchbay from outside it. */
     agentControl: AgentControlSettings;
 }
 
@@ -111,7 +105,7 @@ export interface SkillSummary {
     name: string;
     scope: SkillScope;
     description: string;
-    /** Bytes of SKILL.md, so the library list can show something real. */
+    /** Bytes of SKILL.md. */
     size: number;
     /** The folder it is kept in. For a global skill, which of the library's folders. */
     folder: string;
@@ -123,7 +117,7 @@ export interface GlobalSkillFolder {
     path: string;
     /** The workspace's own folder, which is always read, last, and takes new skills. */
     workspace: boolean;
-    /** Gone — renamed, or on a drive that is not plugged in. Nothing is read from it meanwhile. */
+    /** Gone: renamed, or on a drive that is not plugged in. */
     missing: boolean;
     /** Everything in it, `shadowed` where a folder above holds the same name and wins. */
     skills: (SkillSummary & { shadowed: boolean })[];

@@ -845,8 +845,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         ({ runId, includeEvents }) => {
             const run = traceStore.getRun(runId);
             if (run) return json(describeRun(run, includeEvents !== false));
-            // Queued runs have an id before they have a file. Saying "no such run"
-            // to whoever was just handed that id would send them looking for a fault.
+            // A queued run has an id before it has a file.
             const queued = host.watcher().queued().find((q) => q.runId === runId);
             if (!queued) throw new Error(`There is no run "${runId}".`);
             return json({

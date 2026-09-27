@@ -48,8 +48,7 @@ function make(frame: Frame): BrowserWindow {
         // before the renderer paints.
         backgroundColor: '#f4f6f9',
         title: 'Patchbay',
-        // The top bar draws the name and the minimise/maximise/close buttons itself,
-        // so the OS frame would only repeat them a row higher.
+        // The top bar draws the title and window buttons itself.
         frame: false,
         webPreferences: {
             preload: join(__dirname, 'preload.js'),
@@ -143,8 +142,7 @@ export function showWelcome(): void {
         raise(welcome);
         return;
     }
-    // Deliberately not the canvas's size. It lists flows, so it wants the shape of
-    // a list; anything wider is empty space with a scrollbar down one side.
+    // Sized for a list, not a canvas.
     welcome = make({ width: 940, height: 640, minWidth: 760, minHeight: 520, maximizable: false });
     welcome.on('closed', () => {
         welcome = null;

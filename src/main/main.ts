@@ -14,15 +14,13 @@ void app.whenReady().then(() => {
     registerIpc();
     // Listens only if the workspace says so; a settings edit is what turns it on.
     getAgentControl().apply();
-    // The start page, every launch: which flow you want is a question, and the
-    // canvas cannot be drawn until it has an answer.
+    // The start page, every launch: a canvas needs a flow chosen first.
     showWelcome();
 
     app.on('activate', () => {
         if (anyWindowOpen()) return;
         showWelcome();
-        // The control server stopped with the last window, on the grounds that an
-        // app with nothing on screen is not one to drive; a window is back, so it is.
+        // The control server stopped with the last window; a window is back, so restart it.
         getAgentControl().apply();
     });
 });

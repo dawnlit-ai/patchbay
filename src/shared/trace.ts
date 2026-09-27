@@ -22,7 +22,7 @@ export interface EmailEnvelope {
     body?: string;
 }
 
-/** The moment a record is stamped with. One spelling, everywhere it happens. */
+/** The timestamp every record uses. */
 export const now = (): string => new Date().toISOString();
 
 /** Cut a long detail (a prompt, a tool payload) down, noting how much was dropped. */

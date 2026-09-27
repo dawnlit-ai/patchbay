@@ -440,8 +440,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         cwd: flowDir(ctx.flowId),
         settingSources: ['project'],
         plugins: library.plugins,
-        // The scratch folder is outside that directory, and saved attachments are
-        // the whole point of it.
+        // The scratch folder, where attachments are saved, is outside that directory.
         additionalDirectories: [ctx.scratchDir],
         // Already in the SDK's own spelling: `global:name` for a plugin skill, a
         // bare name for one of the flow's own.
@@ -608,7 +607,6 @@ async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<No
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    // Narrowed once here, so no runner re-checks the kind it was chosen for.
     const config = ctx.node.config;
     switch (config.kind) {
         case 'trigger.outlook':

@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/**
- * Light or dark, chosen once per machine and shared by both windows — they are
- * one origin, so the welcome window and the canvas read the same key.
- */
+/** Light or dark, chosen once per machine: every window is one origin, so all read the same key. */
 
 export type Theme = 'light' | 'dark';
 
 const KEY = 'patchbay.theme';
 
-/** Light unless the user has chosen otherwise; the choice is per machine. */
+/** Light unless the user has chosen otherwise. */
 export function readTheme(): Theme {
     try {
         return localStorage.getItem(KEY) === 'dark' ? 'dark' : 'light';

@@ -125,7 +125,7 @@ export function SettingsPanel({
     /** Which copy button just put something on the clipboard. */
     const [copied, setCopied] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
-    /** Every folder the global library reads, highest first, the workspace's last. Changed at once, not on Save. */
+    /** Every folder the global library reads. Changed at once, not on Save. */
     const [folders, setFolders] = useState<GlobalSkillFolder[]>([]);
     const shelfSkills = onShelf(folders);
     const linkedFolders = folders.filter((f) => !f.workspace);
@@ -249,7 +249,12 @@ export function SettingsPanel({
         const next = nextInLine(skill);
         const where = skill.folder === workspacePath ? 'the app workspace' : skill.folder;
         return (
-            `Delete “${skill.name}”? Its whole folder is deleted from ${where}. ` +
+            `Delete
+            “
+            ${skill.name}
+            ”? Its whole folder is deleted from
+            ${where}
+            . ` +
             (next
                 ? `Flows that tick it get the copy in ${next.workspace ? 'the app workspace' : next.path} instead.`
                 : 'Every flow that ticks it loses it.')

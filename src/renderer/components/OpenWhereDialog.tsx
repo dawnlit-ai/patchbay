@@ -18,8 +18,7 @@ interface Props {
 export function OpenWhereDialog({ name, current, onCancel, onChoose }: Props): JSX.Element {
     const fresh = useRef<HTMLButtonElement>(null);
 
-    // The new window takes the focus: it is the answer that leaves everything
-    // already on screen where it is, so a reflexive Enter costs nobody their canvas.
+    // The new window takes the focus, so a reflexive Enter never replaces a canvas.
     useEffect(() => {
         fresh.current?.focus();
     }, []);

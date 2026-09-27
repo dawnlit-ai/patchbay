@@ -37,7 +37,7 @@ export interface FlowEntry {
     flow: Flow;
     /** The directory's own name, under `flows/`. */
     folder: string;
-    /** Absolute path to it — shown as the project location, and opened from there. */
+    /** Absolute path to it. */
     path: string;
 }
 
@@ -82,7 +82,6 @@ export interface OutlookDrag {
 
 export interface Api {
     flows: {
-        /** Every flow with the directory it lives in — what both windows list. */
         entries(): Promise<FlowEntry[]>;
         /**
          * Write an edit made to the version `flow.updatedAt` names. Refused, not
@@ -100,7 +99,6 @@ export interface Api {
         remove(id: string): Promise<void>;
         /** Rename the flow's directory; its id is untouched. Refused while a run of it is in flight. */
         setFolder(flowId: string, folder: string): Promise<FlowEntry>;
-        /** Show the flow's directory in the file manager. */
         revealFolder(flowId: string): Promise<void>;
         /** Ask for a flow file, then add what it holds to the library as a new flow. */
         pickAndImport(): Promise<Flow | null>;
@@ -147,12 +145,11 @@ export interface Api {
         /** Write a new SKILL.md. Refused when the library already holds that name. */
         create(scope: SkillScope, flowId: string, name: string, content: string): Promise<SkillSummary>;
         /**
-         * Open the SKILL.md in the app the system gives `.md` files — the app does
-         * no editing of its own, and hears of the save by watching the folder.
-         * Refused, by name, when the skill has gone since the list was read.
+         * Open the SKILL.md in the system's app for `.md` files; the save is picked up
+         * by watching the folder. Refused when the skill has gone since the list was read.
          */
         open(scope: SkillScope, flowId: string, name: string): Promise<void>;
-        /** Show the skill's folder, with whatever sits beside its SKILL.md, in the file manager. */
+        /** Show the skill's folder in the file manager. */
         reveal(scope: SkillScope, flowId: string, name: string): Promise<void>;
         remove(scope: SkillScope, flowId: string, name: string): Promise<void>;
         /**
@@ -165,13 +162,12 @@ export interface Api {
             scope: SkillScope,
             flowId: string,
         ): Promise<{ imported: string[]; skipped: string[] } | null>;
-        /** The folders the global library reads, highest first — the linked ones, then the workspace's — with what each holds. */
+        /** The folders the global library reads, highest first, with what each holds. */
         folders(): Promise<GlobalSkillFolder[]>;
-        /** Replace the linked folders, highest first. A higher folder wins a name two share. */
+        /** Replace the linked folders, highest first. */
         setFolders(paths: string[]): Promise<GlobalSkillFolder[]>;
         /** Ask the user for a folder to link. Only asks: linking it is `setFolders`. */
         pickFolder(): Promise<string | null>;
-        /** Show one of the library's folders in the file manager. */
         revealFolder(path: string): Promise<void>;
     };
     engine: {
@@ -192,7 +188,6 @@ export interface Api {
      */
     window: {
         minimize(): Promise<void>;
-        /** Maximise, or restore if already maximised. */
         toggleMaximize(): Promise<void>;
         close(): Promise<void>;
         isMaximized(): Promise<boolean>;
@@ -203,9 +198,7 @@ export interface Api {
         openFlow(flowId: string, where?: OpenWhere): Promise<void>;
         /** The flow on each canvas window, most recently used first. */
         openFlows(): Promise<string[]>;
-        /** Bring the welcome window up — the list of flows, and what to do with one. */
         showWelcome(): Promise<void>;
-        /** Bring the settings window up, opening it if it is not already. */
         showSettings(): Promise<void>;
     };
     runs: {
@@ -248,7 +241,6 @@ export interface Api {
     /** Show the workspace — flows, skills, runs and logs — in the file manager. */
     revealWorkspace(): Promise<void>;
 
-    /** Put text on the clipboard — a token is not something to retype. */
     copyText(text: string): Promise<void>;
 
     /**

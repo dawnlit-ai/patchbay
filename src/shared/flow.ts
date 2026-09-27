@@ -7,8 +7,7 @@ export type NodeKind = 'trigger.outlook' | 'categorizer' | 'extractor' | 'proces
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
-// Listed as values as well as types: the inspector offers them and the importer
-// checks against them, and neither should carry its own copy.
+// As values too, for the inspector to offer and the importer to check against.
 export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'extractor', 'processor', 'terminal'];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
 
@@ -69,10 +68,7 @@ export interface ExtractorConfig {
     effort: string;
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
-    /**
-     * Tools from the MCP servers in Settings, spelled as a Processor's are. Beyond
-     * reading the email they are all it holds, so they should only look things up.
-     */
+    /** Tools from the MCP servers in Settings, spelled as a Processor's are. Meant for lookups only. */
     mcpTools: string[];
 }
 
@@ -97,7 +93,7 @@ export interface ProcessorConfig {
     /** JSON Schema that result has to match. Unused while `output` is empty. */
     schema: JsonSchema;
     model: string;
-    /** One of the levels Claude Code lists for this model (they vary). Empty uses the model's default. */
+    /** One of the levels Claude Code lists for this model. Empty uses the model's default. */
     effort: string;
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
@@ -106,7 +102,7 @@ export interface ProcessorConfig {
     /**
      * Read, Write, Edit and Bash anywhere on the machine. Off, Claude reads only
      * the flow's folder and the run folder, writes only through `save_file`, and
-     * has no shell — which is what a node reading mail from outside should get.
+     * has no shell.
      */
     allowFileSystem: boolean;
     /**
@@ -404,10 +400,7 @@ export function checkSlots(flow: Flow): SlotCheck {
 
 // ── Defaults ─────────────────────────────────────────────────────────────
 
-/**
- * The alias rather than a dated id: Claude Code resolves it to the newest Opus the
- * account offers, so a node made today does not stay pinned to today's model.
- */
+/** The alias rather than a dated id, so new nodes get the newest Opus the account offers. */
 export const DEFAULT_MODEL = 'opus';
 
 export function defaultConfig(kind: NodeKind): NodeConfig {
@@ -533,7 +526,7 @@ export function triggerConfig(node: FlowNode | undefined): TriggerConfig | undef
     return node?.config.kind === 'trigger.outlook' ? node.config : undefined;
 }
 
-/** A node of `kind` with its defaults — dropped on the canvas, seeded, or repaired. */
+/** A node of `kind` with its defaults. */
 export function makeNode(kind: NodeKind, id: string, position: { x: number; y: number }): FlowNode {
     return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
 }
@@ -541,7 +534,7 @@ export function makeNode(kind: NodeKind, id: string, position: { x: number; y: n
 /** Enough tail to tell two of a kind apart without becoming the name itself. */
 export const shortId = (): string => Math.random().toString(36).slice(2, 8);
 
-/** A node id this flow doesn't hold yet, e.g. `processor-4f2ab1`. Used by both the canvas and `add_node`. */
+/** A node id this flow doesn't hold yet, e.g. `processor-4f2ab1`. */
 export function mintNodeId(flow: Flow, kind: NodeKind): string {
     const stem = kind.split('.')[0] ?? 'node';
     let id = `${stem}-${shortId()}`;

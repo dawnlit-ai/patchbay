@@ -47,15 +47,13 @@ function notWatchedWhy(flow: Flow, status: EngineStatus | null): string {
  * folder always shows. Hovering shows the whole path in a panel below.
  */
 function Where({ path }: { path: string }): JSX.Element {
-    // The separator goes with the half that is kept, so what is left reads as a
-    // path with its middle taken out rather than two pieces set side by side.
+    // The separator stays with the kept half, so a cut path still reads as one.
     const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
     return (
         <code className="where">
             <span className="dir">{path.slice(0, Math.max(0, cut))}</span>
             <span className="base">{path.slice(Math.max(0, cut))}</span>
-            {/* The same path a second time, for the eye only: the two halves
-                above already read as the whole thing to anything listening. */}
+            {/* For the eye only: a screen reader already gets it from the halves above. */}
             <span className="full" aria-hidden="true">{path}</span>
         </code>
     );
@@ -127,7 +125,7 @@ export function Welcome(): JSX.Element {
 
     /**
      * Open the flow on a canvas. Asks which canvas only when one is up showing a
-     * different flow; either answer is a reasonable thing to want.
+     * different flow.
      */
     const open = async (flow: Flow): Promise<void> => {
         const canvases = await window.api.window.openFlows();
@@ -215,8 +213,7 @@ export function Welcome(): JSX.Element {
     return (
         <div className="app">
             <div className="topbar">
-                {/* What the window is for, rather than what it is called: it opens
-                    before anything else, and choosing is the only thing to do here. */}
+                {/* What the window is for, rather than what it is called. */}
                 <span className="window-title">Open a flow</span>
                 <span className="spacer"/>
                 <SettingsButton/>

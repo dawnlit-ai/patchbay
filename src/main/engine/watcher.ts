@@ -74,10 +74,7 @@ interface ActiveRun {
 }
 
 interface QueueItem {
-    /**
-     * Minted here rather than at execution, so whoever queued the run has its id
-     * before it starts — enough to cancel it, or to ask for its trace.
-     */
+    /** Minted at queue time, so the caller can cancel or look up the run before it starts. */
     runId: string;
     flow: Flow;
     /** The trigger the email arrived at, and where its run starts. */
@@ -98,10 +95,7 @@ export interface QueuedRun {
     waitingFor: string;
 }
 
-/**
- * What asking to cancel did: stopped a run under way, took one out of the queue
- * before it started, or found neither — most likely because it already finished.
- */
+/** What cancelling did. `unknown` most likely means the run already finished. */
 export type CancelOutcome = 'stopping' | 'dequeued' | 'unknown';
 
 export class Watcher {
@@ -222,7 +216,7 @@ export class Watcher {
         });
     }
 
-    /** Abort a run under way, or remove one still queued (ids are handed out at queue time). */
+    /** Abort a run under way, or remove one still queued. */
     cancel(runId: string): CancelOutcome {
         const active = this.active.get(runId);
         if (active) {
@@ -233,8 +227,7 @@ export class Watcher {
         const item = this.queue[index];
         if (!item) return 'unknown';
         this.queue.splice(index, 1);
-        // As with Stop: a polled email was marked seen when it was queued, so this
-        // one is never picked up again. A test run is only undone.
+        // A polled email was marked seen when queued, so it won't come back: a warning, as in `dropQueued`.
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const detail = `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`;
         if (item.trigger === 'poll') log.warn('watcher', `Cancelled before it started, not run: ${subject}`, { detail });
@@ -337,7 +330,6 @@ export class Watcher {
                 changed = true;
             }
 
-            // Marks are kept above for every trigger; only a switched-on flow's are read.
             for (const trigger of triggers) {
                 const { flow, node, config } = trigger;
                 if (!this.flowIds.has(flow.id) || !namesMailbox(trigger)) continue;
@@ -477,8 +469,6 @@ export class Watcher {
 
     /** One run, start to finish. Never throws: the caller is nobody. */
     private async execute(item: QueueItem, controller: AbortController): Promise<void> {
-        // The id came with the item, so `cancel` can find the controller from the
-        // moment the run starts — and whoever queued it already has it.
         const runId = item.runId;
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const test = item.trigger === 'manual' ? ' (test)' : '';
@@ -513,8 +503,6 @@ export class Watcher {
         } finally {
             this.active.delete(runId);
             this.onStatus();
-            // A turn is free now — this flow's next email, or whatever the cap was
-            // holding back.
             this.pump();
         }
     }

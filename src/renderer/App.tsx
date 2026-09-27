@@ -65,7 +65,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const [selectedRun, setSelectedRun] = useState<Run | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const [testing, setTesting] = useState(false);
-    /** Open while the flow's name — and possibly its folder — is being changed. */
+    /** Open while the flow is being renamed. */
     const [renaming, setRenaming] = useState(false);
     /** The question ConfirmDialog is showing, if any, and who awaits the answer. */
     const [question, setQuestion] = useState<Question | null>(null);
@@ -156,8 +156,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     // ── Flow editing ───────────────────────────────────────────────────────
 
-    // Every edit is written for you. There is no draft state to lose, so nothing
-    // asks about unsaved changes and nothing has to be pressed to keep work.
+    // Every edit saves itself; there is no unsaved state to ask about.
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     /** The flow a queued write would put on disk, or null once one has. */
     const queued = useRef<Flow | null>(null);
@@ -404,10 +403,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         void window.api.engine.testRun(flow.id, nodeId, email).catch((e: Error) => setError(e.message));
     };
 
-    /**
-     * A run's email through its flow again, from the trigger it came in by. Queued
-     * edits go out first, as for a test run: the new run reads the flow as it is now.
-     */
+    /** A run's email through its flow again, from its trigger. Queued edits go out first, as for a test run. */
     const rerun = (runId: string): void => {
         flushSave();
         setSelectedRun(null);

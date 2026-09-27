@@ -86,9 +86,8 @@ interface ShelfProps {
 
 /**
  * Both libraries, one above the other: where a node ticks its skills, and where
- * they are created, imported, moved between the two and deleted. A skill is
- * edited in whatever app the system opens `.md` files with, and the list follows
- * the folder, so a skill changed or deleted there shows here without asking.
+ * they are created, imported, moved and deleted. Editing happens in the system's
+ * app for `.md` files; the list follows the folder.
  */
 export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element {
     const { flowId, flowName, skills, otherFlowCount, onRefresh, onMoved } = library;
@@ -212,9 +211,20 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
     };
 
     const deleteQuestion = ({ scope, name }: SkillKey): string => {
-        if (scope === 'flow') return `Delete “${name}” from “${flowName}”? Its whole folder goes with it.`;
+        if (scope === 'flow') return `Delete
+        “
+        ${name}
+        ” from
+        “
+        ${flowName}
+        ”? Its whole folder goes with it.`;
         const kept = whereKept(folders, name);
-        return `Delete “${name}” from the global library? Every flow that ticks it loses it${kept ? `, and its folder is deleted from ${kept}` : ''}.`;
+        return `Delete
+        “
+        ${name}
+        ” from the global library? Every flow that ticks it loses it
+        ${kept ? `, and its folder is deleted from ${kept}` : ''}
+        .`;
     };
 
     const menuItems = (skill: SkillKey): MenuItem[] => [

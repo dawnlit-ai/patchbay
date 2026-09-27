@@ -10,7 +10,7 @@ export interface MenuItem {
     label: string;
     /** A rule above this item, marking off the group it starts. */
     separator?: boolean;
-    /** Destructive: coloured for it, as the Delete button was. */
+    /** Destructive, and coloured as such. */
     danger?: boolean;
 
     onSelect(): void;

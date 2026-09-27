@@ -105,7 +105,6 @@ export function renameFlow(id: string, name: string): Flow {
 
 // ── Where a flow lives ───────────────────────────────────────────────────
 
-/** A flow with the directory it sits in — what the welcome window lists. */
 export function entryFor(flow: Flow): FlowEntry {
     const folder = flowFolder(flow.id);
     return { flow, folder, path: flowDirAt(folder) };
@@ -165,8 +164,7 @@ export function setFlowFolder(flowId: string, requested: string): FlowEntry {
 // ── Making and unmaking ──────────────────────────────────────────────────
 
 export function createFlow(name: string): Flow {
-    // Its own library starts empty: the global one is already on the shelf, and a
-    // flow-specific skill is something you decide to write, not inherit.
+    // Its own library starts empty; the global one is already shared.
     return createIn(emptyFlow(randomUUID(), name), name);
 }
 
@@ -181,11 +179,11 @@ export function duplicateFlow(source: Flow, name: string): Flow {
     return copy;
 }
 
-/** Takes the flow's directory — its own skills and all — and the watcher's mark. */
+/** Deletes the flow's directory, its skills included, and its watermarks. */
 export function removeFlow(id: string): void {
     rmSync(flowDir(id), { recursive: true, force: true });
     forgetFlowFolders();
-    // Drop its watermarks, one per trigger, keyed `<flowId>:<nodeId>`.
+    // One per trigger, keyed `<flowId>:<nodeId>`.
     const marks = readJson<Record<string, unknown>>(watermarkFile(), {});
     const mine = Object.keys(marks).filter((key) => key.startsWith(`${id}:`));
     if (mine.length > 0) {

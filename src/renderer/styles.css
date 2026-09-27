@@ -271,10 +271,7 @@ code {
     -webkit-app-region: no-drag;
 }
 
-/*
- * The window's own name, in the bar the frame would have drawn one in. Quiet:
- * it says which window this is, and the page beneath it does the talking.
- */
+/* The window's own name, where the frame would have drawn it. Kept quiet. */
 .window-title {
     color: var(--muted);
     font-weight: 600;
@@ -315,10 +312,7 @@ code {
     color: var(--close-hover-fg);
 }
 
-/*
- * The open flow's name, in the project window's bar. It is a button because it
- * renames the flow, and looks like a title because that is what it is.
- */
+/* The open flow's name: a button that renames the flow, styled as a title. */
 .flow-name {
     max-width: 280px;
     overflow: hidden;
@@ -564,14 +558,12 @@ button.wide {
    the row beneath rather than this row's name. */
 .flow-row .where .full {
     display: none;
-    /* Measured from the row and not from the path itself, which is only a line
-       high and halfway up it: this clears the row and sits in the gap below. */
+    /* Measured from the row, not the path, so it clears the row. */
     position: absolute;
     top: calc(100% + 5px);
     right: 12px;
     z-index: 3;
-    /* It is there to be read, not pointed at: the row it covers stays as
-       reachable as it was, and moving down the list opens each path in turn. */
+    /* Only to be read: the row it covers stays clickable. */
     pointer-events: none;
     width: max-content;
     max-width: min(560px, calc(100vw - 48px));
@@ -591,8 +583,8 @@ button.wide {
 
 /* ── Context menu ──────────────────────────────────────────────────────── */
 
-/* Nothing to see: it is there to catch the press, the scroll or the second
-   right-click that dismisses the menu, before any of them reach the page. */
+/* Invisible: catches the press, scroll or right-click that dismisses the menu
+   before it reaches the page. */
 .menu-backdrop {
     position: fixed;
     inset: 0;

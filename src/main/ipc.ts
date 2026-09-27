@@ -161,8 +161,6 @@ export function registerIpc(): void {
     handleFlowWrite(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
     handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
     handleFlowWrite(IPC.flowsRemove, (id: string) => {
-        // The same reason a folder rename is refused mid-run: the directory going
-        // is the one that run is working in.
         getWatcher().clearForRemoval(id);
         flowStore.removeFlow(id);
     });
@@ -198,8 +196,7 @@ export function registerIpc(): void {
             globalSkillFolders,
             agentControl: { ...settings.agentControl, token: agentControl.token },
         });
-        // Switching the agent-control server on, off, or onto another port is an
-        // ordinary settings edit; this is what carries it out.
+        // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
         return saved;
     });

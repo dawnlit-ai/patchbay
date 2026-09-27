@@ -31,9 +31,9 @@ import {
  * under one flow's directory and travelling with it. `flowId` is read only for
  * the `flow` scope, and the two may hold the same name without shadowing.
  *
- * The global library reads the folders the user linked, read and written in place,
- * then its own in the workspace. The first folder to hold a name has the copy in
- * use; a write goes over that copy, else into the workspace's folder.
+ * The global library reads the user's linked folders in place, then its own in the
+ * workspace. The first folder to hold a name has the copy in use; a write goes over
+ * that copy, else into the workspace's folder.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -74,7 +74,7 @@ function ensureManifest(pluginDir: string): void {
     writeFileSync(manifest, JSON.stringify(content, null, 2), 'utf8');
 }
 
-/** The global library's folders, highest first: the linked ones, then the workspace's own. */
+/** The global library's folders, highest first. */
 function globalFolders(): { path: string; workspace: boolean }[] {
     ensureManifest(globalPluginDir());
     return [
@@ -221,9 +221,8 @@ function summarize(scope: SkillScope, name: string, content: string, file: strin
 }
 
 /**
- * The skills in one folder, by name. Skills are edited and deleted in other apps
- * while this one runs, so one that goes, or cannot be read, mid-list is left out
- * rather than failing the list.
+ * The skills in one folder, by name. One deleted or unreadable mid-list is left
+ * out rather than failing the list.
  */
 function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
     let entries;
@@ -282,7 +281,7 @@ export function locateSkill(scope: SkillScope, flowId: string, name: string): st
     return file;
 }
 
-/** Write a new skill. Refused when the library already has one of that name, which it would otherwise replace. */
+/** Write a new skill. Refused when the library already has one of that name. */
 export function createSkill(scope: SkillScope, flowId: string, name: string, content: string): SkillSummary {
     if (isValidSkillName(name) && existsSync(skillFile(scope, flowId, name))) {
         const where = scope === 'global' ? 'The global library' : 'This flow’s library';
@@ -320,10 +319,7 @@ export function saveSkill(
     return summarize(scope, name, content, file);
 }
 
-/**
- * Windows refuses to rename or delete a folder while another app holds a file in
- * it open — the editor a skill was opened in, say. Said as that, not as EBUSY.
- */
+/** Windows refuses to rename or delete a folder while another app has a file in it open. Says so, not EBUSY. */
 function heldOpen(e: unknown, name: string, doing: string): unknown {
     const code = (e as NodeJS.ErrnoException).code;
     if (code !== 'EBUSY' && !(code === 'EPERM' && process.platform === 'win32')) return e;
@@ -485,8 +481,7 @@ export function seedGlobalLibrary(): string[] {
                 return imported;
             }
         } catch {
-            // An unreadable seed folder is not a reason to fail startup — the
-            // starter skill below still gives a Processor something to select.
+            // An unreadable seed folder should not fail startup; the starter skill still applies.
         }
     }
 

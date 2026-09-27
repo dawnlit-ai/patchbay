@@ -3,9 +3,8 @@ import { flowsDir, globalSkillsDir } from '../paths';
 import { getSettings } from './settingsStore';
 
 /**
- * Skills are written in the user's own editor and deleted from the file manager,
- * so the folders holding them are watched while the app runs, and a change under
- * any of them is passed on once it settles. The windows re-read the list on it.
+ * Skills are edited and deleted outside the app, so their folders are watched and
+ * a change is passed on once it settles.
  */
 
 /** An editor's save is several events — a temp file, a rename — and one re-read covers them. */
@@ -32,9 +31,8 @@ function changed(): void {
 
 /**
  * What to watch. `flows` as a whole rather than each flow's library, which comes
- * and goes with the flow and its first skill — and on Windows, a folder holding a
- * watched one cannot be renamed, as a flow's folder is. Its graph and whatever its
- * runs write change there too; only what is under a `.claude` counts.
+ * and goes, and on Windows would block renaming the flow's folder. Only changes
+ * under a `.claude` count.
  */
 function roots(): Root[] {
     const everything = (): boolean => true;
