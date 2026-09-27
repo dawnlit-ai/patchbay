@@ -85,7 +85,9 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         try {
             const result = await outlook.readBody(ctx.email.ref, config.bodyMaxChars);
             body = result.body;
-            ctx.email.body = result.body;
+            // Kept only when whole: a body cut at this node's limit would pass
+            // for all there is with the nodes after it.
+            if (!result.truncated) ctx.email.body = result.body;
             ctx.onEvent({
                 at: now(),
                 type: 'outlook',
@@ -169,7 +171,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         try {
             const result = await outlook.readBody(ctx.email.ref, EXTRACT_BODY_CHARS);
             body = result.body;
-            ctx.email.body = result.body;
+            if (!result.truncated) ctx.email.body = result.body;
             ctx.onEvent({ at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)` });
         } catch (e) {
             return {

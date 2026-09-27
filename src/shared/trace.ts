@@ -18,7 +18,7 @@ export interface EmailEnvelope {
     receivedTime: string;
     bodyPreview: string;
     attachmentNames: string[];
-    /** Filled in lazily, the first time a node asks for the full body. */
+    /** Filled in lazily, the first time a node reads the whole body. A read cut short is not kept. */
     body?: string;
 }
 
