@@ -19,7 +19,7 @@ import { Inspector } from './components/Inspector';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
-import { SkillLibrary } from './components/SkillLibrary';
+import { type Library, type SkillEdit, SkillEditor } from './components/SkillLibrary';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
@@ -57,14 +57,18 @@ interface Props {
 export function App({ initialFlowId }: Props): JSX.Element {
     const [flow, setFlow] = useState<Flow | null>(null);
     const [place, setPlace] = useState<Place | null>(null);
-    /** Only for the Skills tab, which says what moving one would mean elsewhere. */
+    /** Only for the skill list, which says what moving one would mean elsewhere. */
     const [flowCount, setFlowCount] = useState(1);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[]>([]);
     const [runs, setRuns] = useState<RunSummary[]>([]);
     const [selectedRun, setSelectedRun] = useState<Run | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
-    const [tab, setTab] = useState<'inspector' | 'skills'>('inspector');
+    /**
+     * The skill the side panel is editing in place of the node, if any. `tickOn` is
+     * the node a new one was written from, which ticks it once it is saved.
+     */
+    const [editingSkill, setEditingSkill] = useState<(SkillEdit & { tickOn: string | null }) | null>(null);
     const [testing, setTesting] = useState(false);
     /** Open while the flow's name — and possibly its folder — is being changed. */
     const [renaming, setRenaming] = useState(false);
@@ -240,6 +244,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 flushSave();
                 setSelectedNodeId(null);
                 setSelectedRun(null);
+                setEditingSkill(null);
                 void readFlow(nextId);
             }),
         [flowId, flushSave, readFlow],
@@ -281,6 +286,17 @@ export function App({ initialFlowId }: Props): JSX.Element {
         },
         [flow, updateFlow],
     );
+
+    /** Back from the skill editor, ticking a new skill on the node it was written from. */
+    const closeSkill = (saved: boolean): void => {
+        setEditingSkill(null);
+        const node = flow?.nodes.find((n) => n.id === editingSkill?.tickOn);
+        if (!saved || !editingSkill || !node) return;
+        const { config } = node;
+        const ref = skillRef(editingSkill.scope, editingSkill.name);
+        if ((config.kind !== 'processor' && config.kind !== 'extractor') || config.skills.includes(ref)) return;
+        updateNode({ ...node, config: { ...config, skills: [...config.skills, ref] } });
+    };
 
     const deleteNode = useCallback(
         (nodeId: string) => {
@@ -440,6 +456,15 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     const watching = status?.flowIds.includes(flow.id) === true;
     const mailboxes = status?.watching.filter((w) => w.flowId === flow.id).length ?? 0;
+    const library: Library = {
+        flowId: flow.id,
+        flowName: flow.name,
+        skills,
+        otherFlowCount: flowCount - 1,
+        onRefresh: refreshSkills,
+        onMoved: relabelSkill,
+        onEdit: (edit) => setEditingSkill({ ...edit, tickOn: edit.template === undefined ? null : selectedNodeId }),
+    };
 
     return (
         <div className="app">
@@ -577,33 +602,25 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 </div>
 
                 <div className="side right">
-                    <div className="tabs">
-                        <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>
-                            Node
-                        </button>
-                        <button className={tab === 'skills' ? 'active' : ''} onClick={() => setTab('skills')}>
-                            Skills
-                        </button>
-                    </div>
-                    <div className="tab-body">
-                        {tab === 'inspector' && (
+                    <div className="side-body">
+                        {editingSkill ? (
+                            <SkillEditor
+                                key={skillRef(editingSkill.scope, editingSkill.name)}
+                                edit={editingSkill}
+                                flowId={flow.id}
+                                flowName={flow.name}
+                                skills={skills}
+                                onRefresh={refreshSkills}
+                                onClose={closeSkill}
+                            />
+                        ) : (
                             <Inspector
                                 node={selectedNode}
-                                skills={skills}
+                                library={library}
                                 available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
                                 issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
                                 onChange={updateNode}
                                 onDelete={deleteNode}
-                            />
-                        )}
-                        {tab === 'skills' && (
-                            <SkillLibrary
-                                flowId={flow.id}
-                                flowName={flow.name}
-                                skills={skills}
-                                otherFlowCount={flowCount - 1}
-                                onRefresh={refreshSkills}
-                                onMoved={relabelSkill}
                             />
                         )}
                     </div>

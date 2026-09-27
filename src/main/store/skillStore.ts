@@ -241,7 +241,7 @@ export function listSkills(scope: SkillScope, flowId: string): SkillSummary[] {
         .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Both libraries at once — what the Skills tab and a Processor's list show. */
+/** Both libraries at once — what the inspector's skill list shows. */
 export function listAllSkills(flowId: string): SkillSummary[] {
     return [...listSkills('global', flowId), ...listSkills('flow', flowId)];
 }

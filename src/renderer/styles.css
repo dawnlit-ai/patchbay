@@ -1219,75 +1219,128 @@ button.wide {
     font-size: 11.5px;
 }
 
-.tabs {
-    display: flex;
-    border-bottom: 1px solid var(--line);
-    background: var(--panel);
+/* The filter over a long list of groups: skills, or MCP servers' tools. */
+.pick-filter {
+    margin-bottom: 8px;
 }
 
-.tabs button {
-    flex: 1;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    color: var(--muted);
-    padding: 9px 6px;
-    border-bottom: 2px solid transparent;
-}
-
-.tabs button:hover:not(:disabled) {
-    color: var(--text);
-    background: var(--panel-2);
-}
-
-.tabs button.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-    background: var(--panel-2);
-}
-
-.tabs button.active:hover:not(:disabled) {
-    background: var(--panel-3);
-}
-
-/* Two libraries in one panel: which of them the Skills tab is showing. */
-.scope-switch {
-    display: flex;
-    gap: 2px;
-    padding: 2px;
-    margin-bottom: 10px;
-    background: var(--panel-2);
+/* One folding group of that list — a skill library, or one server's tools. */
+.pick-group {
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
+    background: var(--panel-2);
+    padding: 4px 6px 4px 8px;
+    margin-bottom: 8px;
 }
 
-.scope-switch button {
-    flex: 1;
+/* The library a dragged skill would land in. */
+.pick-group.drop-on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.pick-group-head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 26px;
+}
+
+.pick-group-head .check {
+    margin: 0 4px 0 6px;
+    gap: 5px;
+    font-size: 11.5px;
+}
+
+.pick-group-toggle {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    padding: 3px 4px 3px 0;
     border: none;
     background: transparent;
+    color: inherit;
+}
+
+.pick-group-toggle:hover:not(:disabled) {
+    background: transparent;
+}
+
+.pick-group-toggle:hover .pick-group-title {
+    color: var(--text);
+}
+
+.pick-group-title {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pick-group-count {
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+}
+
+.pick-group button.compact {
+    padding: 2px 7px;
+    font-size: 11.5px;
+}
+
+.pick-note {
+    margin: 0 0 4px;
+}
+
+.pick-rows {
+    margin-top: 2px;
+}
+
+/* A long list open on a node: it scrolls in place, so the fields below stay close. */
+.pick-rows.capped {
+    max-height: 236px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* The libraries on their own have the panel to themselves, and rows with room for a description. */
+.library-alone .pick-rows.capped {
+    max-height: 52vh;
+}
+
+.pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+}
+
+.pick-row[draggable="true"] {
+    cursor: grab;
+}
+
+.pick-row > .check,
+.pick-row > .grow {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 3px 0;
+}
+
+.pick-row .desc {
     color: var(--muted);
-    padding: 6px 8px;
-    border-radius: calc(var(--radius-md) - 3px);
+    font-size: 11.5px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
-.scope-switch button:hover:not(:disabled) {
-    color: var(--text);
-}
-
-.scope-switch button.active {
-    background: var(--panel);
-    color: var(--text);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
-}
-
-/* The tab a dragged skill would land in. */
-.scope-switch button.drop-on {
-    color: var(--text);
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.tab-body {
+.side-body {
     padding: 12px;
     overflow-y: auto;
     flex: 1;

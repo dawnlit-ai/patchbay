@@ -214,7 +214,7 @@ fire fifty runs for last week's inbox.
 ## Skills
 
 A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. There are **two libraries**, and
-the Skills tab switches between them:
+the inspector lists both, one above the other:
 
 ```
 <userData>/workspace/global/skills/<name>/SKILL.md            shared by every flow
@@ -232,13 +232,19 @@ The global library is seeded on first run from the first of these that exists �
 nothing but the starter skill the app wrote itself, so it never fights an edit you made here. A new flow starts with an
 empty library of its own, because everything it needs is already on the shelf.
 
-Drag a skill onto the other tab to **move** it between the libraries. The open flow's ticks are re-pointed as it goes
+The list sits in a Processor's or Extractor's inspector, where a tick lets the node use a skill, and on its own when no
+node is selected. **Edit** opens a skill's `SKILL.md` in the panel, and **New** writes one from a template — from a
+node's list, the node ticks it once it is saved. On a node, a library of more than eight skills starts folded to the
+ones it ticks, and scrolls in place when opened; past eight in all, a filter over both finds one by name or description.
+The server tools below it are listed the same way, a group per server.
+
+Drag a skill onto the other library to **move** it between the two. The open flow's ticks are re-pointed as it goes
 (`global:x` ↔ `x`); a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name
 already there replaces it, so both are asked about first.
 
-**Import…** pulls a folder of existing skills into whichever library is showing. A flow file may carry skills of its
-own: opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites
-a global skill this installation already has.
+**Import…** pulls a folder of existing skills into the library it sits on. A flow file may carry skills of its own:
+opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites a
+global skill this installation already has.
 
 **Settings → Global skills** links folders of skills on the machine — `~/.claude/skills`, say — into the global
 library, which reads and writes them in place, copying nothing. The app workspace's own folder is always read too, and is
@@ -246,8 +252,8 @@ where new skills are saved. The linked folders are ordered: when two folders hol
 one's is used, the workspace's comes last, and the others are shown as hidden. Editing, deleting or moving a global
 skill changes the copy in use, wherever it is; deleting it lets a hidden one of the same name take over. Unlinking a
 folder deletes nothing, and what changes in a folder shows up when the window is next focused. **Folders…** on the
-Global tab opens that page, which can also **Import…** a folder's skills as copies, lists what is on the shelf with a
-**Delete** on each, and holds the seed folder.
+global library opens that page, which can also **Import…** a folder's skills as copies, lists what is on the shelf with
+a **Delete** on each, and holds the seed folder.
 
 Only the workspace's own folder is in plugin layout, so while any folder is linked each run copies the global skills it
 ticks into a temporary plugin and deletes that copy afterwards. That also keeps an edit made mid-run out of the run.
@@ -262,7 +268,7 @@ the `global:` prefix comes from.
 > tools it calls ticked on the node, before a Processor or Extractor can run it.
 
 A Processor or Extractor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or
-*Every tool of* a server — and a server with nothing ticked is not started for its run. The inspector asks each server
+*All* of a server's — and a server with nothing ticked is not started for its run. The inspector asks each server
 for its list. So a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same
 server's tool that sends mail. A Processor saved before tools could be picked keeps every tool of every server until
 *Pick the tools it needs* is pressed; a new one starts with none.
@@ -333,8 +339,8 @@ dropped, with the tool that dropped it saying how many.
 `write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
 `import_skills`, from a folder on this machine — `~/.claude/skills`, say — optionally narrowed to the names wanted.
 `set_global_skill_folders` sets the folders linked into the global library, as **Settings → Global skills** does.
-`move_skill` re-points the flow's own Processors and Extractors as the Skills tab does, and names any other flow a skill
-leaving the global shelf strands.
+`move_skill` re-points the flow's own Processors and Extractors as a drag between the libraries does, and names any
+other flow a skill leaving the global shelf strands.
 
 A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
 under *Runs at once*. `get_run` says which rather than reporting no such run, `list_runs` puts what is queued and under

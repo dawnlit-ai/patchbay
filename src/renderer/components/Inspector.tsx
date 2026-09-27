@@ -25,7 +25,9 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
-import { type McpServerTool, SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
+import type { McpServerTool } from '@shared/settings';
+import { PickFilter, PickGroup } from './PickGroup';
+import { type Library, SkillShelf } from './SkillLibrary';
 
 /** Configures the selected node: one section per kind, each handed its narrowed config. */
 
@@ -465,10 +467,10 @@ function OutputFields({
 function ExtractorFields({
                              config,
                              patch,
-                             skills,
+                             library,
                              available,
                          }: Section<ExtractorConfig> & {
-    skills: SkillSummary[];
+    library: Library;
     available: Available | undefined;
 }): JSX.Element {
     const listing = useModels();
@@ -480,7 +482,7 @@ function ExtractorFields({
 
     return (
         <>
-            <SkillsField config={config} patch={patch} skills={skills}/>
+            <SkillsField config={config} patch={patch} library={library}/>
             <InputsField config={config} patch={patch} available={available}/>
 
             <OutputFields
@@ -531,58 +533,15 @@ function ExtractorFields({
     );
 }
 
-const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
-
-/** The skills a node may invoke, ticked from either library. */
-function SkillsField({
-                         config,
-                         patch,
-                         skills,
-                     }: Section<{ skills: string[] }> & { skills: SkillSummary[] }): JSX.Element {
-    const toggle = (ref: string, on: boolean): void =>
-        patch({ skills: on ? [...config.skills, ref] : config.skills.filter((s) => s !== ref) });
-
-    // Ticked but in neither library (e.g. imported from another install). There is
-    // no checkbox to show it, so it is listed.
-    const offered = new Set(skills.map((skill) => skillRef(skill.scope, skill.name)));
-    const missing = config.skills.filter((ref) => !offered.has(ref));
-
+/** The skills a node may invoke, ticked from either library — and the libraries themselves, kept from here. */
+function SkillsField({ config, patch, library }: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
     return (
         <>
             <Legend
                 label="Skills"
-                hint={
-                    skills.length === 0
-                        ? 'No skills yet — add one on the Skills tab.'
-                        : 'Claude may invoke any skill you tick, and nothing else.'
-                }
+                hint="Claude may invoke any skill you tick, and nothing else. Drag one onto the other library to move it there."
             />
-            {SKILL_SCOPES.map((scope) => {
-                const inScope = skills.filter((skill) => skill.scope === scope);
-                if (inScope.length === 0) return null;
-                return (
-                    <div key={scope}>
-                        <div className="hint">{SCOPE_LABEL[scope]}</div>
-                        {inScope.map((skill) => {
-                            const ref = skillRef(scope, skill.name);
-                            return (
-                                <label className="check" key={ref} title={skill.description}>
-                                    <input
-                                        type="checkbox"
-                                        checked={config.skills.includes(ref)}
-                                        onChange={(e) => toggle(ref, e.target.checked)}
-                                    />
-                                    {skill.name}
-                                </label>
-                            );
-                        })}
-                    </div>
-                );
-            })}
-            {missing.length > 0 && (
-                <div className="hint">Ticked but not in either library here: {missing.join(', ')}</div>
-            )}
-
+            <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({ skills })}/>
             <div className="gap"/>
         </>
     );
@@ -591,10 +550,10 @@ function SkillsField({
 function ProcessorFields({
                              config,
                              patch,
-                             skills,
+                             library,
                              available,
                          }: Section<ProcessorConfig> & {
-    skills: SkillSummary[];
+    library: Library;
     available: Available | undefined;
 }): JSX.Element {
     const listing = useModels();
@@ -608,7 +567,7 @@ function ProcessorFields({
 
     return (
         <>
-            <SkillsField config={config} patch={patch} skills={skills}/>
+            <SkillsField config={config} patch={patch} library={library}/>
             <InputsField config={config} patch={patch} available={available}/>
 
             <Field label="Instruction" hint="Prepended to the email. Say what a good outcome looks like.">
@@ -702,6 +661,7 @@ function McpToolsField({
                            hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
                        }: Section<{ mcpTools: string[] | null }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
+    const [query, setQuery] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -753,48 +713,79 @@ function McpToolsField({
                 label="Tools from MCP servers"
                 hint={servers?.length === 0 ? 'No MCP servers are set up. Add them in Settings.' : hint}
             />
+            <PickFilter
+                value={query}
+                total={(servers ?? []).reduce((sum, server) => sum + (server.tools?.length ?? 0), 0)}
+                noun="tools"
+                onChange={setQuery}
+            />
             {servers?.map((server) => {
                 const whole = `mcp__${server.name}`;
+                const takesAll = picked.includes(whole);
                 return (
-                    <div key={server.name}>
-                        <label className="check">
-                            <input
-                                type="checkbox"
-                                checked={picked.includes(whole)}
-                                onChange={(e) => set(whole, e.target.checked)}
-                            />
-                            Every tool of {server.name}
-                        </label>
-                        {!picked.includes(whole) &&
-                            (server.error ? (
-                                <div className="hint">Could not ask {server.name} for its tools: {server.error}</div>
-                            ) : !server.tools ? (
-                                <div className="hint">Asking {server.name} for its tools…</div>
-                            ) : (
-                                server.tools.map((tool) => {
-                                    const ref = `${whole}__${tool.name}`;
-                                    return (
-                                        <label className="check" key={ref} title={tool.description}>
-                                            <input
-                                                type="checkbox"
-                                                checked={picked.includes(ref)}
-                                                onChange={(e) => set(ref, e.target.checked)}
-                                            />
-                                            {tool.name}
-                                        </label>
-                                    );
-                                })
-                            ))}
-                    </div>
+                    <PickGroup
+                        key={server.name}
+                        title={server.name}
+                        // Taking the whole server leaves nothing to pick one by one.
+                        items={takesAll ? [] : (server.tools ?? [])}
+                        isTicked={(tool) => picked.includes(`${whole}__${tool.name}`)}
+                        query={query}
+                        text={(tool) => `${tool.name} ${tool.description}`}
+                        count={takesAll ? 'every tool' : server.tools ? undefined : ''}
+                        note={
+                            takesAll
+                                ? undefined
+                                : server.error
+                                    ? `Could not ask ${server.name} for its tools: ${server.error}`
+                                    : !server.tools
+                                        ? `Asking ${server.name} for its tools…`
+                                        : undefined
+                        }
+                        actions={
+                            <label className="check" title="Every tool it offers, including any it adds later">
+                                <input
+                                    type="checkbox"
+                                    checked={takesAll}
+                                    onChange={(e) => set(whole, e.target.checked)}
+                                />
+                                All
+                            </label>
+                        }
+                        row={(tool) => {
+                            const ref = `${whole}__${tool.name}`;
+                            return (
+                                <div key={ref} className="pick-row" title={tool.description}>
+                                    <label className="check">
+                                        <input
+                                            type="checkbox"
+                                            checked={picked.includes(ref)}
+                                            onChange={(e) => set(ref, e.target.checked)}
+                                        />
+                                        {tool.name}
+                                    </label>
+                                </div>
+                            );
+                        }}
+                    />
                 );
             })}
-            {stranded.map((ref) => (
-                <label className="check" key={ref}>
-                    <input type="checkbox" checked onChange={() => set(ref, false)}/>
-                    {ref}
-                    <span className="hint"> — no server here offers it</span>
-                </label>
-            ))}
+            {stranded.length > 0 && (
+                <PickGroup
+                    title="No server here offers"
+                    items={stranded}
+                    isTicked={() => true}
+                    query=""
+                    text={(ref) => ref}
+                    row={(ref) => (
+                        <div key={ref} className="pick-row">
+                            <label className="check">
+                                <input type="checkbox" checked onChange={() => set(ref, false)}/>
+                                {ref}
+                            </label>
+                        </div>
+                    )}
+                />
+            )}
         </>
     );
 }
@@ -957,7 +948,8 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
 
 interface Props {
     node: FlowNode | null;
-    skills: SkillSummary[];
+    /** The open flow's skills, ticked by a node and kept from here. */
+    library: Library;
     /** Slots every path into this node fills. Undefined when no trigger reaches it. */
     available: Available | undefined;
     issues: FlowIssue[];
@@ -967,11 +959,21 @@ interface Props {
     onDelete(nodeId: string): void;
 }
 
-export function Inspector({ node, skills, available, issues, onChange, onDelete }: Props): JSX.Element {
+export function Inspector({ node, library, available, issues, onChange, onDelete }: Props): JSX.Element {
     if (!node) {
         return (
-            <div className="empty">
-                Select a node to configure it, or drag one in from the palette on the left.
+            <div>
+                <div className="empty">
+                    Select a node to configure it, or drag one in from the palette on the left.
+                </div>
+                <div className="section-title">Skills</div>
+                <div className="hint block">
+                    Processors and Extractors tick the ones they may use. Drag one onto the other library to move it
+                    there.
+                </div>
+                <div className="library-alone">
+                    <SkillShelf library={library}/>
+                </div>
             </div>
         );
     }
@@ -999,10 +1001,10 @@ export function Inspector({ node, skills, available, issues, onChange, onDelete 
             {config.kind === 'trigger.outlook' && <TriggerFields config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'extractor' && (
-                <ExtractorFields key={node.id} config={config} patch={patch} skills={skills} available={available}/>
+                <ExtractorFields key={node.id} config={config} patch={patch} library={library} available={available}/>
             )}
             {config.kind === 'processor' && (
-                <ProcessorFields key={node.id} config={config} patch={patch} skills={skills} available={available}/>
+                <ProcessorFields key={node.id} config={config} patch={patch} library={library} available={available}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

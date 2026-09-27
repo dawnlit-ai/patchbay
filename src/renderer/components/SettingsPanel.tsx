@@ -535,7 +535,7 @@ export function SettingsPanel({
                                 <p className="set-note">
                                     Linking, unlinking and reordering take effect at once, and unlinking deletes
                                     nothing. Import copies skills in, replacing the copy in use of any skill with the
-                                    same name. To write or edit a skill, open a canvas's Skills tab.
+                                    same name. To write or edit a skill, use the skill list in a canvas's inspector.
                                 </p>
                             </>
                         )}
