@@ -34,7 +34,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
   slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each
   hand their work to the next — and a run that stops shows which step it stopped at.
-- **Terminal** — ends a path, records a disposition, optionally files the email.
+- **Terminal** — ends a path, records a disposition, optionally files the email, and optionally saves its attachments
+  into a folder on disk — the engine does that itself, so no agent needs the file-system access to do it.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.

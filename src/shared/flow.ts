@@ -106,6 +106,11 @@ export interface TerminalConfig {
     disposition: Disposition;
     /** Inbox subfolder to file the email into on arrival. Empty means leave it. */
     moveToFolder: string;
+    /**
+     * Folder on disk to save the email's attachments into on arrival, less the
+     * images embedded in its body. Empty saves nothing.
+     */
+    saveAttachmentsTo: string;
 }
 
 export type NodeConfig =
@@ -410,7 +415,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 allowFileSystem: false,
             };
         case 'terminal':
-            return { kind, disposition: 'done', moveToFolder: '' };
+            return { kind, disposition: 'done', moveToFolder: '', saveAttachmentsTo: '' };
     }
 }
 
@@ -624,6 +629,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 disposition: oneOf(from.disposition, DISPOSITIONS, base.disposition),
                 moveToFolder: str(from.moveToFolder, base.moveToFolder),
+                saveAttachmentsTo: str(from.saveAttachmentsTo, base.saveAttachmentsTo),
             };
     }
 }

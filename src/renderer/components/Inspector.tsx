@@ -718,6 +718,16 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
                     onChange={(e) => patch({ moveToFolder: e.target.value })}
                 />
             </Field>
+            <Field
+                label="Save attachments to"
+                hint="A folder on this computer. Every attachment goes in but the images in the body; one already there is not saved twice, and a different file with its name gets a numbered copy."
+            >
+                <input
+                    value={config.saveAttachmentsTo}
+                    placeholder="(save nothing)"
+                    onChange={(e) => patch({ saveAttachmentsTo: e.target.value })}
+                />
+            </Field>
         </>
     );
 }

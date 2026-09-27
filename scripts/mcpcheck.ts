@@ -111,6 +111,9 @@ async function main(): Promise<void> {
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
+    const saving = await call('update_node', { flowId, nodeId: done, config: { saveAttachmentsTo: 'C:/Shipments' } });
+    check('a terminal keeps the folder it saves attachments to', saving.includes('"saveAttachmentsTo": "C:/Shipments"'));
+
     await call('connect', { flowId, from: trigger, port: 'out', to: sorter });
     await call('connect', { flowId, from: sorter, port: 'cat:pre-alert', to: done });
 

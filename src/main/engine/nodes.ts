@@ -1,3 +1,6 @@
+import { existsSync, statSync } from 'node:fs';
+import { constants, copyFile, readFile } from 'node:fs/promises';
+import { basename, extname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import {
     type CategorizerConfig,
@@ -436,7 +439,70 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
 // ── Terminal ─────────────────────────────────────────────────────────────
 
+/** Images a body shows rather than files sent with it: Outlook names those image001.png, and signatures use .gif. */
+const EMBEDDED_IMAGE = /^image\d+\.(png|jpe?g|gif|bmp)$|\.gif$/i;
+
+async function sameBytes(a: string, b: string): Promise<boolean> {
+    const [x, y] = await Promise.all([readFile(a), readFile(b)]);
+    return x.equals(y);
+}
+
+/**
+ * Copies a file into `folder` under its own name, and never over a different
+ * file: a name another file already has gets a numbered copy. False when the
+ * same file is already there, as it is when an email is run a second time.
+ */
+async function copyInto(source: string, folder: string): Promise<boolean> {
+    const ext = extname(source);
+    const stem = basename(source, ext);
+    for (let n = 1; ; n++) {
+        const target = join(folder, n === 1 ? `${stem}${ext}` : `${stem} (${n})${ext}`);
+        try {
+            await copyFile(source, target, constants.COPYFILE_EXCL);
+            return true;
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+            if (await sameBytes(source, target)) return false;
+        }
+    }
+}
+
+async function saveAttachments(ctx: NodeContext, folder: string): Promise<string> {
+    const names = ctx.email.attachmentNames.filter((name) => !EMBEDDED_IMAGE.test(name.trim()));
+    if (names.length === 0) return ' · no attachments to save';
+    // Checked rather than created, so a mistyped path does not become a folder.
+    if (!isAbsolute(folder) || !existsSync(folder) || !statSync(folder).isDirectory()) {
+        return ` · could not save attachments (there is no folder ${folder})`;
+    }
+    // Saved into the run folder first: the bridge numbers a name already taken,
+    // so saving straight into the folder would add copies on every re-run.
+    const staged = await outlook.saveAttachments(ctx.email.ref, names, join(ctx.scratchDir, `saved-by-${ctx.node.id}`));
+    let copied = 0;
+    for (const file of staged) {
+        if (await copyInto(file.path, folder)) copied++;
+    }
+    ctx.onEvent({
+        at: now(),
+        type: 'outlook',
+        label: `save attachments → ${folder}`,
+        detail: staged.map((file) => file.fileName).join('\n'),
+    });
+    const already = staged.length - copied;
+    return ` · saved ${copied} attachment(s) to ${folder}${already > 0 ? `, ${already} already there` : ''}`;
+}
+
 async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<NodeOutcome> {
+    // Before the move: filing the email rewrites the id its attachments are read by.
+    let saved = '';
+    const folder = config.saveAttachmentsTo.trim();
+    if (folder) {
+        try {
+            saved = await saveAttachments(ctx, folder);
+        } catch (e) {
+            saved = ` · could not save attachments (${e instanceof Error ? e.message : String(e)})`;
+        }
+    }
+
     let moved = '';
     if (config.moveToFolder.trim()) {
         try {
@@ -454,7 +520,7 @@ async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<No
     return {
         outPort: null,
         disposition: config.disposition,
-        summary: `${config.disposition}${moved}`,
+        summary: `${config.disposition}${saved}${moved}`,
     };
 }
 
