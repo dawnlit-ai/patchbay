@@ -10,7 +10,6 @@ import type {
     GlobalSkillFolder,
     McpServerTool,
     Settings,
-    SkillDetail,
     SkillScope,
     SkillSummary,
 } from './settings';
@@ -145,8 +144,16 @@ export interface Api {
     skills: {
         /** Both at once, each entry carrying the scope it came from. */
         list(flowId: string): Promise<SkillSummary[]>;
-        get(scope: SkillScope, flowId: string, name: string): Promise<SkillDetail | null>;
-        save(scope: SkillScope, flowId: string, name: string, content: string): Promise<SkillSummary>;
+        /** Write a new SKILL.md. Refused when the library already holds that name. */
+        create(scope: SkillScope, flowId: string, name: string, content: string): Promise<SkillSummary>;
+        /**
+         * Open the SKILL.md in the app the system gives `.md` files — the app does
+         * no editing of its own, and hears of the save by watching the folder.
+         * Refused, by name, when the skill has gone since the list was read.
+         */
+        open(scope: SkillScope, flowId: string, name: string): Promise<void>;
+        /** Show the skill's folder, with whatever sits beside its SKILL.md, in the file manager. */
+        reveal(scope: SkillScope, flowId: string, name: string): Promise<void>;
         remove(scope: SkillScope, flowId: string, name: string): Promise<void>;
         /**
          * Take it out of one library and put it in the other, overwriting a skill of
@@ -283,8 +290,9 @@ export const IPC = {
     claudeModels: 'claude:models',
 
     skillsList: 'skills:list',
-    skillsGet: 'skills:get',
-    skillsSave: 'skills:save',
+    skillsCreate: 'skills:create',
+    skillsOpen: 'skills:open',
+    skillsReveal: 'skills:reveal',
     skillsRemove: 'skills:remove',
     skillsMove: 'skills:move',
     skillsPickAndImport: 'skills:pickAndImport',

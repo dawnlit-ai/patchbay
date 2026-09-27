@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ContextMenu, type MenuItem } from './ContextMenu';
 import { NameDialog } from './NameDialog';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type GlobalSkillFolder, SKILL_SCOPES, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
@@ -34,14 +35,6 @@ const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
 
 const otherScope = (scope: SkillScope): SkillScope => (scope === 'global' ? 'flow' : 'global');
 
-/** A skill open in the editor. */
-export interface SkillEdit {
-    scope: SkillScope;
-    name: string;
-    /** What a skill not yet saved starts as; absent for one already on its shelf. */
-    template?: string;
-}
-
 /** The open flow's two libraries, and what the list does to them. */
 export interface Library {
     /** The open flow, whose own library is one of the two on offer. */
@@ -52,13 +45,11 @@ export interface Library {
     /** How many other flows a skill leaving the global library would abandon. */
     otherFlowCount: number;
 
-    onRefresh(): void;
+    /** Re-read both libraries; settles once the list holds what is on disk. */
+    onRefresh(): Promise<void>;
 
     /** A skill changed library: the open flow's ticks for it need re-pointing. */
     onMoved(from: SkillScope, to: SkillScope, name: string): void;
-
-    /** Open one in the editor, which takes the panel over until it is closed. */
-    onEdit(edit: SkillEdit): void;
 }
 
 /**
@@ -79,7 +70,8 @@ function whereKept(folders: GlobalSkillFolder[], name: string): string | null {
     return folder && !folder.workspace ? folder.path : null;
 }
 
-interface Dragged {
+/** A skill by where it is kept: what a drag carries, and what a question or menu is about. */
+interface SkillKey {
     scope: SkillScope;
     name: string;
 }
@@ -94,20 +86,25 @@ interface ShelfProps {
 
 /**
  * Both libraries, one above the other: where a node ticks its skills, and where
- * they are written, imported and moved between the two.
+ * they are created, imported, moved between the two and deleted. A skill is
+ * edited in whatever app the system opens `.md` files with, and the list follows
+ * the folder, so a skill changed or deleted there shows here without asking.
  */
 export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element {
-    const { flowId, flowName, skills, otherFlowCount, onRefresh, onMoved, onEdit } = library;
+    const { flowId, flowName, skills, otherFlowCount, onRefresh, onMoved } = library;
     /** One slot for both outcomes; `bad` is the difference between them. */
     const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
     /** The library a new skill is being named for, while the dialog is up. */
     const [naming, setNaming] = useState<SkillScope | null>(null);
     /** Held here rather than read off the drag, which hides its data until the drop. */
-    const [dragging, setDragging] = useState<Dragged | null>(null);
+    const [dragging, setDragging] = useState<SkillKey | null>(null);
     /** The library a dragged skill is hovering over, so it can say so. */
     const [dropOn, setDropOn] = useState<SkillScope | null>(null);
     /** A move worth asking about first: it overwrites, or it abandons other flows. */
-    const [confirming, setConfirming] = useState<Dragged | null>(null);
+    const [confirming, setConfirming] = useState<SkillKey | null>(null);
+    /** The skill a right-click menu is up for, and where. */
+    const [menu, setMenu] = useState<(SkillKey & { x: number; y: number }) | null>(null);
+    const [deleting, setDeleting] = useState<SkillKey | null>(null);
     const [query, setQuery] = useState('');
     const folders = useFolders(skills);
     const linkedCount = folders.filter((f) => !f.workspace).length;
@@ -131,7 +128,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
     const missing = picked?.filter((ref) => !offered.has(ref)) ?? [];
 
     /** Whether moving `skill` to the other library needs a question first. */
-    const moveWarnings = ({ scope, name }: Dragged): string[] => {
+    const moveWarnings = ({ scope, name }: SkillKey): string[] => {
         const to = otherScope(scope);
         const warnings: string[] = [];
         if (skills.some((s) => s.scope === to && s.name === name)) {
@@ -147,12 +144,12 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
         return warnings;
     };
 
-    const move = async ({ scope, name }: Dragged): Promise<void> => {
+    const move = async ({ scope, name }: SkillKey): Promise<void> => {
         const to = otherScope(scope);
         setMessage(null);
         try {
             await window.api.skills.move(scope, to, flowId, name);
-            onRefresh();
+            void onRefresh();
             onMoved(scope, to, name);
             say(`Moved “${name}” to ${libraryName(to)}.`);
         } catch (e) {
@@ -160,25 +157,78 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
         }
     };
 
-    const drop = (skill: Dragged): void => {
+    const drop = (skill: SkillKey): void => {
         setDropOn(null);
         setDragging(null);
         if (moveWarnings(skill).length > 0) setConfirming(skill);
         else void move(skill);
     };
 
-    const create = (scope: SkillScope, name: string): void => {
+    /**
+     * Open its SKILL.md in the system's app for it, or show its folder. One gone
+     * since the list was read is refused by name, and the list catches up.
+     */
+    const handOff = async (how: 'open' | 'reveal', { scope, name }: SkillKey): Promise<void> => {
+        setMessage(null);
+        try {
+            await window.api.skills[how](scope, flowId, name);
+        } catch (e) {
+            failed(e);
+            void onRefresh();
+        }
+    };
+
+    /** Written from the template, ticked on the node it was made from, then opened to be filled in. */
+    const create = async (scope: SkillScope, name: string): Promise<void> => {
         const clean = name.toLowerCase();
         setNaming(null);
-        onEdit({ scope, name: clean, template: TEMPLATE(clean) });
+        setMessage(null);
+        try {
+            await window.api.skills.create(scope, flowId, clean, TEMPLATE(clean));
+        } catch (e) {
+            failed(e);
+            return;
+        }
+        // Ticked once listed, so it never shows as a tick with no skill behind it.
+        await onRefresh();
+        toggle(skillRef(scope, clean), true);
+        say(`Created “${clean}” from a template and opened it. Save it there, and this list follows.`);
+        try {
+            await window.api.skills.open(scope, flowId, clean);
+        } catch (e) {
+            failed(e);
+        }
     };
+
+    const remove = async ({ scope, name }: SkillKey): Promise<void> => {
+        setMessage(null);
+        try {
+            await window.api.skills.remove(scope, flowId, name);
+            say(`Deleted “${name}”.`);
+        } catch (e) {
+            failed(e);
+        }
+        void onRefresh();
+    };
+
+    const deleteQuestion = ({ scope, name }: SkillKey): string => {
+        if (scope === 'flow') return `Delete “${name}” from “${flowName}”? Its whole folder goes with it.`;
+        const kept = whereKept(folders, name);
+        return `Delete “${name}” from the global library? Every flow that ticks it loses it${kept ? `, and its folder is deleted from ${kept}` : ''}.`;
+    };
+
+    const menuItems = (skill: SkillKey): MenuItem[] => [
+        { label: 'Edit SKILL.md', onSelect: () => void handOff('open', skill) },
+        { label: 'Show in folder', onSelect: () => void handOff('reveal', skill) },
+        { label: 'Delete…', separator: true, danger: true, onSelect: () => setDeleting(skill) },
+    ];
 
     const importSkills = async (scope: SkillScope): Promise<void> => {
         setMessage(null);
         try {
             const result = await window.api.skills.pickAndImport(scope, flowId);
             if (result) {
-                onRefresh();
+                void onRefresh();
                 const said =
                     result.imported.length > 0
                         ? `Imported ${result.imported.length} into ${libraryName(scope)}: ${result.imported.join(', ')}.`
@@ -272,6 +322,10 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                         setDragging(null);
                                         setDropOn(null);
                                     }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        setMenu({ scope, name: skill.name, x: e.clientX, y: e.clientY });
+                                    }}
                                 >
                                     {picked ? (
                                         <label className="check">
@@ -290,7 +344,8 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                     )}
                                     <button
                                         className="ghost compact"
-                                        onClick={() => onEdit({ scope, name: skill.name })}
+                                        title="Open its SKILL.md in the app your system opens .md files with. Right-click for more."
+                                        onClick={() => void handOff('open', { scope, name: skill.name })}
                                     >
                                         Edit
                                     </button>
@@ -327,7 +382,30 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                     confirmLabel="Create"
                     hint="Lowercase and hyphens — it becomes the folder name Claude discovers."
                     onCancel={() => setNaming(null)}
-                    onConfirm={(name) => create(naming, name)}
+                    onConfirm={(name) => void create(naming, name)}
+                />
+            )}
+
+            {menu && (
+                <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    label={menu.name}
+                    items={menuItems(menu)}
+                    onClose={() => setMenu(null)}
+                />
+            )}
+
+            {deleting && (
+                <ConfirmDialog
+                    title="Delete skill"
+                    message={deleteQuestion(deleting)}
+                    confirmLabel="Delete"
+                    onCancel={() => setDeleting(null)}
+                    onConfirm={() => {
+                        void remove(deleting);
+                        setDeleting(null);
+                    }}
                 />
             )}
 
@@ -344,119 +422,5 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                 />
             )}
         </>
-    );
-}
-
-interface EditorProps {
-    edit: SkillEdit;
-    flowId: string;
-    flowName: string;
-    /** Both libraries, re-read when they change, to say which folder holds a global skill. */
-    skills: SkillSummary[];
-
-    onRefresh(): void;
-
-    /** Back to the node. `saved` when the skill was written. */
-    onClose(saved: boolean): void;
-}
-
-/** One SKILL.md, frontmatter and all. It has the panel to itself while it is open. */
-export function SkillEditor({ edit, flowId, flowName, skills, onRefresh, onClose }: EditorProps): JSX.Element {
-    const { scope, name, template } = edit;
-    const [content, setContent] = useState(template ?? '');
-    const [error, setError] = useState<string | null>(null);
-    const [busy, setBusy] = useState(false);
-    const [deleting, setDeleting] = useState(false);
-    const kept = whereKept(useFolders(skills), name);
-
-    useEffect(() => {
-        if (template !== undefined) return;
-        let cancelled = false;
-        void window.api.skills.get(scope, flowId, name).then((detail) => {
-            if (!cancelled && detail) setContent(detail.content);
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [flowId, name, scope, template]);
-
-    const save = async (): Promise<void> => {
-        setBusy(true);
-        setError(null);
-        try {
-            await window.api.skills.save(scope, flowId, name, content);
-            onRefresh();
-            onClose(true);
-        } catch (e) {
-            setError((e as Error).message);
-            setBusy(false);
-        }
-    };
-
-    const remove = async (): Promise<void> => {
-        setDeleting(false);
-        setError(null);
-        try {
-            await window.api.skills.remove(scope, flowId, name);
-            onRefresh();
-            onClose(false);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
-    return (
-        <div>
-            <div className="panel-head plain">
-                <strong>{name}</strong>
-                <span className="spacer"/>
-                <button onClick={() => onClose(false)}>Cancel</button>
-                <button className="primary" onClick={() => void save()} disabled={busy}>
-                    Save
-                </button>
-            </div>
-            {error && <div className="err-banner">{error}</div>}
-            <textarea rows={26} value={content} onChange={(e) => setContent(e.target.value)} spellCheck={false}/>
-            <div className="hint">
-                {scope === 'global' && kept ? (
-                    <>
-                        Saved as <code>{name}/SKILL.md</code> in <code>{kept}</code>, and offered to every flow.
-                    </>
-                ) : scope === 'global' ? (
-                    <>
-                        Saved as <code>global/skills/{name}/SKILL.md</code> in the app workspace, and offered to
-                        every flow.
-                    </>
-                ) : (
-                    <>
-                        Saved as <code>.claude/skills/{name}/SKILL.md</code> inside this flow’s own folder, where
-                        only its nodes can reach it.
-                    </>
-                )}
-            </div>
-
-            {template === undefined && (
-                <>
-                    <div className="gap"/>
-                    <button className="danger" onClick={() => setDeleting(true)}>
-                        Delete skill
-                    </button>
-                </>
-            )}
-
-            {deleting && (
-                <ConfirmDialog
-                    title="Delete skill"
-                    message={
-                        scope === 'global'
-                            ? `Delete “${name}” from the global library? Every flow that ticks it loses it${kept ? `, and its folder is deleted from ${kept}` : ''}.`
-                            : `Delete “${name}” from “${flowName}”? Its whole folder goes with it.`
-                    }
-                    confirmLabel="Delete"
-                    onCancel={() => setDeleting(false)}
-                    onConfirm={() => void remove()}
-                />
-            )}
-        </div>
     );
 }

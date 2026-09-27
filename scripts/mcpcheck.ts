@@ -5,7 +5,7 @@
  *   npm run mcpcheck
  */
 import { app } from 'electron';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -33,7 +33,10 @@ async function main(): Promise<void> {
     const { AgentControl } = await import('../src/main/mcp/server');
     const { Watcher } = await import('../src/main/engine/watcher');
     const { getFlow, saveFlowFrom } = await import('../src/main/store/flowStore');
-    const { globalPluginFor, listAllSkills } = await import('../src/main/store/skillStore');
+    const { createSkill, globalPluginFor, listAllSkills, locateSkill, missingSkills } = await import(
+        '../src/main/store/skillStore'
+        );
+    const { stopWatchingSkills, watchSkills } = await import('../src/main/store/skillWatch');
 
     console.log('workspace:', workspace);
     saveSettings({ ...getSettings(), agentControl: { enabled: true, port: PORT, token: TOKEN } });
@@ -330,6 +333,72 @@ async function main(): Promise<void> {
         arguments: { folders: [join(lower, 'gamma')] },
     });
     check('a skill folder is refused as a library folder', skillAsFolder.isError === true);
+
+    // Skills are edited and deleted in other apps while this one runs. Their folders
+    // are watched — a linked one, and a flow's library but not the rest of its
+    // folder — and what went is refused by name, not failed on.
+    let heard = 0;
+    watchSkills(() => {
+        heard += 1;
+    });
+    const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+    const heardAfter = async (act: () => void): Promise<boolean> => {
+        await pause(500);
+        const before = heard;
+        act();
+        for (let i = 0; i < 30 && heard === before; i++) await pause(100);
+        return heard > before;
+    };
+    check(
+        'a skill saved in a linked folder is heard',
+        await heardAfter(() =>
+            writeFileSync(join(lower, 'epsilon', 'SKILL.md'), '---\nname: epsilon\ndescription: Saved elsewhere.\n---\n'),
+        ),
+    );
+    check(
+        'a skill saved in a flow’s library is heard',
+        await heardAfter(() =>
+            writeFileSync(join(flowPath, '.claude', 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: Saved elsewhere.\n---\n'),
+        ),
+    );
+    check(
+        'a file beside a flow’s graph is not',
+        !(await heardAfter(() => writeFileSync(join(flowPath, 'scratch.txt'), 'Not a skill.\n'))),
+    );
+    check(
+        'a skill deleted in a linked folder is heard',
+        await heardAfter(() => rmSync(join(lower, 'epsilon'), { recursive: true })),
+    );
+    stopWatchingSkills();
+    let refusedByName = '';
+    try {
+        locateSkill('global', '', 'epsilon');
+    } catch (e) {
+        refusedByName = (e as Error).message;
+    }
+    check('opening a skill deleted elsewhere is refused by name', refusedByName.includes('“epsilon” is no longer'));
+    check(
+        'a tick naming a skill deleted elsewhere is found',
+        missingSkills(flowId, ['alpha', 'global:delta', 'global:epsilon']).join() === 'global:epsilon',
+    );
+    mkdirSync(join(lower, 'hollow', 'SKILL.md'), { recursive: true });
+    let listed: string[] = [];
+    try {
+        listed = listAllSkills(flowId).map((s) => s.name);
+    } catch {
+        // Checked below.
+    }
+    check('a skill that cannot be read is left out of the list, not failing it', listed.includes('delta') && !listed.includes('hollow'));
+    let replaced = true;
+    try {
+        createSkill('global', '', 'delta', '---\nname: delta\ndescription: Would replace.\n---\n');
+    } catch {
+        replaced = false;
+    }
+    check(
+        'creating a skill does not replace one of that name',
+        !replaced && readFileSync(join(own, 'delta', 'SKILL.md'), 'utf8').includes('New.'),
+    );
     const unlinked = JSON.parse(await call('set_global_skill_folders', { folders: [] })) as Shelf;
     check(
         'unlinking them all leaves the workspace’s own skills',
@@ -378,6 +447,26 @@ async function main(): Promise<void> {
         'cancel_run says when there is nothing to cancel',
         (await call('cancel_run', { runId: second })).includes('Nothing to cancel'),
     );
+
+    // A step whose skill was deleted since it was ticked stops at its error port,
+    // naming the skill, before Claude is asked anything.
+    const stranded = (JSON.parse(await call('create_flow', { name: 'Lost skill check' })) as { id: string }).id;
+    const inbox = (JSON.parse(await call('add_node', { flowId: stranded, kind: 'trigger.outlook' })) as {
+        id: string
+    }).id;
+    const orphan = (JSON.parse(await call('add_node', { flowId: stranded, kind: 'processor' })) as { id: string }).id;
+    await call('update_node', { flowId: stranded, nodeId: orphan, config: { skills: ['global:epsilon'] } });
+    await call('connect', { flowId: stranded, from: inbox, port: 'out', to: orphan });
+    const lostRun = watcher.enqueueManual(stranded, inbox, email);
+    for (let i = 0; i < 50 && watcher.status().activeRunIds.length > 0; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    const lostTrace = await call('get_run', { runId: lostRun });
+    check(
+        'a step ticking a skill deleted since leaves by its error port, naming it',
+        lostTrace.includes('“global:epsilon” is ticked but no longer in the library'),
+    );
+    await call('delete_flow', { flowId: stranded });
 
     // A canvas saves against the version it last read. Its own saves move that
     // on; anyone else's write means its edit was made to a flow no longer there.

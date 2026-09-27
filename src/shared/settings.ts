@@ -130,7 +130,7 @@ export interface GlobalSkillFolder {
 }
 
 export interface SkillDetail extends SkillSummary {
-    /** The whole SKILL.md, frontmatter included — the app edits it as one file. */
+    /** The whole SKILL.md, frontmatter included, as an agent reads and writes it. */
     content: string;
 }
 

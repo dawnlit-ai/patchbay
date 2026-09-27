@@ -63,9 +63,9 @@ const api: Api = {
     },
     skills: {
         list: (flowId) => call(IPC.skillsList, flowId),
-        get: (scope, flowId, name) => call(IPC.skillsGet, scope, flowId, name),
-        save: (scope, flowId, name, content) =>
-            call(IPC.skillsSave, scope, flowId, name, content),
+        create: (scope, flowId, name, content) => call(IPC.skillsCreate, scope, flowId, name, content),
+        open: (scope, flowId, name) => call(IPC.skillsOpen, scope, flowId, name),
+        reveal: (scope, flowId, name) => call(IPC.skillsReveal, scope, flowId, name),
         remove: (scope, flowId, name) => call(IPC.skillsRemove, scope, flowId, name),
         move: (from, to, flowId, name) => call(IPC.skillsMove, from, to, flowId, name),
         pickAndImport: (scope, flowId) => call(IPC.skillsPickAndImport, scope, flowId),

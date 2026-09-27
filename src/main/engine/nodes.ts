@@ -16,7 +16,7 @@ import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/t
 import { runClaude } from '../claude/runner';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
 import { getSettings } from '../store/settingsStore';
-import { globalPluginFor } from '../store/skillStore';
+import { globalPluginFor, missingSkills } from '../store/skillStore';
 import { flowDir } from '../paths';
 import * as outlook from '../outlook/bridge';
 import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
@@ -97,6 +97,21 @@ function globalSkills(skills: string[]): { plugins: SdkPluginConfig[] | undefine
         plugins: plugin ? [{ type: 'local', path: plugin.path, skipMcpDiscovery: true }] : undefined,
         dispose: () => plugin?.dispose(),
     };
+}
+
+/**
+ * Why a node cannot start, if a skill it ticks is no longer there — deleted or
+ * renamed outside the app since. It would run without the instructions it was
+ * given, so it leaves by its error port instead.
+ */
+function lostSkills(ctx: NodeContext, skills: string[]): NodeOutcome | null {
+    const missing = missingSkills(ctx.flowId, skills);
+    if (missing.length === 0) return null;
+    const one = missing.length === 1;
+    const message =
+        `${missing.map((ref) => `“${ref}”`).join(', ')} ${one ? 'is' : 'are'} ticked but no longer in the library, ` +
+        `deleted or renamed outside the app. Put ${one ? 'it' : 'them'} back, or untick ${one ? 'it' : 'them'}.`;
+    return { outPort: 'error', summary: message, error: message };
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
@@ -201,6 +216,9 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
 const EXTRACT_BODY_CHARS = 50_000;
 
 async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<NodeOutcome> {
+    const lost = lostSkills(ctx, config.skills);
+    if (lost) return lost;
+
     // Read up front, so an extraction from the body alone is a single turn.
     let body = ctx.email.body;
     if (body === undefined) {
@@ -353,6 +371,9 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 const PORT_FOR_OUTCOME: Record<string, string> = { done: 'done', 'needs-review': 'review', failed: 'error' };
 
 async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
+    const lost = lostSkills(ctx, config.skills);
+    if (lost) return lost;
+
     // Built before Claude is asked, as the Extractor does, so a bad schema costs no run.
     let validator: z.ZodType | undefined;
     if (config.output) {

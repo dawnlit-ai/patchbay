@@ -19,6 +19,7 @@ import { getSettings, saveSettings } from './settingsStore';
 import {
     GLOBAL_SKILL_PLUGIN,
     type GlobalSkillFolder,
+    isGlobalRef,
     type SkillDetail,
     type SkillScope,
     type SkillSummary,
@@ -219,15 +220,27 @@ function summarize(scope: SkillScope, name: string, content: string, file: strin
     };
 }
 
-/** The skills in one folder, by name. */
+/**
+ * The skills in one folder, by name. Skills are edited and deleted in other apps
+ * while this one runs, so one that goes, or cannot be read, mid-list is left out
+ * rather than failing the list.
+ */
 function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
-    if (!existsSync(dir)) return [];
+    let entries;
+    try {
+        entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+        return [];
+    }
     const out: SkillSummary[] = [];
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const file = join(dir, entry.name, 'SKILL.md');
-        if (!existsSync(file)) continue;
-        out.push(summarize(scope, entry.name, readFileSync(file, 'utf8'), file));
+        try {
+            out.push(summarize(scope, entry.name, readFileSync(file, 'utf8'), file));
+        } catch {
+            // No SKILL.md, or it went between the listing and the read.
+        }
     }
     return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
@@ -254,6 +267,42 @@ export function getSkill(scope: SkillScope, flowId: string, name: string): Skill
     return { ...summarize(scope, name, content, file), content };
 }
 
+/** Where a library is named in a message. */
+const libraryName = (scope: SkillScope): string => (scope === 'global' ? 'the global library' : 'this flow’s library');
+
+/**
+ * The SKILL.md of the copy in use, for opening in another app. The list it was
+ * picked from can be behind the disk, so a skill gone since is refused by name.
+ */
+export function locateSkill(scope: SkillScope, flowId: string, name: string): string {
+    const file = isValidSkillName(name) ? skillFile(scope, flowId, name) : null;
+    if (!file || !existsSync(file)) {
+        throw new Error(`“${name}” is no longer in ${libraryName(scope)}. It was deleted or renamed outside the app.`);
+    }
+    return file;
+}
+
+/** Write a new skill. Refused when the library already has one of that name, which it would otherwise replace. */
+export function createSkill(scope: SkillScope, flowId: string, name: string, content: string): SkillSummary {
+    if (isValidSkillName(name) && existsSync(skillFile(scope, flowId, name))) {
+        const where = scope === 'global' ? 'The global library' : 'This flow’s library';
+        throw new Error(`${where} already has a “${name}”. Pick another name, or edit that one.`);
+    }
+    return saveSkill(scope, flowId, name, content);
+}
+
+/**
+ * The ticks, as a node stores them, naming a skill neither library has — deleted
+ * or renamed since the node ticked it. A run checks before it starts.
+ */
+export function missingSkills(flowId: string, refs: string[]): string[] {
+    return refs.filter((ref) => {
+        const global = isGlobalRef(ref);
+        const name = global ? ref.slice(GLOBAL_SKILL_PLUGIN.length + 1) : ref;
+        return !isValidSkillName(name) || !existsSync(skillFile(global ? 'global' : 'flow', flowId, name));
+    });
+}
+
 export function saveSkill(
     scope: SkillScope,
     flowId: string,
@@ -271,10 +320,24 @@ export function saveSkill(
     return summarize(scope, name, content, file);
 }
 
+/**
+ * Windows refuses to rename or delete a folder while another app holds a file in
+ * it open — the editor a skill was opened in, say. Said as that, not as EBUSY.
+ */
+function heldOpen(e: unknown, name: string, doing: string): unknown {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== 'EBUSY' && !(code === 'EPERM' && process.platform === 'win32')) return e;
+    return new Error(`Could not ${doing} “${name}”: another app has a file in its folder open. Close it there and try again.`);
+}
+
 export function removeSkill(scope: SkillScope, flowId: string, name: string): void {
     if (!isValidSkillName(name)) return;
     // Only the copy in use: one of the same name in a folder further down takes over.
-    removeTree(join(writeDir(scope, flowId, name), name));
+    try {
+        removeTree(join(writeDir(scope, flowId, name), name));
+    } catch (e) {
+        throw heldOpen(e, name, 'delete');
+    }
 }
 
 /**
@@ -293,14 +356,18 @@ export function moveSkill(
     if (!existsSync(join(source, 'SKILL.md'))) throw new Error(`There is no skill "${name}" to move.`);
 
     const target = join(writeDir(to, flowId, name), name);
-    removeTree(target);
     try {
-        renameSync(source, target);
+        removeTree(target);
+        try {
+            renameSync(source, target);
+        } catch (e) {
+            // A global folder can be on another drive, which a rename cannot cross.
+            if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
+            cpSync(source, target, { recursive: true });
+            removeTree(source);
+        }
     } catch (e) {
-        // A global folder can be on another drive, which a rename cannot cross.
-        if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
-        cpSync(source, target, { recursive: true });
-        removeTree(source);
+        throw heldOpen(e, name, 'move');
     }
 
     const file = join(target, 'SKILL.md');

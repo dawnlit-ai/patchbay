@@ -28,6 +28,7 @@ import { logEntries, logEntriesOn } from '../log';
 import * as outlook from '../outlook/bridge';
 import * as flowStore from '../store/flowStore';
 import * as skillStore from '../store/skillStore';
+import { rewatch } from '../store/skillWatch';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
 import { listServerTools } from '../claude/serverTools';
@@ -571,6 +572,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({ folders }) => {
             const shelf = skillStore.setGlobalFolders(folders.map(absoluteDir));
+            rewatch();
             host.changed({ flows: false, skills: true });
             return json(
                 shelf.map((folder) => ({

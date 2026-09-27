@@ -233,10 +233,17 @@ nothing but the starter skill the app wrote itself, so it never fights an edit y
 empty library of its own, because everything it needs is already on the shelf.
 
 The list sits in a Processor's or Extractor's inspector, where a tick lets the node use a skill, and on its own when no
-node is selected. **Edit** opens a skill's `SKILL.md` in the panel, and **New** writes one from a template — from a
-node's list, the node ticks it once it is saved. On a node, a library of more than eight skills starts folded to the
-ones it ticks, and scrolls in place when opened; past eight in all, a filter over both finds one by name or description.
-The server tools below it are listed the same way, a group per server.
+node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
+`.md` files (with none set, Windows asks which, and macOS uses its text editor), and right-clicking a skill can also
+show its folder, for the scripts and references beside it, or delete it. **New** writes one from a template, ticks it on
+the node whose list it came from, and opens it the same way. On a node, a library of more than eight skills starts
+folded to the ones it ticks, and scrolls in place when opened; past eight in all, a filter over both finds one by name or
+description. The server tools below it are listed the same way, a group per server.
+
+The app watches every folder the two libraries read, so a skill saved, renamed or deleted elsewhere — in your editor,
+Finder or Explorer, a `git pull` — shows in every window as it happens. A node still ticking one that has gone lists
+it on its own, to untick, and a run reaching that node leaves by its error port naming the skill, rather than running
+without the instructions it was given.
 
 Drag a skill onto the other library to **move** it between the two. The open flow's ticks are re-pointed as it goes
 (`global:x` ↔ `x`); a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name
@@ -251,9 +258,8 @@ library, which reads and writes them in place, copying nothing. The app workspac
 where new skills are saved. The linked folders are ordered: when two folders hold a skill of the same name the higher
 one's is used, the workspace's comes last, and the others are shown as hidden. Editing, deleting or moving a global
 skill changes the copy in use, wherever it is; deleting it lets a hidden one of the same name take over. Unlinking a
-folder deletes nothing, and what changes in a folder shows up when the window is next focused. **Folders…** on the
-global library opens that page, which can also **Import…** a folder's skills as copies, lists what is on the shelf with
-a **Delete** on each, and holds the seed folder.
+folder deletes nothing. **Folders…** on the global library opens that page, which can also **Import…** a folder's
+skills as copies, lists what is on the shelf with an **Edit** and a **Delete** on each, and holds the seed folder.
 
 Only the workspace's own folder is in plugin layout, so while any folder is linked each run copies the global skills it
 ticks into a temporary plugin and deletes that copy afterwards. That also keeps an edit made mid-run out of the run.

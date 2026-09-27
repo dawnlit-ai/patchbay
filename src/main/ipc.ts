@@ -1,10 +1,12 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
+import { execFile } from 'node:child_process';
 import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag, type WorkspaceChange } from '@shared/ipc';
 import { type Flow, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
 import * as flowStore from './store/flowStore';
 import * as skillStore from './store/skillStore';
+import { rewatch, watchSkills } from './store/skillWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
@@ -116,6 +118,20 @@ function handleWindow(channel: string, fn: (win: BrowserWindow) => void): void {
     });
 }
 
+/**
+ * Open a file in the app the system gives files of its kind. With none set,
+ * Windows asks which (Chromium's own fallback) and macOS takes its text editor.
+ */
+async function openInEditor(file: string): Promise<void> {
+    const failure = await shell.openPath(file);
+    if (!failure) return;
+    if (process.platform === 'darwin') {
+        const opened = await new Promise<boolean>((resolve) => execFile('open', ['-t', file], (e) => resolve(!e)));
+        if (opened) return;
+    }
+    throw new Error(`Could not open ${file}: ${failure}`);
+}
+
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
@@ -203,12 +219,21 @@ export function registerIpc(): void {
 
     handle(IPC.claudeModels, () => listModels());
 
-    handle(IPC.skillsList, (flowId: string) => skillStore.listAllSkills(flowId));
-    handle(IPC.skillsGet, (scope: SkillScope, flowId: string, name: string) =>
-        skillStore.getSkill(scope, flowId, name),
+    // Skills are edited in other apps, so main watches their folders and every
+    // window re-reads its list on a change, whoever made it.
+    watchSkills(() => broadcast(IPC.evtWorkspaceChanged, { flows: false, skills: true }));
+    handle(IPC.skillsList, (flowId: string) => {
+        rewatch();
+        return skillStore.listAllSkills(flowId);
+    });
+    handle(IPC.skillsCreate, (scope: SkillScope, flowId: string, name: string, content: string) =>
+        skillStore.createSkill(scope, flowId, name, content),
     );
-    handle(IPC.skillsSave, (scope: SkillScope, flowId: string, name: string, content: string) =>
-        skillStore.saveSkill(scope, flowId, name, content),
+    handle(IPC.skillsOpen, (scope: SkillScope, flowId: string, name: string) =>
+        openInEditor(skillStore.locateSkill(scope, flowId, name)),
+    );
+    handle(IPC.skillsReveal, (scope: SkillScope, flowId: string, name: string) =>
+        shell.showItemInFolder(skillStore.locateSkill(scope, flowId, name)),
     );
     handle(IPC.skillsRemove, (scope: SkillScope, flowId: string, name: string) =>
         skillStore.removeSkill(scope, flowId, name),
@@ -228,11 +253,16 @@ export function registerIpc(): void {
         if (picked.canceled || picked.filePaths.length === 0) return null;
         return skillStore.importSkillFiles(scope, flowId, picked.filePaths);
     });
-    handle(IPC.skillsFolders, () => skillStore.globalShelf());
+    handle(IPC.skillsFolders, () => {
+        rewatch();
+        return skillStore.globalShelf();
+    });
     // Every flow's global skills change at once, so every window re-reads them.
-    handleWrite({ flows: false, skills: true }, IPC.skillsSetFolders, (paths: string[]) =>
-        skillStore.setGlobalFolders(paths),
-    );
+    handleWrite({ flows: false, skills: true }, IPC.skillsSetFolders, (paths: string[]) => {
+        const shelf = skillStore.setGlobalFolders(paths);
+        rewatch();
+        return shelf;
+    });
     handle(IPC.skillsPickFolder, async () => {
         const picked = await dialog.showOpenDialog({
             title: 'Choose a folder of skills to link for every flow to use in place',

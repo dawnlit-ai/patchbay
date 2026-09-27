@@ -19,7 +19,7 @@ import { Inspector } from './components/Inspector';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
-import { type Library, type SkillEdit, SkillEditor } from './components/SkillLibrary';
+import type { Library } from './components/SkillLibrary';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
@@ -64,11 +64,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const [runs, setRuns] = useState<RunSummary[]>([]);
     const [selectedRun, setSelectedRun] = useState<Run | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
-    /**
-     * The skill the side panel is editing in place of the node, if any. `tickOn` is
-     * the node a new one was written from, which ticks it once it is saved.
-     */
-    const [editingSkill, setEditingSkill] = useState<(SkillEdit & { tickOn: string | null }) | null>(null);
     const [testing, setTesting] = useState(false);
     /** Open while the flow's name — and possibly its folder — is being changed. */
     const [renaming, setRenaming] = useState(false);
@@ -89,19 +84,17 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     /** Every library belongs to a flow, so switching flows swaps the list. */
     const flowId = flow?.id ?? null;
-    const refreshSkills = useCallback(() => {
-        if (!flowId) {
-            setSkills([]);
-            return;
-        }
-        void window.api.skills.list(flowId).then(setSkills);
+    const refreshSkills = useCallback(async () => {
+        setSkills(flowId ? await window.api.skills.list(flowId) : []);
     }, [flowId]);
 
-    useEffect(refreshSkills, [refreshSkills]);
-    // The global library's folders are edited in other apps too; coming back is when to look again.
+    useEffect(() => void refreshSkills(), [refreshSkills]);
+    // Main watches the skill folders and says when they change; this catches a
+    // folder it could not watch, such as a drive plugged back in.
     useEffect(() => {
-        window.addEventListener('focus', refreshSkills);
-        return () => window.removeEventListener('focus', refreshSkills);
+        const refresh = (): void => void refreshSkills();
+        window.addEventListener('focus', refresh);
+        return () => window.removeEventListener('focus', refresh);
     }, [refreshSkills]);
 
     const refreshRuns = useCallback(() => {
@@ -225,7 +218,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     useEffect(
         () =>
             window.api.on.workspaceChanged((change) => {
-                if (change.skills) refreshSkills();
+                if (change.skills) void refreshSkills();
                 if (!change.flows || !flowId) return;
                 flushSave();
                 void readFlow(flowId);
@@ -244,7 +237,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 flushSave();
                 setSelectedNodeId(null);
                 setSelectedRun(null);
-                setEditingSkill(null);
                 void readFlow(nextId);
             }),
         [flowId, flushSave, readFlow],
@@ -286,17 +278,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
         },
         [flow, updateFlow],
     );
-
-    /** Back from the skill editor, ticking a new skill on the node it was written from. */
-    const closeSkill = (saved: boolean): void => {
-        setEditingSkill(null);
-        const node = flow?.nodes.find((n) => n.id === editingSkill?.tickOn);
-        if (!saved || !editingSkill || !node) return;
-        const { config } = node;
-        const ref = skillRef(editingSkill.scope, editingSkill.name);
-        if ((config.kind !== 'processor' && config.kind !== 'extractor') || config.skills.includes(ref)) return;
-        updateNode({ ...node, config: { ...config, skills: [...config.skills, ref] } });
-    };
 
     const deleteNode = useCallback(
         (nodeId: string) => {
@@ -463,7 +444,6 @@ export function App({ initialFlowId }: Props): JSX.Element {
         otherFlowCount: flowCount - 1,
         onRefresh: refreshSkills,
         onMoved: relabelSkill,
-        onEdit: (edit) => setEditingSkill({ ...edit, tickOn: edit.template === undefined ? null : selectedNodeId }),
     };
 
     return (
@@ -603,26 +583,14 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
                 <div className="side right">
                     <div className="side-body">
-                        {editingSkill ? (
-                            <SkillEditor
-                                key={skillRef(editingSkill.scope, editingSkill.name)}
-                                edit={editingSkill}
-                                flowId={flow.id}
-                                flowName={flow.name}
-                                skills={skills}
-                                onRefresh={refreshSkills}
-                                onClose={closeSkill}
-                            />
-                        ) : (
-                            <Inspector
-                                node={selectedNode}
-                                library={library}
-                                available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
-                                issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
-                                onChange={updateNode}
-                                onDelete={deleteNode}
-                            />
-                        )}
+                        <Inspector
+                            node={selectedNode}
+                            library={library}
+                            available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
+                            issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
+                            onChange={updateNode}
+                            onDelete={deleteNode}
+                        />
                     </div>
                 </div>
             </div>

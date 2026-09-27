@@ -232,16 +232,24 @@ export function SettingsPanel({
                 : `Deleted “${skill.name}”.`;
         });
 
+    /** In the app the system opens `.md` files with; the list follows the save. */
+    const editSkill = (skill: SkillSummary): Promise<void> =>
+        skillsAction(async () => {
+            try {
+                await window.api.skills.open('global', '', skill.name);
+            } catch (e) {
+                // Refused because it went since the list was read: catch the list up.
+                await refreshSkills();
+                throw e;
+            }
+            return null;
+        });
+
     const deleteQuestion = (skill: SkillSummary): string => {
         const next = nextInLine(skill);
         const where = skill.folder === workspacePath ? 'the app workspace' : skill.folder;
         return (
-            `Delete
-            “
-            ${skill.name}
-            ”? Its whole folder is deleted from
-            ${where}
-            . ` +
+            `Delete “${skill.name}”? Its whole folder is deleted from ${where}. ` +
             (next
                 ? `Flows that tick it get the copy in ${next.workspace ? 'the app workspace' : next.path} instead.`
                 : 'Every flow that ticks it loses it.')
@@ -486,13 +494,22 @@ export function SettingsPanel({
                                                 </>
                                             }
                                             control={
-                                                <button
-                                                    className="ghost danger"
-                                                    aria-label={`Delete ${skill.name}`}
-                                                    onClick={() => setDeleting(skill)}
-                                                >
-                                                    Delete
-                                                </button>
+                                                <>
+                                                    <button
+                                                        aria-label={`Edit ${skill.name}`}
+                                                        title="Open its SKILL.md in the app your system opens .md files with"
+                                                        onClick={() => void editSkill(skill)}
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        className="ghost danger"
+                                                        aria-label={`Delete ${skill.name}`}
+                                                        onClick={() => setDeleting(skill)}
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </>
                                             }
                                         />
                                     ))}
@@ -535,7 +552,9 @@ export function SettingsPanel({
                                 <p className="set-note">
                                     Linking, unlinking and reordering take effect at once, and unlinking deletes
                                     nothing. Import copies skills in, replacing the copy in use of any skill with the
-                                    same name. To write or edit a skill, use the skill list in a canvas's inspector.
+                                    same name. Edit opens a skill in the app your system gives .md files, and what you
+                                    change or delete in these folders shows here as it happens. To write a new skill,
+                                    use the skill list in a canvas's inspector.
                                 </p>
                             </>
                         )}
