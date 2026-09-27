@@ -8,6 +8,7 @@ import type {
     AgentControlStatus,
     EngineStatus,
     GlobalSkillFolder,
+    McpServerTool,
     Settings,
     SkillDetail,
     SkillScope,
@@ -108,6 +109,8 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
+        /** The tools one of the MCP servers in Settings offers, asked of the server. */
+        serverTools(server: string): Promise<McpServerTool[]>;
     };
     /**
      * The app's own MCP server. Switching it on and choosing its port are ordinary
@@ -266,6 +269,7 @@ export const IPC = {
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
+    settingsServerTools: 'settings:serverTools',
 
     agentControlStatus: 'agentControl:status',
     agentControlRegenerateToken: 'agentControl:regenerateToken',

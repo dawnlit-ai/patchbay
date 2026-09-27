@@ -8,6 +8,12 @@ export interface McpServerSetting {
     enabled: boolean;
 }
 
+/** One tool a server in Settings offers, as the server describes it. */
+export interface McpServerTool {
+    name: string;
+    description: string;
+}
+
 /** Patchbay's own MCP server, for an agent to drive the app. Off by default; loopback only, token required. */
 export interface AgentControlSettings {
     enabled: boolean;
@@ -24,7 +30,7 @@ export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 export interface Settings {
     /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
     claudeExecutablePath: string;
-    /** Extra MCP servers handed to every Processor node. */
+    /** Extra MCP servers, whose tools a Processor is handed as its `mcpTools` names them. */
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
     skillSeedPath: string;

@@ -255,8 +255,14 @@ is handed over as a local plugin — which is what lets a run load skills from o
 the `global:` prefix comes from.
 
 > A skill that calls another app's MCP tools (`mcp__<server-name>__*`,
-> say) needs that server added under **Settings → MCP servers** before a
-> Processor can run it.
+> say) needs that server added under **Settings → MCP servers**, and the
+> tools it calls ticked on the Processor, before a Processor can run it.
+
+A Processor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or *Every tool of* a
+server — and a server with nothing ticked is not started for its run. The inspector asks each server for its list. So
+a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same server's tool that
+sends mail. A Processor saved before tools could be picked keeps every tool of every server until *Pick the tools it
+needs* is pressed; a new one starts with none.
 
 Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled:
 
@@ -308,7 +314,7 @@ rather than saved over it: the canvas says so, and shows the flow as the agent l
 | Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                                          |
 | Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                                      |
 | Runs     | `list_runs`, `get_run`, `get_console`                                                                          |
-| Settings | `get_settings`                                                                                                 |
+| Settings | `get_settings`, `list_server_tools`                                                                            |
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a

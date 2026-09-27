@@ -305,10 +305,16 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     const allowedTools = emailToolNames(config);
     for (const extra of getSettings().mcpServers) {
         if (!extra.enabled || !extra.name.trim()) continue;
+        const whole = `mcp__${extra.name}`;
+        // Only what the node names: a server's other tools stay refused, so an email
+        // written to steer the agent cannot reach a tool the step never needed.
+        const granted =
+            config.mcpTools === null
+                ? [whole]
+                : config.mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
+        if (granted.length === 0) continue;
         mcpServers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
-        // Enabled wholesale: the user added the server deliberately, and naming each
-        // tool would mean re-listing them on every upgrade.
-        allowedTools.push(`mcp__${extra.name}`);
+        allowedTools.push(...granted);
     }
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 

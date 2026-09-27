@@ -45,6 +45,7 @@ const api: Api = {
     settings: {
         get: () => call(IPC.settingsGet),
         save: (settings) => call(IPC.settingsSave, settings),
+        serverTools: (server) => call(IPC.settingsServerTools, server),
     },
     agentControl: {
         status: () => call(IPC.agentControlStatus),

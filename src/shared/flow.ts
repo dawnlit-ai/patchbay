@@ -100,6 +100,13 @@ export interface ProcessorConfig {
      * has no shell — which is what a node reading mail from outside should get.
      */
     allowFileSystem: boolean;
+    /**
+     * Tools from the MCP servers in Settings, in the SDK's own spelling:
+     * `mcp__<server>` for every tool a server has, `mcp__<server>__<tool>` for one.
+     * A server none of them names is not started for the run. Null on a node
+     * saved before the list existed: every tool of every server, as then.
+     */
+    mcpTools: string[] | null;
 }
 
 export interface TerminalConfig {
@@ -413,6 +420,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
                 allowFileSystem: false,
+                mcpTools: [],
             };
         case 'terminal':
             return { kind, disposition: 'done', moveToFolder: '', saveAttachmentsTo: '' };
@@ -622,6 +630,8 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
+                // Absent only on a node from before the list: it keeps what it had.
+                mcpTools: from.mcpTools === undefined || from.mcpTools === null ? null : strings(from.mcpTools, []),
             };
         }
         case 'terminal':

@@ -9,6 +9,7 @@ import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
 import { listModels } from './claude/runner';
+import { listServerTools } from './claude/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
@@ -171,6 +172,7 @@ export function registerIpc(): void {
         return flowStore.importFlowFile(path);
     });
     handle(IPC.settingsGet, () => getSettings());
+    handle(IPC.settingsServerTools, (server: string) => listServerTools(server));
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token and skill folders: a panel opened before a regeneration
         // or a folder change would send the old ones back.

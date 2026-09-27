@@ -25,7 +25,7 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
-import { SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
+import { type McpServerTool, SKILL_SCOPES, skillRef, type SkillSummary } from '@shared/settings';
 
 /** Configures the selected node: one section per kind, each handed its narrowed config. */
 
@@ -646,6 +646,124 @@ function ProcessorFields({
             <div className="hint">
                 Nothing here can send mail. A drafted reply waits in Outlook for a person.
             </div>
+
+            <div className="gap"/>
+            <McpToolsField config={config} patch={patch}/>
+        </>
+    );
+}
+
+/** A server from Settings, and the tools it offered when asked. */
+interface ServerListing {
+    name: string;
+    tools: McpServerTool[] | null;
+    error: string | null;
+}
+
+/**
+ * The tools a Processor takes from the MCP servers in Settings, ticked one by
+ * one: the run is handed those and no others. Each server is asked for its list
+ * only while a Processor is open here.
+ */
+function McpToolsField({ config, patch }: Section<ProcessorConfig>): JSX.Element {
+    const [servers, setServers] = useState<ServerListing[] | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        const update = (name: string, change: Partial<ServerListing>): void => {
+            if (!cancelled) setServers((all) => all?.map((s) => (s.name === name ? { ...s, ...change } : s)) ?? null);
+        };
+        void window.api.settings.get().then((settings) => {
+            if (cancelled) return;
+            const names = settings.mcpServers.filter((s) => s.enabled && s.name.trim()).map((s) => s.name);
+            setServers(names.map((name) => ({ name, tools: null, error: null })));
+            for (const name of names) {
+                window.api.settings.serverTools(name).then(
+                    (tools) => update(name, { tools }),
+                    (e: Error) => update(name, { error: e.message }),
+                );
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    if (config.mcpTools === null) {
+        return (
+            <>
+                <Legend
+                    label="Tools from MCP servers"
+                    hint="Every tool of every server in Settings: this node was set up before they could be picked one by one."
+                />
+                <button onClick={() => patch({ mcpTools: servers?.map((s) => `mcp__${s.name}`) ?? [] })}>
+                    Pick the tools it needs
+                </button>
+            </>
+        );
+    }
+
+    const picked = config.mcpTools;
+    const set = (ref: string, on: boolean): void =>
+        patch({ mcpTools: on ? [...picked, ref] : picked.filter((t) => t !== ref) });
+    const offered = new Set(
+        (servers ?? []).flatMap((s) => [`mcp__${s.name}`, ...(s.tools ?? []).map((t) => `mcp__${s.name}__${t.name}`)]),
+    );
+    // Ticked but offered by no server here: shown, so the tick can be taken off.
+    const stranded = servers?.every((s) => s.tools || s.error) ? picked.filter((t) => !offered.has(t)) : [];
+
+    return (
+        <>
+            <Legend
+                label="Tools from MCP servers"
+                hint={
+                    servers?.length === 0
+                        ? 'No MCP servers are set up. Add them in Settings.'
+                        : 'The run gets only what is ticked; a server with nothing ticked is not started for it.'
+                }
+            />
+            {servers?.map((server) => {
+                const whole = `mcp__${server.name}`;
+                return (
+                    <div key={server.name}>
+                        <label className="check">
+                            <input
+                                type="checkbox"
+                                checked={picked.includes(whole)}
+                                onChange={(e) => set(whole, e.target.checked)}
+                            />
+                            Every tool of {server.name}
+                        </label>
+                        {!picked.includes(whole) &&
+                            (server.error ? (
+                                <div className="hint">Could not ask {server.name} for its tools: {server.error}</div>
+                            ) : !server.tools ? (
+                                <div className="hint">Asking {server.name} for its tools…</div>
+                            ) : (
+                                server.tools.map((tool) => {
+                                    const ref = `${whole}__${tool.name}`;
+                                    return (
+                                        <label className="check" key={ref} title={tool.description}>
+                                            <input
+                                                type="checkbox"
+                                                checked={picked.includes(ref)}
+                                                onChange={(e) => set(ref, e.target.checked)}
+                                            />
+                                            {tool.name}
+                                        </label>
+                                    );
+                                })
+                            ))}
+                    </div>
+                );
+            })}
+            {stranded.map((ref) => (
+                <label className="check" key={ref}>
+                    <input type="checkbox" checked onChange={() => set(ref, false)}/>
+                    {ref}
+                    <span className="hint"> — no server here offers it</span>
+                </label>
+            ))}
         </>
     );
 }

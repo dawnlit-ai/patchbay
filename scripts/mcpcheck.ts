@@ -114,6 +114,18 @@ async function main(): Promise<void> {
     const saving = await call('update_node', { flowId, nodeId: done, config: { saveAttachmentsTo: 'C:/Shipments' } });
     check('a terminal keeps the folder it saves attachments to', saving.includes('"saveAttachmentsTo": "C:/Shipments"'));
 
+    const step = await call('add_node', { flowId, kind: 'processor' });
+    check(
+        'a new processor starts with no server tools and no file-system access',
+        step.includes('"mcpTools": []') && step.includes('"allowFileSystem": false'),
+    );
+    const widened = await call('update_node', {
+        flowId,
+        nodeId: (JSON.parse(step) as { id: string }).id,
+        config: { mcpTools: 'mcp__everything' },
+    });
+    check('a tool list of the wrong type narrows to nothing', widened.includes('"mcpTools": []'));
+
     await call('connect', { flowId, from: trigger, port: 'out', to: sorter });
     await call('connect', { flowId, from: sorter, port: 'cat:pre-alert', to: done });
 

@@ -30,6 +30,7 @@ import * as flowStore from '../store/flowStore';
 import * as skillStore from '../store/skillStore';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
+import { listServerTools } from '../claude/serverTools';
 
 /**
  * The app as MCP tools, going through the same stores as the window; every write
@@ -69,6 +70,8 @@ rather than a fan-out. The five node kinds:
                     Ports: "done", "review" (it needs a person) and "error".
                     With \`output\` and \`schema\` set, its result fills that
                     slot on "done" — how one step hands its work to the next.
+                    It gets only the MCP server tools \`mcpTools\` names;
+                    list_server_tools gives a server's.
 - terminal        — ends the path and records how the email came out.
 
 A later node reads a slot by listing it in \`inputs\` (a processor); get_flow's
@@ -914,6 +917,21 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 ...settings,
                 agentControl: { ...settings.agentControl, token: '(withheld)' },
             });
+        },
+    );
+
+    server.registerTool(
+        'list_server_tools',
+        {
+            title: 'List an MCP server’s tools',
+            description:
+                'The tools one of the MCP servers in Settings offers, asked of the server itself. A processor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
+            inputSchema: { server: z.string().describe('The server’s name, as get_settings lists it.') },
+            annotations: { readOnlyHint: true },
+        },
+        async ({ server: name }) => {
+            const tools = await listServerTools(name);
+            return json(tools.map((t) => ({ ref: `mcp__${name}__${t.name}`, description: t.description })));
         },
     );
 }
