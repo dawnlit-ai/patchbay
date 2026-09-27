@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { z } from 'zod';
 import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk';
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
 import type { ProcessorConfig } from '@shared/flow';
 import * as outlook from '../outlook/bridge';
+import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
 
 /**
  * A Processor's mailbox tools, bound to this run's one email: none takes an
@@ -37,6 +38,27 @@ function ok(text: string) {
 
 function fail(text: string) {
     return { content: [{ type: 'text' as const, text }], isError: true };
+}
+
+/** A saved attachment's lines in save_attachment's result: a workbook's with the CSVs Read can open. */
+async function withCsv(path: string): Promise<string[]> {
+    if (!WORKBOOK_EXTENSIONS.includes(extname(path).toLowerCase())) return [path];
+    try {
+        const { sheets, hidden } = await saveWorkbookAsCsv(path);
+        const left = hidden.length > 0 ? [`  hidden, so left out: ${hidden.map((h) => `"${h}"`).join(', ')}`] : [];
+        if (sheets.length === 0) return [`${path} — a workbook with no visible sheet to read`, ...left];
+        return [
+            `${path} — a workbook, which Read cannot open; read ${sheets.length === 1 ? 'it as' : 'its sheets as'}:`,
+            ...sheets.map(({
+                               sheet,
+                               path: csv,
+                               rows
+                           }) => `  ${csv} (sheet "${sheet}", ${rows} row${rows === 1 ? '' : 's'})`),
+            ...left,
+        ];
+    } catch (e) {
+        return [`${path} — a workbook, but no CSV of it could be made: ${e instanceof Error ? e.message : String(e)}`];
+    }
 }
 
 export function createEmailToolServer(ctx: EmailToolContext) {
@@ -124,7 +146,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tools.push(
             tool(
                 'save_attachment',
-                'Save one or more of this email\'s attachments into the run folder and return their paths, so they can be read with the Read tool.',
+                'Save one or more of this email\'s attachments into the run folder and return their paths, so they can be read with the Read tool. A workbook (.xlsx, .xlsm), which Read cannot open, is saved as CSV beside it too, one file per sheet: each cell as the sheet shows it (51%, $1,349.00, dates as YYYY-MM-DD), with line N holding row N and every column in its place, so a figure can be traced to its cell.',
                 { fileNames: z.array(z.string().min(1)).min(1) },
                 async ({ fileNames }) => {
                     const saved = await outlook.saveAttachments(email.ref, fileNames, ctx.scratchDir);
@@ -133,10 +155,11 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                             `Saved nothing. This email's attachments are: ${email.attachmentNames.join(', ') || '(none)'}`,
                         );
                     }
-                    const paths = saved.map((s) => s.path);
-                    ctx.actions.push(`saved ${paths.length} attachment(s)`);
-                    log('save_attachment', paths.join('\n'));
-                    return ok(`Saved:\n${paths.join('\n')}`);
+                    const lines: string[] = [];
+                    for (const { path } of saved) lines.push(...(await withCsv(path)));
+                    ctx.actions.push(`saved ${saved.length} attachment(s)`);
+                    log('save_attachment', lines.join('\n'));
+                    return ok(`Saved:\n${lines.join('\n')}`);
                 },
             ),
         );

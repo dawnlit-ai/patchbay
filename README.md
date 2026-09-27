@@ -279,6 +279,11 @@ Extractor's gets the same server, less `draft_reply` and `move_email`:
 | `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email            |
 | `move_email`      | opt-in | Files the email into an Inbox subfolder                                            |
 
+`save_attachment` also writes a workbook (`.xlsx`, `.xlsm`) out beside itself as CSV, one file per visible sheet, since
+Read can't open one. Each cell reads as the sheet shows it — `51%` rather than `0.51`, `$45.00/day` rather than `45`,
+dates as `YYYY-MM-DD` — and line N of the CSV is row N of the sheet, so a figure can be traced to its cell. A hidden
+sheet is left out and named in the result.
+
 A Processor's own file access is a separate switch, *Read and write files anywhere, and run commands*, and it starts
 off. Off, Claude reads the run folder — the saved attachments — and the flow's folder, writes only through `save_file`,
 and has no shell at all. That is what a node reading mail from outside should get: an email written to steer the agent
