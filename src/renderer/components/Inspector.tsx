@@ -462,7 +462,15 @@ function OutputFields({
     );
 }
 
-function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Element {
+function ExtractorFields({
+                             config,
+                             patch,
+                             skills,
+                             available,
+                         }: Section<ExtractorConfig> & {
+    skills: SkillSummary[];
+    available: Available | undefined;
+}): JSX.Element {
     const listing = useModels();
     const pickModel = (model: string): void => {
         const levels = findModel(listing.models, model)?.effortLevels ?? [];
@@ -472,6 +480,9 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
 
     return (
         <>
+            <SkillsField config={config} patch={patch} skills={skills}/>
+            <InputsField config={config} patch={patch} available={available}/>
+
             <OutputFields
                 config={config}
                 patch={patch}
@@ -504,6 +515,14 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
                 onChange={(effort) => patch({ effort })}
             />
 
+            <div className="gap"/>
+            <McpToolsField
+                config={config}
+                patch={patch}
+                hint="The run gets only what is ticked. Tick tools that look things up: an Extractor is meant to change nothing."
+            />
+
+            <div className="gap"/>
             <div className="hint">
                 Leaves by Valid when every required field is in the email and the result matches the schema, and by
                 Incomplete when something is missing or wrong. Nothing is filled on Incomplete.
@@ -514,26 +533,14 @@ function ExtractorFields({ config, patch }: Section<ExtractorConfig>): JSX.Eleme
 
 const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
 
-function ProcessorFields({
-                             config,
-                             patch,
-                             skills,
-                             available,
-                         }: Section<ProcessorConfig> & {
-    skills: SkillSummary[];
-    available: Available | undefined;
-}): JSX.Element {
+/** The skills a node may invoke, ticked from either library. */
+function SkillsField({
+                         config,
+                         patch,
+                         skills,
+                     }: Section<{ skills: string[] }> & { skills: SkillSummary[] }): JSX.Element {
     const toggle = (ref: string, on: boolean): void =>
         patch({ skills: on ? [...config.skills, ref] : config.skills.filter((s) => s !== ref) });
-
-    const listing = useModels();
-    // A level the new model does not take goes back to that model's default. A
-    // model that takes none leaves the level alone, for the next one that does.
-    const pickModel = (model: string): void => {
-        const levels = findModel(listing.models, model)?.effortLevels ?? [];
-        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
-        patch(kept ? { model } : { model, effort: '' });
-    };
 
     // Ticked but in neither library (e.g. imported from another install). There is
     // no checkbox to show it, so it is listed.
@@ -577,7 +584,31 @@ function ProcessorFields({
             )}
 
             <div className="gap"/>
+        </>
+    );
+}
 
+function ProcessorFields({
+                             config,
+                             patch,
+                             skills,
+                             available,
+                         }: Section<ProcessorConfig> & {
+    skills: SkillSummary[];
+    available: Available | undefined;
+}): JSX.Element {
+    const listing = useModels();
+    // A level the new model does not take goes back to that model's default. A
+    // model that takes none leaves the level alone, for the next one that does.
+    const pickModel = (model: string): void => {
+        const levels = findModel(listing.models, model)?.effortLevels ?? [];
+        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
+        patch(kept ? { model } : { model, effort: '' });
+    };
+
+    return (
+        <>
+            <SkillsField config={config} patch={patch} skills={skills}/>
             <InputsField config={config} patch={patch} available={available}/>
 
             <Field label="Instruction" hint="Prepended to the email. Say what a good outcome looks like.">
@@ -661,11 +692,15 @@ interface ServerListing {
 }
 
 /**
- * The tools a Processor takes from the MCP servers in Settings, ticked one by
- * one: the run is handed those and no others. Each server is asked for its list
- * only while a Processor is open here.
+ * The tools a node takes from the MCP servers in Settings, ticked one by one:
+ * the run is handed those and no others. Each server is asked for its list only
+ * while such a node is open here.
  */
-function McpToolsField({ config, patch }: Section<ProcessorConfig>): JSX.Element {
+function McpToolsField({
+                           config,
+                           patch,
+                           hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
+                       }: Section<{ mcpTools: string[] | null }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
 
     useEffect(() => {
@@ -716,11 +751,7 @@ function McpToolsField({ config, patch }: Section<ProcessorConfig>): JSX.Element
         <>
             <Legend
                 label="Tools from MCP servers"
-                hint={
-                    servers?.length === 0
-                        ? 'No MCP servers are set up. Add them in Settings.'
-                        : 'The run gets only what is ticked; a server with nothing ticked is not started for it.'
-                }
+                hint={servers?.length === 0 ? 'No MCP servers are set up. Add them in Settings.' : hint}
             />
             {servers?.map((server) => {
                 const whole = `mcp__${server.name}`;
@@ -768,12 +799,17 @@ function McpToolsField({ config, patch }: Section<ProcessorConfig>): JSX.Element
     );
 }
 
-/** What goes into the prompt: the email, slots an earlier node filled, or both. */
+/**
+ * What goes into the prompt: the email, slots an earlier node filled, or both.
+ * A node without `readEmail` always reads the email.
+ */
 function InputsField({
                          config,
                          patch,
                          available,
-                     }: Section<ProcessorConfig> & { available: Available | undefined }): JSX.Element {
+                     }: Section<{ inputs: string[]; readEmail?: boolean }> & {
+    available: Available | undefined
+}): JSX.Element {
     const offered = [...(available?.keys() ?? [])].filter((name) => name !== EMAIL_SLOT.name);
     // Ticked but not sure to arrive: shown, so the tick can be taken off.
     const stranded = config.inputs.filter((name) => !offered.includes(name));
@@ -792,7 +828,8 @@ function InputsField({
             <label className="check">
                 <input
                     type="checkbox"
-                    checked={config.readEmail}
+                    disabled={config.readEmail === undefined}
+                    checked={config.readEmail ?? true}
                     onChange={(e) => patch({ readEmail: e.target.checked })}
                 />
                 The email — its body, and its attachments if allowed below
@@ -961,7 +998,9 @@ export function Inspector({ node, skills, available, issues, onChange, onDelete 
 
             {config.kind === 'trigger.outlook' && <TriggerFields config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
-            {config.kind === 'extractor' && <ExtractorFields key={node.id} config={config} patch={patch}/>}
+            {config.kind === 'extractor' && (
+                <ExtractorFields key={node.id} config={config} patch={patch} skills={skills} available={available}/>
+            )}
             {config.kind === 'processor' && (
                 <ProcessorFields key={node.id} config={config} patch={patch} skills={skills} available={available}/>
             )}

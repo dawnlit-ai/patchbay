@@ -126,6 +126,36 @@ async function main(): Promise<void> {
     });
     check('a tool list of the wrong type narrows to nothing', widened.includes('"mcpTools": []'));
 
+    const pull = await call('add_node', { flowId, kind: 'extractor' });
+    const puller = (JSON.parse(pull) as { id: string }).id;
+    check(
+        'a new extractor starts with no skills, inputs or server tools',
+        pull.includes('"skills": []') && pull.includes('"inputs": []') && pull.includes('"mcpTools": []'),
+    );
+    const reading = await call('update_node', {
+        flowId,
+        nodeId: puller,
+        config: { inputs: ['placement'], mcpTools: ['mcp__logistics__lookup'] },
+    });
+    check(
+        'an extractor keeps the slots and server tools it names',
+        reading.includes('"placement"') && reading.includes('"mcp__logistics__lookup"'),
+    );
+
+    // An Extractor reading a slot no path fills is flagged, as a Processor is.
+    const lone = (JSON.parse(await call('create_flow', { name: 'Extractor reads too much' })) as { id: string }).id;
+    const loneTrigger = (JSON.parse(await call('add_node', { flowId: lone, kind: 'trigger.outlook' })) as {
+        id: string
+    }).id;
+    const lonePuller = (JSON.parse(await call('add_node', { flowId: lone, kind: 'extractor' })) as { id: string }).id;
+    await call('update_node', { flowId: lone, nodeId: lonePuller, config: { inputs: ['placement'] } });
+    await call('connect', { flowId: lone, from: loneTrigger, port: 'out', to: lonePuller });
+    check(
+        'an extractor reading a slot no path fills is flagged',
+        (await call('get_flow', { flowId: lone })).includes('reads \\"placement\\", but not every path here fills it'),
+    );
+    await call('delete_flow', { flowId: lone });
+
     await call('connect', { flowId, from: trigger, port: 'out', to: sorter });
     await call('connect', { flowId, from: sorter, port: 'cat:pre-alert', to: done });
 
@@ -188,16 +218,20 @@ async function main(): Promise<void> {
     const relative = await client.callTool({ name: 'import_skills', arguments: { scope: 'global', dir: 'skills' } });
     check('a relative folder is refused', relative.isError === true);
 
-    // Moving a skill changes how it is ticked, so the flow's Processors follow it,
-    // and a skill leaving the shelf names every other flow it leaves behind.
+    // Moving a skill changes how it is ticked, so the flow's Processors and
+    // Extractors follow it, and a skill leaving the shelf names every other flow
+    // it leaves behind.
     const worker = await idOf('processor');
     await call('update_node', { flowId, nodeId: worker, config: { skills: ['alpha'] } });
+    await call('update_node', { flowId, nodeId: puller, config: { skills: ['alpha'] } });
     const up = JSON.parse(await call('move_skill', { flowId, name: 'alpha', to: 'global' })) as {
         repointedNodes: string[];
     };
     check(
         'moving a skill re-points this flow’s ticks',
-        up.repointedNodes.includes(worker) && (await call('get_flow', { flowId })).includes('"global:alpha"'),
+        up.repointedNodes.includes(worker) &&
+        up.repointedNodes.includes(puller) &&
+        (await call('get_flow', { flowId })).includes('"global:alpha"'),
     );
     const other = (JSON.parse(await call('create_flow', { name: 'Also ticks alpha' })) as { id: string }).id;
     const otherWorker = (JSON.parse(await call('add_node', { flowId: other, kind: 'processor' })) as { id: string }).id;

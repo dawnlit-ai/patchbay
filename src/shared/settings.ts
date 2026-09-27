@@ -30,7 +30,7 @@ export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 export interface Settings {
     /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
     claudeExecutablePath: string;
-    /** Extra MCP servers, whose tools a Processor is handed as its `mcpTools` names them. */
+    /** Extra MCP servers, whose tools a Processor or Extractor is handed as its `mcpTools` names them. */
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
     skillSeedPath: string;

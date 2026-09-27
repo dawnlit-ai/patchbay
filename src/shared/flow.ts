@@ -60,11 +60,20 @@ export interface ExtractorConfig {
     schema: JsonSchema;
     /** What to extract and from where, beyond what the schema's descriptions say. */
     instruction: string;
+    /** Skills ticked as a Processor ticks them: how to read this kind of email. */
+    skills: string[];
+    /** Slots an earlier node filled, put into the prompt as JSON after the email. */
+    inputs: string[];
     model: string;
     /** One of the levels Claude Code lists for this model. Empty uses the model's default. */
     effort: string;
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
+    /**
+     * Tools from the MCP servers in Settings, spelled as a Processor's are. Beyond
+     * reading the email they are all it holds, so they should only look things up.
+     */
+    mcpTools: string[];
 }
 
 export interface ProcessorConfig {
@@ -287,6 +296,8 @@ export function requires(node: FlowNode): string[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
             return [];
+        case 'extractor':
+            return [EMAIL_SLOT.name, ...node.config.inputs];
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
         default:
@@ -439,9 +450,12 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     required: ['reference'],
                 },
                 instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
+                skills: [],
+                inputs: [],
                 model: DEFAULT_MODEL,
                 effort: '',
                 includeAttachments: false,
+                mcpTools: [],
             };
         case 'processor':
             return {
@@ -552,26 +566,29 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
 }
 
 /**
- * Re-point every Processor ticking `before` at `after`, as when a skill changes
+ * Re-point every node ticking `before` at `after`, as when a skill changes
  * library. Returns the same flow object when nothing changed.
  */
 export function retickSkill(flow: Flow, before: string, after: string): Flow {
     let changed = false;
     const nodes = flow.nodes.map((node) => {
-        if (node.config.kind !== 'processor') return node;
-        if (!node.config.skills.includes(before)) return node;
+        const config = node.config;
+        if (config.kind !== 'processor' && config.kind !== 'extractor') return node;
+        if (!config.skills.includes(before)) return node;
         changed = true;
         // Through a Set: a node ticking both libraries' copies would otherwise
         // end up ticking the survivor twice.
-        const skills = [...new Set(node.config.skills.map((s) => (s === before ? after : s)))];
-        return { ...node, config: { ...node.config, skills } };
+        const skills = [...new Set(config.skills.map((s) => (s === before ? after : s)))];
+        return { ...node, config: { ...config, skills } };
     });
     return changed ? { ...flow, nodes } : flow;
 }
 
-/** Whether any Processor in the flow ticks this skill. */
+/** Whether any node in the flow ticks this skill. */
 export function ticksSkill(flow: Flow, ref: string): boolean {
-    return flow.nodes.some((node) => node.config.kind === 'processor' && node.config.skills.includes(ref));
+    return flow.nodes.some(
+        ({ config }) => (config.kind === 'processor' || config.kind === 'extractor') && config.skills.includes(ref),
+    );
 }
 
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
@@ -647,9 +664,13 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
                 schema: isObject(from.schema) ? from.schema : base.schema,
                 instruction: str(from.instruction, base.instruction),
+                skills: strings(from.skills, base.skills),
+                inputs: strings(from.inputs, base.inputs),
                 model: str(from.model, base.model),
                 effort: str(from.effort, base.effort),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
+                // Never null, unlike a Processor's: no Extractor predates the list.
+                mcpTools: strings(from.mcpTools, base.mcpTools),
             };
         }
         case 'processor': {

@@ -66,6 +66,9 @@ rather than a fan-out. The five node kinds:
 - extractor       — pulls fields out of the email into its JSON \`schema\` and
                     fills the slot named by \`output\`. Ports: "valid",
                     "invalid" and "error"; only "valid" fills the slot.
+                    Like a processor it ticks \`skills\`, reads \`inputs\`
+                    and gets the \`mcpTools\` it names, but it cannot draft
+                    a reply, move the email or run commands.
 - processor       — runs Claude with the skills it ticks, scoped to one email.
                     Ports: "done", "review" (it needs a person) and "error".
                     With \`output\` and \`schema\` set, its result fills that
@@ -74,8 +77,8 @@ rather than a fan-out. The five node kinds:
                     list_server_tools gives a server's.
 - terminal        — ends the path and records how the email came out.
 
-A later node reads a slot by listing it in \`inputs\` (a processor); get_flow's
-slotsOnArrival says which slots are sure to reach a node.
+A later node reads a slot by listing it in \`inputs\` (a processor or an
+extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
@@ -133,7 +136,7 @@ const describeFlow = (flow: Flow) => {
         updatedAt: flow.updatedAt,
         nodes: flow.nodes.map((node) => ({
             ...describeNode(flow, node),
-            // What a Processor here may list in `inputs`. Absent when no trigger reaches it.
+            // What a Processor or Extractor here may list in `inputs`. Absent when no trigger reaches it.
             slotsOnArrival: available.has(node.id) ? [...available.get(node.id)!.keys()] : undefined,
         })),
         edges: flow.edges,
@@ -447,7 +450,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List skills',
             description:
-                'Both libraries at once — the global shelf and this flow’s own. A Processor ticks a global skill as "global:<name>" and one of the flow’s own by its bare name.',
+                'Both libraries at once — the global shelf and this flow’s own. A Processor or Extractor ticks a global skill as "global:<name>" and one of the flow’s own by its bare name.',
             inputSchema: { flowId: flowIdArg },
             annotations: { readOnlyHint: true },
         },
@@ -501,7 +504,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a skill',
             description:
-                'Remove a skill folder. A global one goes for every flow in this install, and any Processor still ticking it then names a skill that is not there.',
+                'Remove a skill folder. A global one goes for every flow in this install, and any node still ticking it then names a skill that is not there.',
             inputSchema: { scope: scopeArg, name: z.string(), flowId: z.string().optional() },
             annotations: { destructiveHint: true, idempotentHint: true },
         },
@@ -587,7 +590,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Move a skill to the other library',
             description:
-                'Move a skill, folder and all, between the global shelf and one flow’s own library — what dragging it onto the other tab does. This flow’s Processors are re-pointed as it goes ("global:<name>" ↔ "<name>"). Ask the person first when the result could surprise them: a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name already there replaces it.',
+                'Move a skill, folder and all, between the global shelf and one flow’s own library — what dragging it onto the other tab does. This flow’s Processors and Extractors are re-pointed as it goes ("global:<name>" ↔ "<name>"). Ask the person first when the result could surprise them: a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name already there replaces it.',
             inputSchema: {
                 flowId: z.string().describe('The flow whose own library is one end of the move.'),
                 name: z.string(),
@@ -623,7 +626,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 stillTickedBy: stranded.length > 0 ? stranded : undefined,
                 note:
                     stranded.length > 0
-                        ? `These flows still tick "${before}", which no longer exists. Re-point their Processors, or move the skill back.`
+                        ? `These flows still tick "${before}", which no longer exists. Re-point their nodes, or move the skill back.`
                         : undefined,
             });
         },
@@ -925,7 +928,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List an MCP server’s tools',
             description:
-                'The tools one of the MCP servers in Settings offers, asked of the server itself. A processor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
+                'The tools one of the MCP servers in Settings offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
             inputSchema: { server: z.string().describe('The server’s name, as get_settings lists it.') },
             annotations: { readOnlyHint: true },
         },

@@ -29,7 +29,9 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   why.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
   and puts the result in a named slot. It leaves by *Valid* when every required field was in the email and the result
-  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*.
+  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*. Like a Processor, it can tick
+  skills that say how to read this kind of email, read slots earlier nodes filled, and take tools from the MCP servers
+  in Settings; unlike one, it cannot draft a reply, move the email or run commands.
 - **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
   by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
   slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each
@@ -48,7 +50,8 @@ schema leaves by *Error* instead.
 A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
 path. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
 or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
-on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone.
+on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor
+always reads the email, and any slots it ticks besides: the lanes an earlier step found, say, to price each of them.
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
 for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
 to bring, and what leaves by each port.
@@ -221,8 +224,8 @@ the Skills tab switches between them:
 **Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
 skills land. **Flow** skills sit inside the flow's own directory — which is also the working directory its nodes run in
 — so only that flow sees them, and they are deleted with it. The two may hold the
-same name without either shadowing the other: a Processor stores a global tick as `global:<name>` and its own as the
-bare name.
+same name without either shadowing the other: a node stores a global tick as `global:<name>` and its own as the bare
+name.
 
 The global library is seeded on first run from the first of these that exists — `skillSeedPath` in Settings, then
 `./skills` — falling back to one starter skill if neither does. Seeding runs only while that library is empty, or holds
@@ -256,15 +259,16 @@ the `global:` prefix comes from.
 
 > A skill that calls another app's MCP tools (`mcp__<server-name>__*`,
 > say) needs that server added under **Settings → MCP servers**, and the
-> tools it calls ticked on the Processor, before a Processor can run it.
+> tools it calls ticked on the node, before a Processor or Extractor can run it.
 
-A Processor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or *Every tool of* a
-server — and a server with nothing ticked is not started for its run. The inspector asks each server for its list. So
-a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same server's tool that
-sends mail. A Processor saved before tools could be picked keeps every tool of every server until *Pick the tools it
-needs* is pressed; a new one starts with none.
+A Processor or Extractor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or
+*Every tool of* a server — and a server with nothing ticked is not started for its run. The inspector asks each server
+for its list. So a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same
+server's tool that sends mail. A Processor saved before tools could be picked keeps every tool of every server until
+*Pick the tools it needs* is pressed; a new one starts with none.
 
-Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled:
+Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled. An
+Extractor's gets the same server, less `draft_reply` and `move_email`:
 
 | Tool              | Always | What it does                                                                       |
 |-------------------|--------|------------------------------------------------------------------------------------|
@@ -324,8 +328,8 @@ dropped, with the tool that dropped it saying how many.
 `write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
 `import_skills`, from a folder on this machine — `~/.claude/skills`, say — optionally narrowed to the names wanted.
 `set_global_skill_folders` sets the folders linked into the global library, as **Settings → Global skills** does.
-`move_skill` re-points the flow's own Processors as the Skills tab does, and names any other flow a skill leaving the
-global shelf strands.
+`move_skill` re-points the flow's own Processors and Extractors as the Skills tab does, and names any other flow a skill
+leaving the global shelf strands.
 
 A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
 under *Runs at once*. `get_run` says which rather than reporting no such run, `list_runs` puts what is queued and under

@@ -20,7 +20,7 @@ import { globalPluginFor } from '../store/skillStore';
 import { flowDir } from '../paths';
 import * as outlook from '../outlook/bridge';
 import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
-import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
@@ -62,6 +62,41 @@ function slotContext(ctx: NodeContext, names: string[]): string[] {
         `--- ${name} (filled by an earlier node in this flow) ---`,
         JSON.stringify(ctx.data[name] ?? null, null, 2),
     ]);
+}
+
+/**
+ * The MCP servers in Settings that `mcpTools` names anything of, and the
+ * allowlist entries for what it names. Null names every tool of every server.
+ */
+function settingsServers(mcpTools: string[] | null): { servers: Record<string, McpServerConfig>; allowed: string[] } {
+    const servers: Record<string, McpServerConfig> = {};
+    const allowed: string[] = [];
+    for (const extra of getSettings().mcpServers) {
+        if (!extra.enabled || !extra.name.trim()) continue;
+        const whole = `mcp__${extra.name}`;
+        // Only what the node names: a server's other tools stay refused, so an email
+        // written to steer the agent cannot reach a tool the step never needed.
+        const granted =
+            mcpTools === null ? [whole] : mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
+        if (granted.length === 0) continue;
+        servers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
+        allowed.push(...granted);
+    }
+    return { servers, allowed };
+}
+
+/**
+ * The global library lives outside the run's directory, so what a node ticks
+ * from it arrives as a plugin — and only when it ticks something there. The
+ * plugin is disposed of once the run is over.
+ */
+function globalSkills(skills: string[]): { plugins: SdkPluginConfig[] | undefined; dispose(): void } {
+    const ticks = skills.filter(isGlobalRef).map((ref) => ref.slice(GLOBAL_SKILL_PLUGIN.length + 1));
+    const plugin = ticks.length > 0 ? globalPluginFor(ticks) : null;
+    return {
+        plugins: plugin ? [{ type: 'local', path: plugin.path, skipMcpDiscovery: true }] : undefined,
+        dispose: () => plugin?.dispose(),
+    };
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
@@ -205,33 +240,61 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         onEvent: ctx.onEvent,
         actions: [],
     });
-    const allowedTools = emailToolNames(capabilities);
+    const extra = settingsServers(config.mcpTools);
+    const allowedTools = [...emailToolNames(capabilities), ...extra.allowed];
     if (config.includeAttachments) allowedTools.push('Read');
 
+    const ticked = config.skills.length > 0;
     const prompt = [
         'Extract the data described by the schema of `data` from the email below.',
+        ...(ticked
+            ? [
+                `Load ${config.skills.map((s) => `\`${s}\``).join(', ')} with the Skill tool first: ` +
+                `${config.skills.length === 1 ? 'it says' : 'they say'} how to read this kind of email.`,
+            ]
+            : []),
         config.instruction.trim(),
         '',
         'Take every value from the email itself. When the email does not give a field, do',
         'not guess one: leave it out if the schema allows that, or give an empty value if it',
         'does not, and list the field\'s path (e.g. "containers.0.number") in `missing`.',
-        config.includeAttachments
-            ? 'The attachments may hold what the body does not: save the ones that could, with `mcp__email__save_attachment`, and read them with Read.'
-            : 'Work from the body alone; the attachments are not available here.',
+        ...(config.inputs.length > 0
+            ? [
+                'The data after the email is what earlier steps took from it. Use it to know what',
+                'to look for, and take a value from it where the schema\'s description says to.',
+            ]
+            : []),
+        ...(config.mcpTools.length > 0
+            ? ['A value one of your tools returns about this email counts as given, as the email\'s own would.']
+            : []),
+        ...(config.includeAttachments
+            ? ['The attachments may hold what the body does not: save the ones that could, with `mcp__email__save_attachment`, and read them with Read.']
+            : config.mcpTools.length > 0
+                ? []
+                : ['Work from the body alone; the attachments are not available here.']),
         '',
         '--- Email ---',
         emailContext(ctx.email, body),
+        ...slotContext(ctx, config.inputs),
     ].join('\n');
+
+    const library = globalSkills(config.skills);
 
     const result = await runClaude({
         prompt,
         model: config.model,
         effort: config.effort,
         cwd: flowDir(ctx.flowId),
+        // 'project' makes the flow's own `.claude/skills` discoverable, as for a Processor.
+        settingSources: ticked ? ['project'] : undefined,
+        plugins: library.plugins,
+        skills: ticked ? config.skills : undefined,
         additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
-        tools: config.includeAttachments ? ['Read'] : [],
+        // Nothing that writes or runs a command: Skill to load what it ticks, and
+        // Read for the attachments it saves.
+        tools: [...(ticked ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
         allowedTools,
-        mcpServers: { [EMAIL_SERVER_NAME]: server },
+        mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
         signal: ctx.signal,
         onEvent: ctx.onEvent,
         jsonSchema: {
@@ -248,7 +311,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
             required: ['data', 'missing', 'note'],
             additionalProperties: false,
         },
-    });
+    }).finally(library.dispose);
 
     if (!result.ok) {
         return { outPort: 'error', summary: result.error ?? 'Extraction failed', error: result.error };
@@ -310,21 +373,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         actions,
     });
 
-    const mcpServers: Record<string, McpServerConfig> = { [EMAIL_SERVER_NAME]: server };
-    const allowedTools = emailToolNames(config);
-    for (const extra of getSettings().mcpServers) {
-        if (!extra.enabled || !extra.name.trim()) continue;
-        const whole = `mcp__${extra.name}`;
-        // Only what the node names: a server's other tools stay refused, so an email
-        // written to steer the agent cannot reach a tool the step never needed.
-        const granted =
-            config.mcpTools === null
-                ? [whole]
-                : config.mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
-        if (granted.length === 0) continue;
-        mcpServers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
-        allowedTools.push(...granted);
-    }
+    const extra = settingsServers(config.mcpTools);
+    const allowedTools = [...emailToolNames(config), ...extra.allowed];
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 
     const acting = config.allowDraftReply || config.allowMoveEmail;
@@ -358,10 +408,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             : []),
     ].join('\n');
 
-    // The global library lives outside the run's directory, so it arrives as a
-    // plugin — and only when this node actually ticks something from it.
-    const globalTicks = config.skills.filter(isGlobalRef).map((ref) => ref.slice(GLOBAL_SKILL_PLUGIN.length + 1));
-    const plugin = globalTicks.length > 0 ? globalPluginFor(globalTicks) : null;
+    const library = globalSkills(config.skills);
 
     const result = await runClaude({
         prompt,
@@ -371,7 +418,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),
         settingSources: ['project'],
-        plugins: plugin ? [{ type: 'local', path: plugin.path, skipMcpDiscovery: true }] : undefined,
+        plugins: library.plugins,
         // The scratch folder is outside that directory, and saved attachments are
         // the whole point of it.
         additionalDirectories: [ctx.scratchDir],
@@ -383,7 +430,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // which `dontAsk` allows; the shell goes, since `dontAsk` would let its
         // read-only commands through too, and "read-only" is the shell's own guess.
         disallowedTools: config.allowFileSystem ? undefined : ['Bash', 'PowerShell'],
-        mcpServers,
+        mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
         signal: ctx.signal,
         onEvent: ctx.onEvent,
         jsonSchema: {
@@ -404,7 +451,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             required: ['outcome', 'summary', 'actions'],
             additionalProperties: false,
         },
-    }).finally(() => plugin?.dispose());
+    }).finally(library.dispose);
 
     if (!result.ok) {
         return {

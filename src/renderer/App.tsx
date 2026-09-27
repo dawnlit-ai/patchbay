@@ -272,7 +272,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         [flow, updateFlow],
     );
 
-    /** A skill that moved library changed name (`global:x` ↔ `x`); re-point this flow's Processors. */
+    /** A skill that moved library changed name (`global:x` ↔ `x`); re-point this flow's nodes. */
     const relabelSkill = useCallback(
         (from: SkillScope, to: SkillScope, name: string) => {
             if (!flow) return;
