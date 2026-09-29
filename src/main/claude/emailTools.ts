@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
 import { z } from 'zod';
 import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk';
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
@@ -38,6 +39,30 @@ function ok(text: string) {
 
 function fail(text: string) {
     return { content: [{ type: 'text' as const, text }], isError: true };
+}
+
+/**
+ * An attachment's name as a path Claude can pass on. Senders' no-break and
+ * zero-width spaces survive in Outlook's names, but a path typed back into
+ * Read or another tool comes back with a plain space, and the file isn't found.
+ */
+function typeable(name: string): string {
+    return name.normalize('NFKC').replace(/[​-‍⁠﻿]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Renames a saved file to its typeable name, numbering it past one already there. */
+async function renameTypeable(path: string): Promise<string> {
+    const name = basename(path);
+    const wanted = typeable(name);
+    if (!wanted || wanted === name) return path;
+    const ext = extname(wanted);
+    const stem = wanted.slice(0, wanted.length - ext.length);
+    for (let n = 1; ; n++) {
+        const target = join(dirname(path), n === 1 ? wanted : `${stem} (${n})${ext}`);
+        if (existsSync(target)) continue;
+        await rename(path, target);
+        return target;
+    }
 }
 
 /** A saved attachment's lines in save_attachment's result: a workbook's with the CSVs Read can open. */
@@ -156,7 +181,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                         );
                     }
                     const lines: string[] = [];
-                    for (const { path } of saved) lines.push(...(await withCsv(path)));
+                    for (const { path } of saved) lines.push(...(await withCsv(await renameTypeable(path))));
                     ctx.actions.push(`saved ${saved.length} attachment(s)`);
                     log('save_attachment', lines.join('\n'));
                     return ok(`Saved:\n${lines.join('\n')}`);
