@@ -10,7 +10,10 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelOption } from '@shared/ipc';
 import { now, type TraceEvent, truncate } from '@shared/trace';
+import { log } from '../log';
 import { getSettings } from '../store/settingsStore';
+import { EMAIL_SERVER_NAME } from './emailTools';
+import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
  * The one place the app talks to Claude, and so the one mapping from the SDK's
@@ -162,13 +165,34 @@ function renderToolResult(block: LooseBlock): string {
     return JSON.stringify(content ?? null);
 }
 
+/**
+ * Tools a step can call again without doing anything twice: they read, or write
+ * only into the run's own folder. Any other tool may have drafted, filed or
+ * written a record, so a step cut short after one is not repeated.
+ */
+const REPEATABLE_TOOLS = new Set([
+    'ToolSearch',
+    'Skill',
+    'Read',
+    'Glob',
+    'Grep',
+    ...['read_email', 'record_note', 'save_file', 'save_attachment'].map((t) => `mcp__${EMAIL_SERVER_NAME}__${t}`),
+]);
+
+interface Attempt {
+    structured?: unknown;
+    error?: string;
+    /** A tool outside REPEATABLE_TOOLS ran. */
+    acted: boolean;
+}
+
+const clock = (at: number): string => new Date(at).toLocaleString();
+
 export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
-    let structured: unknown;
-    let error: string | undefined;
     /** Tool name by tool_use id, so a result can name the call it answers. */
     const toolNames = new Map<string, string>();
 
@@ -217,78 +241,123 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         detail: truncate(request.prompt, 20_000),
     });
 
-    try {
-        for await (const message of query({ prompt: request.prompt, options })) {
-            if (message.type === 'system' && message.subtype === 'init') {
-                request.onEvent({
-                    at: now(),
-                    type: 'note',
-                    label: `Session ready — ${message.tools.length} tools, ${message.skills.length} skills`,
-                    detail: [
-                        `model: ${message.model}`,
-                        `cwd: ${message.cwd}`,
-                        `skills: ${message.skills.join(', ') || '(none)'}`,
-                        `mcp: ${message.mcp_servers.map((s) => `${s.name}=${s.status}`).join(', ') || '(none)'}`,
-                    ].join('\n'),
-                });
-                continue;
-            }
-
-            if (message.type === 'assistant') {
-                for (const block of blocksOf(message.message)) {
-                    if (block.type === 'text' && block.text?.trim()) {
-                        request.onEvent({
-                            at: now(),
-                            type: 'assistant',
-                            label: block.text.trim().slice(0, 160),
-                            detail: block.text
-                        });
-                    } else if (block.type === 'thinking' && block.thinking?.trim()) {
-                        request.onEvent({ at: now(), type: 'thinking', label: 'thinking', detail: block.thinking });
-                    } else if (block.type === 'tool_use') {
-                        const name = block.name ?? 'tool';
-                        // The answering result quotes this call's id, so the pair can be
-                        // labelled in the trace.
-                        if (block.id) toolNames.set(block.id, name);
-                        request.onEvent({
-                            at: now(),
-                            type: 'tool-call',
-                            label: name,
-                            detail: truncate(JSON.stringify(block.input ?? {}, null, 2)),
-                        });
-                    }
-                }
-                continue;
-            }
-
-            if (message.type === 'user') {
-                for (const block of blocksOf(message.message)) {
-                    if (block.type !== 'tool_result') continue;
-                    const name = (block.tool_use_id && toolNames.get(block.tool_use_id)) || 'tool';
+    const attempt = async (): Promise<Attempt> => {
+        let structured: unknown;
+        let error: string | undefined;
+        let acted = false;
+        try {
+            for await (const message of query({ prompt: request.prompt, options })) {
+                if (message.type === 'system' && message.subtype === 'init') {
                     request.onEvent({
                         at: now(),
-                        type: 'tool-result',
-                        label: `${name} → ${block.is_error ? 'error' : 'ok'}`,
-                        detail: truncate(renderToolResult(block)),
+                        type: 'note',
+                        label: `Session ready — ${message.tools.length} tools, ${message.skills.length} skills`,
+                        detail: [
+                            `model: ${message.model}`,
+                            `cwd: ${message.cwd}`,
+                            `skills: ${message.skills.join(', ') || '(none)'}`,
+                            `mcp: ${message.mcp_servers.map((s) => `${s.name}=${s.status}`).join(', ') || '(none)'}`,
+                        ].join('\n'),
                     });
+                    continue;
                 }
-                continue;
-            }
 
-            if (message.type === 'result') {
-                if (message.subtype === 'success') {
-                    structured = message.structured_output;
-                } else {
-                    error = `Claude ended with "${message.subtype}"`;
+                if (message.type === 'assistant') {
+                    for (const block of blocksOf(message.message)) {
+                        if (block.type === 'text' && block.text?.trim()) {
+                            request.onEvent({
+                                at: now(),
+                                type: 'assistant',
+                                label: block.text.trim().slice(0, 160),
+                                detail: block.text
+                            });
+                        } else if (block.type === 'thinking' && block.thinking?.trim()) {
+                            request.onEvent({ at: now(), type: 'thinking', label: 'thinking', detail: block.thinking });
+                        } else if (block.type === 'tool_use') {
+                            const name = block.name ?? 'tool';
+                            // The answering result quotes this call's id, so the pair can be
+                            // labelled in the trace.
+                            if (block.id) toolNames.set(block.id, name);
+                            if (!REPEATABLE_TOOLS.has(name)) acted = true;
+                            request.onEvent({
+                                at: now(),
+                                type: 'tool-call',
+                                label: name,
+                                detail: truncate(JSON.stringify(block.input ?? {}, null, 2)),
+                            });
+                        }
+                    }
+                    continue;
+                }
+
+                if (message.type === 'user') {
+                    for (const block of blocksOf(message.message)) {
+                        if (block.type !== 'tool_result') continue;
+                        const name = (block.tool_use_id && toolNames.get(block.tool_use_id)) || 'tool';
+                        request.onEvent({
+                            at: now(),
+                            type: 'tool-result',
+                            label: `${name} → ${block.is_error ? 'error' : 'ok'}`,
+                            detail: truncate(renderToolResult(block)),
+                        });
+                    }
+                    continue;
+                }
+
+                if (message.type === 'result') {
+                    if (message.subtype === 'success') {
+                        structured = message.structured_output;
+                    } else {
+                        error = `Claude ended with "${message.subtype}"`;
+                    }
                 }
             }
+        } catch (e) {
+            // query() throws after yielding a non-success result, so the events captured
+            // above stay — this only fills in the message.
+            error = e instanceof Error ? e.message : String(e);
         }
-    } catch (e) {
-        // query() throws after yielding a non-success result, so the events captured
-        // above stay — this only fills in the message.
-        error = e instanceof Error ? e.message : String(e);
-    }
+        return { structured, error, acted };
+    };
 
+    for (; ;) {
+        const held = usageHeldUntil();
+        if (held) {
+            request.onEvent({
+                at: now(),
+                type: 'note',
+                label: `Waiting for Claude's usage limit to reset at ${clock(held)}`
+            });
+        }
+        try {
+            await waitForUsage(request.signal);
+        } catch {
+            return settle(request, {
+                error: 'Cancelled while waiting for Claude’s usage limit to reset.',
+                acted: false
+            });
+        }
+
+        const result = await attempt();
+        const limit = result.error ? usageLimit(result.error) : null;
+        if (!limit) return settle(request, result);
+        if (holdUsage(limit)) {
+            log.warn('run', `Claude's usage limit was hit, so every run waits until ${clock(limit.until)}`, {
+                detail: result.error,
+            });
+        }
+        // Asking again would repeat what those tools did.
+        if (result.acted) {
+            return settle(request, {
+                ...result,
+                error: `${result.error} — it came mid-step, after tools that change things had run, so the step is not repeated: run this email again once the limit resets.`,
+            });
+        }
+        request.onEvent({ at: now(), type: 'error', label: result.error ?? 'usage limit' });
+    }
+}
+
+function settle(request: ClaudeRunRequest, { structured, error }: Attempt): ClaudeRunResult {
     // No structured output means the question went unanswered, whatever text came
     // back with it.
     if (!error && request.jsonSchema && structured === undefined) {
