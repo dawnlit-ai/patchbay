@@ -6,6 +6,7 @@ import {
     type CategorizerConfig,
     type ExtractorConfig,
     type FlowNode,
+    type JsonSchema,
     needsField,
     type ProcessorConfig,
     type TerminalConfig,
@@ -212,6 +213,17 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
 
 // ── Extractor ────────────────────────────────────────────────────────────
 
+/**
+ * A missing field's path from inside `data`, as the prompt asks. Some models write
+ * it from the top of their answer instead ("data.entries.0.split"), a path the
+ * schema cannot be followed down, so every field listed counted as required.
+ */
+function fromData(schema: JsonSchema, path: string): string {
+    const properties = schema.properties;
+    const ownData = typeof properties === 'object' && properties !== null && Object.hasOwn(properties, 'data');
+    return !ownData && path.startsWith('data.') ? path.slice('data.'.length) : path;
+}
+
 /** How much of the body goes into an Extractor's prompt. */
 const EXTRACT_BODY_CHARS = 50_000;
 
@@ -345,7 +357,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 
     // Claude lists every field the email left out, but only a required one stands
     // in `data` as an empty value; an optional one is simply not there.
-    const missing = answer.missing ?? [];
+    const missing = (answer.missing ?? []).map((path) => fromData(config.schema, path));
     const needed = missing.filter((path) => needsField(config.schema, answer.data, path));
     const checked = validator.safeParse(answer.data);
     const problems = [
