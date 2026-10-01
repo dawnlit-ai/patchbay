@@ -8,11 +8,13 @@ import type {
     SDKUserMessage,
     SettingSource,
 } from '@anthropic-ai/claude-agent-sdk';
+import { isAgyModel } from '@shared/flow';
 import type { ModelOption } from '@shared/ipc';
 import { now, type TraceEvent, truncate } from '@shared/trace';
 import { log } from '../log';
 import { getSettings } from '../store/settingsStore';
 import { EMAIL_SERVER_NAME } from './emailTools';
+import { runAgy } from './agy';
 import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
@@ -189,6 +191,8 @@ interface Attempt {
 const clock = (at: number): string => new Date(at).toLocaleString();
 
 export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
+    if (isAgyModel(request.model)) return runAgy(request);
+
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');

@@ -132,7 +132,10 @@ export interface Api {
         selected(account: string): Promise<EmailEnvelope>;
     };
     claude: {
-        /** The models the Claude login offers now, asked of Claude Code rather than written into the app. */
+        /**
+         * The models the Claude login offers now, asked of Claude Code rather than written into the app,
+         * then the Gemini models agy offers.
+         */
         models(): Promise<ModelOption[]>;
     };
     /**

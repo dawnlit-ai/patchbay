@@ -403,6 +403,10 @@ export function checkSlots(flow: Flow): SlotCheck {
 /** The alias rather than a dated id, so new nodes get the newest Opus the account offers. */
 export const DEFAULT_MODEL = 'opus';
 
+/** A model stored as `agy:<id>` runs on Gemini through the Antigravity CLI rather than on Claude. */
+export const AGY_MODEL_PREFIX = 'agy:';
+export const isAgyModel = (model: string): boolean => model.startsWith(AGY_MODEL_PREFIX);
+
 export function defaultConfig(kind: NodeKind): NodeConfig {
     switch (kind) {
         case 'trigger.outlook':
