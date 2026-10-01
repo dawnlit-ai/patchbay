@@ -32,17 +32,22 @@ export function truncate(value: string, max = 4_000): string {
 
 /**
  * The lines that introduce an email wherever the app writes one out — the prompt
- * a node builds around it, and the result `read_email` hands back.
+ * a node builds around it, and the result `read_email` hands back. The mailbox is
+ * there because nothing else tells a model which side of a thread is ours.
  */
-export function emailHeader(email: {
-    senderName: string;
-    senderEmail: string;
-    subject: string;
-    receivedTime: string;
-    attachmentNames: string[];
-}): string[] {
+export function emailHeader(
+    email: {
+        senderName: string;
+        senderEmail: string;
+        subject: string;
+        receivedTime: string;
+        attachmentNames: string[];
+    },
+    mailbox: string,
+): string[] {
     return [
         `From: ${email.senderName} <${email.senderEmail}>`,
+        `Mailbox: ${mailbox} (this office's own)`,
         `Subject: ${email.subject}`,
         `Received: ${email.receivedTime}`,
         `Attachments: ${email.attachmentNames.join(', ') || '(none)'}`,

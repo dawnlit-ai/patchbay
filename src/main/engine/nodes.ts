@@ -49,7 +49,7 @@ export interface NodeOutcome {
 
 function emailContext(email: EmailEnvelope, body: string | undefined): string {
     return [
-        ...emailHeader(email),
+        ...emailHeader(email, email.ref.account),
         '',
         body ? `--- Body ---\n${body}` : `--- Preview (body not fetched) ---\n${email.bodyPreview}`,
     ].join('\n');

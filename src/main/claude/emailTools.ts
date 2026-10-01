@@ -109,7 +109,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                 `${result.bodyLength} characters${withQuoted ? ` + ${result.quotedLength} quoted` : ''}, ${result.attachmentCount} attachment(s)`,
             );
             const lines = [
-                ...emailHeader(result),
+                ...emailHeader(result, email.ref.account),
                 `Outlook reference: mailbox ${email.ref.account}, folder ${email.ref.folderPath}, entryId ${email.ref.entryId}, storeId ${email.ref.storeId}`,
             ];
             if (result.truncated) lines.push(`(body truncated at ${limit} characters)`);
