@@ -4,11 +4,13 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { AGY_MODEL_PREFIX } from '@shared/flow';
 import type { ModelOption } from '@shared/ipc';
 import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
 import { now, truncate } from '@shared/trace';
+import { EMAIL_SERVER_NAME } from './emailTools';
 import { serveOnLoopback } from './loopback';
 import type { ClaudeRunRequest, ClaudeRunResult } from './runner';
 
@@ -30,12 +32,46 @@ function resolveAgyPath(): string {
     return candidates.find((p) => existsSync(p)) ?? 'agy';
 }
 
+/** How long to wait before asking again after an outage, once per entry. */
+const RETRY_DELAYS_MS = [5_000, 30_000];
+
+/** What a failure caused by the network or Google's side, rather than by the step, says. */
+const OUTAGE = /dial tcp|no such host|connection (?:refused|reset)|i\/o timeout|deadline exceeded|unexpected EOF|\b50[234]\b|UNAVAILABLE/i;
+
+interface Attempt {
+    result?: StreamLine['result'];
+    exited?: Exited;
+    spawnError?: NodeJS.ErrnoException;
+    /** The rules an MCP call the hook let through would need in agy's settings. */
+    grants: Set<string>;
+    /** An MCP tool outside REPEATABLE_MCP ran. */
+    acted: boolean;
+}
+
+/** Why an attempt failed for reasons outside the step, if it did: worth asking again. */
+function outageIn({ result, exited, spawnError }: Attempt): string | null {
+    if (spawnError) return null;
+    if (!result) return `no result, exit ${exited?.code}`;
+    if (result.status === 'SUCCESS') return null;
+    const message = `${result.error ?? ''} ${exited?.stderr ?? ''}`;
+    return OUTAGE.exec(message)?.[0] ?? null;
+}
+
 /** Where agy keeps the rules a headless run's MCP calls need. */
 const AGY_SETTINGS = '~/.gemini/antigravity-cli/settings.json';
 
 /** The plugin a run's servers arrive under: agy names each one `patchbay_<server>`. */
 const PLUGIN = 'patchbay';
 const agyServer = (server: string): string => `${PLUGIN}_${server}`;
+
+/**
+ * MCP tools a step can call again without doing anything twice: they read, or
+ * write only into the run's own folder. Once any other has run, a failed step is
+ * not repeated.
+ */
+const REPEATABLE_MCP = new Set(
+    ['read_email', 'record_note', 'save_file', 'save_attachment'].map((t) => `${agyServer(EMAIL_SERVER_NAME)}/${t}`),
+);
 
 /** agy's own tools a step may use, within its folders; `finish` is what carries the result. */
 const READ_TOOLS = ['view_file', 'list_dir', 'grep_search', 'find_by_name'];
@@ -330,111 +366,143 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
             detail: truncate(prompt, 20_000),
         });
 
-        const tools = new Map<number, ReturnType<typeof describeTool>>();
-        const texts = new Map<number, string>();
-        const grants = new Set<string>();
-        let result: StreamLine['result'];
+        /** One run of agy, and what the trace needs from it. */
+        const once = async (): Promise<Attempt> => {
+            const tools = new Map<number, ReturnType<typeof describeTool>>();
+            const texts = new Map<number, string>();
+            const attempt: Attempt = { grants: new Set(), acted: false };
 
-        const onLine = (raw: string): void => {
-            let line: StreamLine;
-            try {
-                line = JSON.parse(raw) as StreamLine;
-            } catch {
-                return;
-            }
-            if (line.event === 'init') {
-                request.onEvent({
-                    at: now(),
-                    type: 'note',
-                    label: `Session ready — agy ${line.init?.model ?? model}, ${skills.length} skill(s), ${serverNames.length} MCP server(s)`,
-                    detail: [
-                        `workspace: ${workspace}`,
-                        `folders: ${readable.join(', ') || '(none)'}`,
-                        `skills: ${skills.join(', ') || '(none)'}`,
-                        `mcp: ${serverNames.map(agyServer).join(', ') || '(none)'}`,
-                    ].join('\n'),
-                });
-                return;
-            }
-            if (line.event === 'result') {
-                result = line.result;
-                return;
-            }
-            const step = line.step_update;
-            if (!step) return;
-            if (step.step_type === 'agent_response') {
-                const text = (texts.get(step.step_index) ?? '') + (step.text_delta ?? '');
-                texts.set(step.step_index, text);
-                if (step.state === 'DONE' && text.trim()) {
-                    request.onEvent({ at: now(), type: 'assistant', label: text.trim().slice(0, 160), detail: text });
+            const onLine = (raw: string): void => {
+                let line: StreamLine;
+                try {
+                    line = JSON.parse(raw) as StreamLine;
+                } catch {
+                    return;
                 }
-                return;
-            }
-            if (step.step_type !== 'tool' || !step.tool_info) return;
-            if (!tools.has(step.step_index)) {
-                const tool = describeTool(step.tool_info);
-                tools.set(step.step_index, tool);
-                // Only what the hook lets through can have been refused by agy's settings.
-                const server = tool.mcp?.split('/')[0];
-                if (tool.mcp && (granted.includes(tool.mcp) || granted.includes(`${server}/*`))) grants.add(`mcp(${tool.mcp})`);
-                request.onEvent({
-                    at: now(),
-                    type: 'tool-call',
-                    label: tool.label,
-                    detail: truncate(JSON.stringify(tool.input, null, 2)),
+                if (line.event === 'init') {
+                    request.onEvent({
+                        at: now(),
+                        type: 'note',
+                        label: `Session ready — agy ${line.init?.model ?? model}, ${skills.length} skill(s), ${serverNames.length} MCP server(s)`,
+                        detail: [
+                            `workspace: ${workspace}`,
+                            `folders: ${readable.join(', ') || '(none)'}`,
+                            `skills: ${skills.join(', ') || '(none)'}`,
+                            `mcp: ${serverNames.map(agyServer).join(', ') || '(none)'}`,
+                        ].join('\n'),
+                    });
+                    return;
+                }
+                if (line.event === 'result') {
+                    attempt.result = line.result;
+                    return;
+                }
+                const step = line.step_update;
+                if (!step) return;
+                if (step.step_type === 'agent_response') {
+                    const text = (texts.get(step.step_index) ?? '') + (step.text_delta ?? '');
+                    texts.set(step.step_index, text);
+                    if (step.state === 'DONE' && text.trim()) {
+                        request.onEvent({
+                            at: now(),
+                            type: 'assistant',
+                            label: text.trim().slice(0, 160),
+                            detail: text
+                        });
+                    }
+                    return;
+                }
+                if (step.step_type !== 'tool' || !step.tool_info) return;
+                if (!tools.has(step.step_index)) {
+                    const tool = describeTool(step.tool_info);
+                    tools.set(step.step_index, tool);
+                    // Only what the hook lets through can have run, or been refused by agy's settings.
+                    const server = tool.mcp?.split('/')[0];
+                    if (tool.mcp && (granted.includes(tool.mcp) || granted.includes(`${server}/*`))) {
+                        attempt.grants.add(`mcp(${tool.mcp})`);
+                        if (!REPEATABLE_MCP.has(tool.mcp)) attempt.acted = true;
+                    }
+                    request.onEvent({
+                        at: now(),
+                        type: 'tool-call',
+                        label: tool.label,
+                        detail: truncate(JSON.stringify(tool.input, null, 2)),
+                    });
+                }
+                if (step.state === 'DONE' || step.state === 'ERROR') {
+                    const tool = tools.get(step.step_index);
+                    const failed = step.state === 'ERROR';
+                    const output = failed ? step.tool_info.error?.message : step.tool_info.output;
+                    // A call agy's settings refused ends done, but with nothing to show for it.
+                    const outcome = failed ? 'error' : output ? 'ok' : 'no result';
+                    request.onEvent({
+                        at: now(),
+                        type: 'tool-result',
+                        label: `${tool?.label ?? 'tool'} → ${outcome}`,
+                        detail: truncate(output ?? ''),
+                    });
+                }
+            };
+
+            try {
+                attempt.exited = await runAgyCommand(args, {
+                    cwd: workspace,
+                    input: prompt,
+                    signal: request.signal,
+                    onLine
                 });
+            } catch (e) {
+                attempt.spawnError = e as NodeJS.ErrnoException;
             }
-            if (step.state === 'DONE' || step.state === 'ERROR') {
-                const tool = tools.get(step.step_index);
-                const failed = step.state === 'ERROR';
-                const output = failed ? step.tool_info.error?.message : step.tool_info.output;
-                // A call agy's settings refused ends done, but with nothing to show for it.
-                const outcome = failed ? 'error' : output ? 'ok' : 'no result';
-                request.onEvent({
-                    at: now(),
-                    type: 'tool-result',
-                    label: `${tool?.label ?? 'tool'} → ${outcome}`,
-                    detail: truncate(output ?? ''),
-                });
-            }
+            return attempt;
         };
 
-        let exited: Exited;
-        try {
-            exited = await runAgyCommand(args, { cwd: workspace, input: prompt, signal: request.signal, onLine });
-        } catch (e) {
-            if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        for (let tries = 0; ; tries++) {
+            const attempt = await once();
+            const outage = outageIn(attempt);
+            const wait = RETRY_DELAYS_MS[tries];
+            // Asking again after a tool that changes something could do it twice.
+            if (!outage || attempt.acted || wait === undefined) return settle(attempt);
+            request.onEvent({
+                at: now(),
+                type: 'error',
+                label: `agy failed (${outage}), so it is asked again in ${wait / 1000}s`
+            });
+            await sleep(wait, undefined, { signal: request.signal });
+        }
+
+        function settle({ result, exited, spawnError, grants }: Attempt): ClaudeRunResult {
+            if (spawnError?.code === 'ENOENT') {
                 return fail('agy is not installed, or not where this app looks for it (~/.local/bin).');
             }
-            return fail(e instanceof Error ? e.message : String(e));
-        }
+            if (spawnError) return fail(spawnError.message);
+            if (!result) {
+                return fail(`agy exited with ${exited?.code} and no result: ${exited?.stderr.trim() || '(nothing on stderr)'}`);
+            }
+            const usage = result.usage ?? {};
+            request.onEvent({
+                at: now(),
+                type: 'note',
+                label: `agy ${model} finished in ${result.duration_seconds?.toFixed(1) ?? '?'}s`,
+                detail: `input tokens: ${usage.input_tokens ?? '?'}, output: ${usage.output_tokens ?? '?'}, thinking: ${usage.thinking_tokens ?? '?'}`,
+            });
 
-        if (!result) {
-            return fail(`agy exited with ${exited.code} and no result: ${exited.stderr.trim() || '(nothing on stderr)'}`);
+            // The hook allowed these, so it was agy's own settings that refused one.
+            if (result.denied_actions?.some((d) => d.action === 'mcp')) {
+                const rules = [...grants].map((g) => `"${g}"`).join(', ');
+                return fail(
+                    `agy's own settings refused an MCP tool this step needs. Add ${rules || 'a rule for each tool it calls'} ` +
+                    `to permissions.allow in ${AGY_SETTINGS}.`,
+                );
+            }
+            if (result.status !== 'SUCCESS' || exited?.code !== 0) {
+                return fail(`agy ended with ${result.status ?? `exit ${exited?.code}`}: ${result.error ?? exited?.stderr.trim()}`);
+            }
+            if (request.jsonSchema && result.structured_output === undefined) {
+                return fail('agy returned no structured output for the requested schema.');
+            }
+            return { ok: true, structured: result.structured_output };
         }
-        const usage = result.usage ?? {};
-        request.onEvent({
-            at: now(),
-            type: 'note',
-            label: `agy ${model} finished in ${result.duration_seconds?.toFixed(1) ?? '?'}s`,
-            detail: `input tokens: ${usage.input_tokens ?? '?'}, output: ${usage.output_tokens ?? '?'}, thinking: ${usage.thinking_tokens ?? '?'}`,
-        });
-
-        // The hook allowed these, so it was agy's own settings that refused one.
-        if (result.denied_actions?.some((d) => d.action === 'mcp')) {
-            const rules = [...grants].map((g) => `"${g}"`).join(', ');
-            return fail(
-                `agy's own settings refused an MCP tool this step needs. Add ${rules || 'a rule for each tool it calls'} ` +
-                `to permissions.allow in ${AGY_SETTINGS}.`,
-            );
-        }
-        if (result.status !== 'SUCCESS' || exited.code !== 0) {
-            return fail(`agy ended with ${result.status ?? `exit ${exited.code}`}: ${result.error ?? exited.stderr.trim()}`);
-        }
-        if (request.jsonSchema && result.structured_output === undefined) {
-            return fail('agy returned no structured output for the requested schema.');
-        }
-        return { ok: true, structured: result.structured_output };
     } catch (e) {
         return fail(e instanceof Error ? e.message : String(e));
     } finally {
