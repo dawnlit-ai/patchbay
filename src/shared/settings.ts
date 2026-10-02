@@ -44,6 +44,8 @@ export interface Settings {
      */
     maxConcurrentRuns: number;
     agentControl: AgentControlSettings;
+    /** Where New flow or Duplicate last made a flow's folder, offered again next time. Empty offers `Documents/Patchbay`. */
+    flowLocation: string;
 }
 
 export function defaultSettings(): Settings {
@@ -55,6 +57,7 @@ export function defaultSettings(): Settings {
         pollingEnabled: true,
         maxConcurrentRuns: 3,
         agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
+        flowLocation: '',
     };
 }
 

@@ -35,10 +35,17 @@ export type OpenWhere = 'current' | 'new';
  */
 export interface FlowEntry {
     flow: Flow;
-    /** The directory's own name, under `flows/`. */
+    /** The directory's own name: under `flows/`, or wherever a file opened in place sits. */
     folder: string;
     /** Absolute path to it. */
     path: string;
+    /** The flow file itself. */
+    file: string;
+    /**
+     * Opened from elsewhere on disk and saved back there. Its folder is the user's,
+     * so the app neither renames nor deletes it.
+     */
+    inPlace: boolean;
 }
 
 /**
@@ -88,20 +95,33 @@ export interface Api {
          * written, when anything but this window has written the flow since.
          */
         save(flow: Flow): Promise<SaveOutcome>;
-        create(name: string): Promise<Flow>;
         /**
-         * Copy a flow into a new one of its own — the flow as it stands on screen,
-         * and the skill library belonging to the flow it came from.
+         * Make a flow in a folder of its own, named after it, inside `location`, and
+         * remember `location` for the next one.
          */
-        duplicate(flow: Flow, name: string): Promise<Flow>;
+        create(name: string, location: string): Promise<Flow>;
+        /** The folder New flow and Duplicate offer: the last one used, else one in Documents. */
+        location(): Promise<string>;
+        /** Ask for a folder to put a new flow's folder in, starting from `current`. Null if cancelled. */
+        pickLocation(current: string): Promise<string | null>;
+        /**
+         * Copy a flow into a new one in a folder of its own inside `location` — the flow
+         * as it stands on screen, and the skill library belonging to the flow it came
+         * from — and remember `location` for the next one.
+         */
+        duplicate(flow: Flow, name: string, location: string): Promise<Flow>;
         /** Rename the flow, leaving its graph as stored. Its own call so other windows are told. */
         rename(flowId: string, name: string): Promise<Flow>;
+        /** Delete a flow made here; one opened in place is only taken off the list. */
         remove(id: string): Promise<void>;
-        /** Rename the flow's directory; its id is untouched. Refused while a run of it is in flight. */
+        /**
+         * Rename the flow's directory; its id is untouched. Refused while a run of it is
+         * in flight, and for a flow opened in place.
+         */
         setFolder(flowId: string, folder: string): Promise<FlowEntry>;
         revealFolder(flowId: string): Promise<void>;
-        /** Ask for a flow file, then add what it holds to the library as a new flow. */
-        pickAndImport(): Promise<Flow | null>;
+        /** Ask for a flow file, then open it where it is: listed, and saved back to that file. */
+        pickAndOpen(): Promise<Flow | null>;
     };
     settings: {
         get(): Promise<Settings>;
@@ -262,12 +282,14 @@ export const IPC = {
     flowsEntries: 'flows:entries',
     flowsSave: 'flows:save',
     flowsCreate: 'flows:create',
+    flowsLocation: 'flows:location',
+    flowsPickLocation: 'flows:pickLocation',
     flowsDuplicate: 'flows:duplicate',
     flowsRename: 'flows:rename',
     flowsRemove: 'flows:remove',
     flowsSetFolder: 'flows:setFolder',
     flowsReveal: 'flows:reveal',
-    flowsPickAndImport: 'flows:pickAndImport',
+    flowsPickAndOpen: 'flows:pickAndOpen',
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',

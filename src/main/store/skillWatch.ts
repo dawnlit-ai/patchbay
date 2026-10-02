@@ -1,5 +1,5 @@
 import { existsSync, type FSWatcher, watch } from 'node:fs';
-import { flowsDir, globalSkillsDir } from '../paths';
+import { flowsDir, globalSkillsDir, openedFlowSkillDirs } from '../paths';
 import { getSettings } from './settingsStore';
 
 /**
@@ -32,7 +32,8 @@ function changed(): void {
 /**
  * What to watch. `flows` as a whole rather than each flow's library, which comes
  * and goes, and on Windows would block renaming the flow's folder. Only changes
- * under a `.claude` count.
+ * under a `.claude` count. A flow opened in place has its library watched on its
+ * own, once it has one: watching the folder above it could mean all of Documents.
  */
 function roots(): Root[] {
     const everything = (): boolean => true;
@@ -40,6 +41,7 @@ function roots(): Root[] {
         ...getSettings().globalSkillFolders.map((path) => ({ path, concerns: everything })),
         { path: globalSkillsDir(), concerns: everything },
         { path: flowsDir(), concerns: (file: string) => file.split(/[\\/]/).includes('.claude') },
+        ...openedFlowSkillDirs().map((path) => ({ path, concerns: everything })),
     ];
 }
 

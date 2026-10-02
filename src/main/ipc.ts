@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { execFile } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag, type WorkspaceChange } from '@shared/ipc';
 import { type Flow, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
@@ -136,6 +137,11 @@ async function openInEditor(file: string): Promise<void> {
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
+/** Where New flow offers to put a flow's folder: where the last one went, else a folder of the app's own in Documents. */
+function flowLocationOffered(): string {
+    return getSettings().flowLocation || join(app.getPath('documents'), 'Patchbay');
+}
+
 const FLOW_FILTERS = [
     { name: 'Patchbay flow', extensions: ['json'] },
     { name: 'All files', extensions: ['*'] },
@@ -158,8 +164,25 @@ export function registerIpc(): void {
 
     handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
     handleCanvasSave();
-    handleFlowWrite(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
-    handleFlowWrite(IPC.flowsDuplicate, (flow: Flow, name: string) => flowStore.duplicateFlow(flow, name));
+    handle(IPC.flowsLocation, () => flowLocationOffered());
+    handle(IPC.flowsPickLocation, async (current: string) => {
+        const picked = await dialog.showOpenDialog({
+            title: 'Choose where the flow’s folder goes',
+            defaultPath: current || flowLocationOffered(),
+            properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+        });
+        return picked.canceled ? null : (picked.filePaths[0] ?? null);
+    });
+    handleFlowWrite(IPC.flowsCreate, (name: string, location: string) => {
+        const flow = flowStore.createFlow(name, location);
+        saveSettings({ ...getSettings(), flowLocation: location });
+        return flow;
+    });
+    handleFlowWrite(IPC.flowsDuplicate, (source: Flow, name: string, location: string) => {
+        const copy = flowStore.duplicateFlow(source, name, location);
+        saveSettings({ ...getSettings(), flowLocation: location });
+        return copy;
+    });
     handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
     handleFlowWrite(IPC.flowsRemove, (id: string) => {
         getWatcher().clearForRemoval(id);
@@ -175,8 +198,13 @@ export function registerIpc(): void {
         }
         return flowStore.setFlowFolder(id, folder);
     });
-    handle(IPC.flowsReveal, (id: string) => shell.openPath(flowStore.flowLocation(id)));
-    handleFlowWrite(IPC.flowsPickAndImport, async () => {
+    handle(IPC.flowsReveal, async (id: string) => {
+        const { file, inPlace } = flowStore.flowLocation(id);
+        // A folder opened in place may hold more than this flow, so the file is picked out in it.
+        if (inPlace) shell.showItemInFolder(file);
+        else await shell.openPath(dirname(file));
+    });
+    handleFlowWrite(IPC.flowsPickAndOpen, async () => {
         const picked = await dialog.showOpenDialog({
             title: 'Open a flow',
             filters: FLOW_FILTERS,
@@ -184,17 +212,18 @@ export function registerIpc(): void {
         });
         const path = picked.filePaths[0];
         if (picked.canceled || !path) return null;
-        return flowStore.importFlowFile(path);
+        return flowStore.openFlowFile(path);
     });
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsServerTools, (server: string) => listServerTools(server));
     handle(IPC.settingsSave, (settings: Settings) => {
-        // Keep the stored token and skill folders: a panel opened before a regeneration
-        // or a folder change would send the old ones back.
-        const { globalSkillFolders, agentControl } = getSettings();
+        // Keep the stored token, skill folders and flow location: a panel opened before a
+        // regeneration, a folder change or a new flow would send the old ones back.
+        const { globalSkillFolders, agentControl, flowLocation } = getSettings();
         const saved = saveSettings({
             ...settings,
             globalSkillFolders,
+            flowLocation,
             agentControl: { ...settings.agentControl, token: agentControl.token },
         });
         // Carries out a change to the agent-control server's switch or port.

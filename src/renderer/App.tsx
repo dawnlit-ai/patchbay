@@ -12,6 +12,7 @@ import {
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
+import type { FlowEntry } from '@shared/ipc';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
@@ -44,10 +45,12 @@ function mergeLog(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
 const isProblem = (entry: LogEntry): boolean => entry.level === 'warn' || entry.level === 'error';
 
 /** Where the open flow is kept, for the rename dialog and the topbar's tooltip. */
-interface Place {
-    folder: string;
-    path: string;
-}
+type Place = Omit<FlowEntry, 'flow'>;
+
+const placeOf = ({ folder, path, file, inPlace }: FlowEntry): Place => ({ folder, path, file, inPlace });
+
+/** A flow opened in place is named by its file: its folder may hold others. */
+const shownPath = (place: Place): string => (place.inPlace ? place.file : place.path);
 
 interface Props {
     /** The flow this window was opened for. Another arrives on `on.openFlow`. */
@@ -112,7 +115,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
             return;
         }
         setFlow(found.flow);
-        setPlace({ folder: found.folder, path: found.path });
+        setPlace(placeOf(found));
     }, []);
 
     // ── Boot ───────────────────────────────────────────────────────────────
@@ -336,7 +339,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
             if (name !== flow.name) setFlow(await window.api.flows.rename(flow.id, name));
             if (folder !== null && folder !== place?.folder) {
                 const moved = await window.api.flows.setFolder(flow.id, folder);
-                setPlace({ folder: moved.folder, path: moved.path });
+                setPlace(placeOf(moved));
             }
         });
 
@@ -454,7 +457,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                 </button>
                 <button
                     className="flow-name"
-                    title={place ? `Rename this flow · ${place.path}` : 'Rename this flow'}
+                    title={place ? `Rename this flow · ${shownPath(place)}` : 'Rename this flow'}
                     onClick={() => setRenaming(true)}
                 >
                     {flow.name}
@@ -594,8 +597,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
             {renaming && (
                 <RenameFlowDialog
                     name={flow.name}
-                    folder={place?.folder ?? ''}
-                    path={place?.path ?? ''}
+                    folder={place?.inPlace === true ? null : (place?.folder ?? '')}
+                    path={place ? shownPath(place) : ''}
                     onCancel={() => setRenaming(false)}
                     onConfirm={(result) => {
                         setRenaming(false);

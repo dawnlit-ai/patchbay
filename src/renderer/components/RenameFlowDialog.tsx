@@ -16,7 +16,8 @@ export interface RenameResult {
 
 interface Props {
     name: string;
-    folder: string;
+    /** Null for a flow opened in place: its folder is the user's, so moving it is not offered. */
+    folder: string | null;
     /** Shown under the folder field, so what is being moved is on screen. */
     path: string;
 
@@ -29,8 +30,8 @@ export function RenameFlowDialog({ name, folder, path, onCancel, onConfirm }: Pr
     const [value, setValue] = useState(name);
     // Ticked when the folder is still what the name gave it. A folder someone has
     // since renamed by hand is one they chose, so it is left alone by default.
-    const [moveFolder, setMoveFolder] = useState(folder === toFolderName(name));
-    const [folderValue, setFolderValue] = useState(folder);
+    const [moveFolder, setMoveFolder] = useState(folder !== null && folder === toFolderName(name));
+    const [folderValue, setFolderValue] = useState(folder ?? '');
     /** Until it is, the folder field follows what is typed into the name. */
     const folderEdited = useRef(false);
     const input = useRef<HTMLInputElement>(null);
@@ -78,14 +79,18 @@ export function RenameFlowDialog({ name, folder, path, onCancel, onConfirm }: Pr
                 />
             </label>
 
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={moveFolder}
-                    onChange={(e) => setMoveFolder(e.target.checked)}
-                />
-                <span>Rename the project folder to match</span>
-            </label>
+            {folder === null ? (
+                <div className="hint">Saved to its own file, which stays where it is.</div>
+            ) : (
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={moveFolder}
+                        onChange={(e) => setMoveFolder(e.target.checked)}
+                    />
+                    <span>Rename the project folder to match</span>
+                </label>
+            )}
 
             {moveFolder && (
                 <label className="field">

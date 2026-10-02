@@ -72,11 +72,24 @@ somebody sent you. Each flow shows the **project folder** it lives in, with a bu
 Finder or Explorer — it holds the flow's own file and the skills only that flow can reach, and it is the working
 directory its Processors run in.
 
+Flows are files you keep, not copies the app holds. **New flow** and **Duplicate** ask for a name and a location —
+where the last one went, or `Documents/Patchbay` the first time — and make a folder named after the flow there,
+holding its `flow.json`; a duplicate's folder gets a copy of the original's own skills too. **Open flow file…** takes
+a flow file wherever it already is, and copies nothing. Either way the flow is
+listed from that file, every edit is saved back to it, its folder is the one its Processors run in, and its own skills
+live in `.claude/skills` beside it — so a flow kept in a git repository is edited, run and committed from one place.
+Keep each flow in a folder of its own: with file access off, a Processor can read the flow's whole folder, and that is
+the folder the file sits in. An opened file with no id is given one, and so is a copy of a flow already listed; a file
+moved since it was opened keeps its id, so its runs and the watcher's marks follow it. Anything else the file holds is
+kept when it is saved. Flows made before this, and any an agent makes without naming a location, live in the app
+workspace under `flows/`.
+
 Renaming asks a second question: should the folder follow the name? It is offered ticked when the folder is still the
-one the app chose, and left alone when you have named it yourself. Either way the flow's **id** does not move — runs
-already recorded, the watcher's marks and anything an agent holds go on pointing at the same flow. Only the path
-changes, and a rename is refused outright while a run is using that directory. So is deleting the flow; runs of it
-still waiting in the queue are canceled as it goes.
+one the app chose, and left alone when you have named it yourself. A flow kept outside the workspace isn't asked: its
+folder is yours. Either way the flow's **id** does not move — runs already recorded, the watcher's marks and anything
+an agent holds go on pointing at the same flow. Only the path changes, and a rename is refused outright while a run is
+using that directory. So is deleting the flow; runs of it still waiting in the queue are canceled as it goes. Deleting
+a flow kept outside the workspace only takes it off the list — the file and its folder stay as they are.
 
 **☰ Flows** in the canvas's top bar brings the start page back. Opening a flow while a canvas is already up on a
 different one asks where it should go: in that window, in place of the flow on it, or in a second canvas beside it.
@@ -190,11 +203,13 @@ npm run mcpcheck
 ```
 
 It starts the server against a throwaway workspace in the temp directory, drives it with a real MCP client — build a
-flow, wire it, write, import and move skills, queue and cancel a run, read the console — and prints a line per check.
+flow, wire it, open a flow file in place, write, import and move skills, queue and cancel a run, read the console — and
+prints a line per check.
 
 ## First run
 
-1. The welcome window opens with no flows the first time. **New flow** gives you a canvas and a folder of its own.
+1. The welcome window opens with no flows the first time. **New flow** asks where to keep it, and gives you a canvas
+   and a folder of its own there.
    Drag an **Outlook Trigger** onto the canvas and choose a mailbox — the account list comes from your Outlook
    client.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
@@ -224,12 +239,13 @@ the inspector lists both, one above the other:
 
 ```
 <userData>/workspace/global/skills/<name>/SKILL.md            shared by every flow
-<userData>/workspace/flows/<folder>/.claude/skills/<name>/SKILL.md   this flow only
+<folder holding the flow's file>/.claude/skills/<name>/SKILL.md     this flow only
 ```
 
 **Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
 skills land. **Flow** skills sit inside the flow's own directory — which is also the working directory its nodes run in
-— so only that flow sees them, and they are deleted with it. The two may hold the
+— so only that flow sees them. Deleting a flow in the app workspace deletes them with it; a folder of your own is never
+deleted. Two flow files kept in one folder share it, and its library with it. The two libraries may hold the
 same name without either shadowing the other: a node stores a global tick as `global:<name>` and its own as the bare
 name.
 
@@ -256,8 +272,8 @@ Drag a skill onto the other library to **move** it between the two. The open flo
 already there replaces it, so both are asked about first.
 
 **Import…** pulls a folder of existing skills into the library it sits on. A flow file may carry skills of its own:
-opening one restores the flow's own skills and adds any global skill whose name is still free — it never rewrites a
-global skill this installation already has.
+opening one the first time writes the flow's own skills into `.claude/skills` beside it and adds any global skill whose
+name is still free — it never rewrites a skill already there, beside the file or on the global shelf.
 
 **Settings → Global skills** links folders of skills on the machine — `~/.claude/skills`, say — into the global
 library, which reads and writes them in place, copying nothing. The app workspace's own folder is always read too, and is
@@ -344,7 +360,7 @@ rather than saved over it: the canvas says so, and shows the flow as the agent l
 | Settings | `get_settings`, `list_server_tools`                                                                            |
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
-possible without guessing. Everything an agent writes goes through the same repair an imported flow file gets, so a
+possible without guessing. Everything an agent writes goes through the same repair an opened flow file gets, so a
 value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
 dropped, with the tool that dropped it saying how many.
 

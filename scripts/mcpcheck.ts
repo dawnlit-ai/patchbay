@@ -5,7 +5,18 @@
  *   npm run mcpcheck
  */
 import { app } from 'electron';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+    copyFileSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -32,7 +43,8 @@ async function main(): Promise<void> {
     const { getSettings, saveSettings } = await import('../src/main/store/settingsStore');
     const { AgentControl } = await import('../src/main/mcp/server');
     const { Watcher } = await import('../src/main/engine/watcher');
-    const { getFlow, saveFlowFrom } = await import('../src/main/store/flowStore');
+    const { duplicateFlow, getFlow, openFlowFile, saveFlowFrom } = await import('../src/main/store/flowStore');
+    const { flowDir } = await import('../src/main/paths');
     const { createSkill, globalPluginFor, listAllSkills, locateSkill, missingSkills } = await import(
         '../src/main/store/skillStore'
         );
@@ -496,6 +508,105 @@ async function main(): Promise<void> {
         'a save to a deleted flow, or a look at its skills, does not bring it back',
         late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFolder),
     );
+
+    // A flow file opened from elsewhere is used where it is: listed, saved back to,
+    // run in its own folder, and never copied into the workspace.
+    const elsewhere = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-elsewhere-'));
+    const sent = join(elsewhere, 'sent.json');
+    writeFileSync(
+        sent,
+        JSON.stringify({
+            name: 'Sent over',
+            note: 'not the app’s',
+            nodes: [],
+            edges: [],
+            skills: [{ name: 'carried', content: '---\nname: carried\ndescription: Came in the file.\n---\n' }],
+        }),
+    );
+    const opened = openFlowFile(sent);
+    const onDisk = (): Record<string, unknown> => JSON.parse(readFileSync(sent, 'utf8')) as Record<string, unknown>;
+    check('a flow file opened without an id is given one, in the file', onDisk().id === opened.id);
+    check('its folder is where its runs work', flowDir(opened.id) === elsewhere);
+    check(
+        'and nothing is copied into the workspace',
+        !readdirSync(join(workspace, 'workspace', 'flows')).some((folder) => folder.startsWith('sent')),
+    );
+    check(
+        'the skills it carries are written beside it',
+        existsSync(join(elsewhere, '.claude', 'skills', 'carried', 'SKILL.md')),
+    );
+    watchSkills(() => {
+        heard += 1;
+    });
+    check(
+        'and one saved there later is heard',
+        await heardAfter(() =>
+            writeFileSync(
+                join(elsewhere, '.claude', 'skills', 'carried', 'SKILL.md'),
+                '---\nname: carried\ndescription: Saved elsewhere.\n---\n',
+            ),
+        ),
+    );
+    // Released before the folder is moved about and deleted below.
+    stopWatchingSkills();
+    const listedOpen = (JSON.parse(await call('list_flows')) as { id: string; file: string; inPlace: boolean }[]).find(
+        (entry) => entry.id === opened.id,
+    );
+    check('list_flows names its file, opened in place', listedOpen?.file === sent && listedOpen.inPlace);
+    await call('rename_flow', { flowId: opened.id, name: 'Renamed where it is' });
+    check(
+        'an edit is saved to that file, keeping what else it holds',
+        onDisk().name === 'Renamed where it is' && onDisk().note === 'not the app’s',
+    );
+    check('opening it again is the same flow', openFlowFile(sent).id === opened.id);
+    const copied = join(elsewhere, 'copied.json');
+    copyFileSync(sent, copied);
+    const copy = openFlowFile(copied);
+    check('a copy of a listed file gets an id of its own', copy.id !== opened.id && onDisk().id === opened.id);
+    const moved = join(elsewhere, 'moved.json');
+    renameSync(sent, moved);
+    check('a moved file keeps its id, so its runs follow it', openFlowFile(moved).id === opened.id);
+    const removed = await call('delete_flow', { flowId: opened.id });
+    check(
+        'deleting a flow opened in place only takes it off the list',
+        removed.includes('Removed') && existsSync(moved) && getFlow(opened.id) === null,
+    );
+    await call('delete_flow', { flowId: copy.id });
+    check('nor does it touch its folder', existsSync(copied) && existsSync(join(elsewhere, '.claude', 'skills')));
+
+    // A new flow given a location gets a folder of its own there, and is kept in place.
+    const location = join(elsewhere, 'not', 'yet');
+    const made = async (): Promise<string> =>
+        (JSON.parse(await call('create_flow', { name: 'Made here', location })) as { id: string }).id;
+    const madeFirst = await made();
+    const madeSecond = await made();
+    check(
+        'a flow made in a location gets a folder of its own, made if missing',
+        flowDir(madeFirst) === join(location, 'made-here') && existsSync(join(location, 'made-here', 'flow.json')),
+    );
+    check('a second of the same name is numbered past it', flowDir(madeSecond) === join(location, 'made-here-2'));
+    const listedMade = (JSON.parse(await call('list_flows')) as { id: string; inPlace: boolean }[]).find(
+        (entry) => entry.id === madeFirst,
+    );
+    check('and is listed as kept in place', listedMade?.inPlace === true);
+    const relativeMade = await client.callTool({
+        name: 'create_flow',
+        arguments: { name: 'Nowhere', location: 'flows' }
+    });
+    check('a location that is not a full path is refused', relativeMade.isError === true);
+    createSkill('flow', madeFirst, 'kept', '---\nname: kept\ndescription: Its own.\n---\n');
+    const original = getFlow(madeFirst);
+    const duplicate = original ? duplicateFlow(original, 'Made here', location) : null;
+    check(
+        'a duplicate goes in a folder of its own in the location, with the original’s skills',
+        duplicate !== null &&
+        flowDir(duplicate.id) === join(location, 'made-here-3') &&
+        existsSync(join(location, 'made-here-3', '.claude', 'skills', 'kept', 'SKILL.md')),
+    );
+    await call('delete_flow', { flowId: madeFirst });
+    await call('delete_flow', { flowId: madeSecond });
+    if (duplicate) await call('delete_flow', { flowId: duplicate.id });
+    rmSync(elsewhere, { recursive: true, force: true });
 
     // The console: what the app did outside any one run, this session's and a day's.
     check(

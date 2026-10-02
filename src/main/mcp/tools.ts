@@ -232,13 +232,13 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List flows',
             description:
-                'Every flow in this install, with its id, its size, when it was last written and the directory it lives in — which is the working directory its nodes run in.',
+                'Every flow in this install, with its id, its size, when it was last written, its file and the directory it lives in — which is the working directory its nodes run in. `inPlace` marks a flow file opened from elsewhere on disk: it is saved where it is, and its folder is the person’s own.',
             inputSchema: {},
             annotations: { readOnlyHint: true },
         },
         () =>
             json(
-                flowStore.listFlowEntries().map(({ flow, folder, path }) => ({
+                flowStore.listFlowEntries().map(({ flow, folder, path, file, inPlace }) => ({
                     id: flow.id,
                     name: flow.name,
                     updatedAt: flow.updatedAt,
@@ -246,6 +246,8 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     edgeCount: flow.edges.length,
                     folder,
                     path,
+                    file,
+                    inPlace,
                 })),
             ),
     );
@@ -266,11 +268,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'create_flow',
         {
             title: 'Create a flow',
-            description: 'Start an empty flow. Nodes go on it with add_node.',
-            inputSchema: { name: z.string().min(1) },
+            description:
+                'Start an empty flow. Nodes go on it with add_node. Given a location, it gets a folder of its own there, named after it, as New flow does in the app; without one, it goes in the app workspace.',
+            inputSchema: {
+                name: z.string().min(1),
+                location: z
+                    .string()
+                    .optional()
+                    .describe('Absolute path of the folder to make the flow’s own folder in. Made if missing.'),
+            },
         },
-        ({ name }) => {
-            const flow = flowStore.createFlow(name);
+        ({ name, location }) => {
+            const flow = flowStore.createFlow(name, location === undefined ? undefined : absoluteDir(location));
             host.changed({ flows: true, skills: false });
             return json(describeFlow(flow));
         },
@@ -291,17 +300,20 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a flow',
             description:
-                'Delete a flow, the skill library belonging to it and the watcher marks that go with it. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
+                'Delete a flow, the skill library belonging to it and the watcher marks that go with it. A flow opened in place is only taken off the list, its file and folder left as they are. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
             inputSchema: { flowId: flowIdArg },
             annotations: { destructiveHint: true, idempotentHint: true },
         },
         ({ flowId }) => {
             const flow = requireFlow(flowId);
+            const { inPlace, file } = flowStore.entryFor(flow);
             const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
             host.changed({ flows: true, skills: true });
             return text(
-                `Deleted "${flow.name}".` +
+                (inPlace
+                    ? `Removed "${flow.name}" from the list. Its file is still at ${file}.`
+                    : `Deleted "${flow.name}".`) +
                 (cancelled > 0 ? ` ${cancelled} queued run(s) of it were cancelled first.` : ''),
             );
         },

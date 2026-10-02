@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { findTriggers, type Flow } from '@shared/flow';
 import type { FlowEntry } from '@shared/ipc';
 import type { AboutInfo, EngineStatus } from '@shared/settings';
-import { ConfirmDialog } from './components/ConfirmDialog';
+import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
-import { NameDialog } from './components/NameDialog';
+import { NewFlowDialog } from './components/NewFlowDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { SettingsButton } from './components/SettingsButton';
@@ -40,6 +40,21 @@ function notWatchedWhy(flow: Flow, status: EngineStatus | null): string {
     if (findTriggers(flow).length === 0) return 'This flow has no trigger';
     if (status?.flowIds.includes(flow.id) !== true) return 'Watching is off for this flow';
     return 'No trigger in this flow names a mailbox';
+}
+
+/** A flow opened in place is only taken off the list: its file and folder are the user's. */
+function removal({ flow, file, inPlace }: FlowEntry): Question {
+    return inPlace
+        ? {
+            title: 'Remove from list',
+            message: `Take “${flow.name}” off the list? Its file stays where it is, at ${file}, and so does its folder. Runs already recorded stay. Open flow file… brings it back.`,
+            confirmLabel: 'Remove',
+        }
+        : {
+            title: 'Delete flow',
+            message: `Delete “${flow.name}”? Its folder goes too, with the skills only this flow has. Runs already recorded stay. This cannot be undone.`,
+            confirmLabel: 'Delete',
+        };
 }
 
 /**
@@ -144,12 +159,16 @@ export function Welcome(): JSX.Element {
     };
 
     /** A flow you just made is one you meant to draw, so it opens on the canvas. */
-    const create = (name: string): Promise<void> =>
-        attempt(async () => open(await window.api.flows.create(name)));
-
-    const duplicate = (entry: FlowEntry, name: string): Promise<void> =>
+    const create = (name: string, location: string): Promise<void> =>
         attempt(async () => {
-            const copy = await window.api.flows.duplicate(entry.flow, name);
+            const made = await window.api.flows.create(name, location);
+            refresh();
+            await open(made);
+        });
+
+    const duplicate = (entry: FlowEntry, name: string, location: string): Promise<void> =>
+        attempt(async () => {
+            const copy = await window.api.flows.duplicate(entry.flow, name, location);
             refresh();
             setSelectedId(copy.id);
         });
@@ -180,10 +199,12 @@ export function Welcome(): JSX.Element {
             setStatus(await (on ? window.api.engine.start(flowId) : window.api.engine.stop(flowId)));
         });
 
-    const importFlow = (): Promise<void> =>
+    const openFile = (): Promise<void> =>
         attempt(async () => {
-            const imported = await window.api.flows.pickAndImport();
-            if (imported) await open(imported);
+            const opened = await window.api.flows.pickAndOpen();
+            if (!opened) return;
+            refresh();
+            await open(opened);
         });
 
     // ── Keyboard ───────────────────────────────────────────────────────────
@@ -199,13 +220,21 @@ export function Welcome(): JSX.Element {
     /** The actions for one flow, shown in its row's context menu. */
     const actions = (entry: FlowEntry): MenuItem[] => [
         { label: 'Open', onSelect: () => void open(entry.flow) },
-        { label: 'Open folder', onSelect: () => void window.api.flows.revealFolder(entry.flow.id) },
+        {
+            label: entry.inPlace ? 'Show file in folder' : 'Open folder',
+            onSelect: () => void window.api.flows.revealFolder(entry.flow.id),
+        },
         status?.flowIds.includes(entry.flow.id) === true
             ? { label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false) }
             : { label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true) },
         { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
         { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
-        { label: 'Delete', separator: true, danger: true, onSelect: () => setDialog({ kind: 'delete', entry }) },
+        {
+            label: entry.inPlace ? 'Remove from list' : 'Delete',
+            separator: true,
+            danger: !entry.inPlace,
+            onSelect: () => setDialog({ kind: 'delete', entry }),
+        },
     ];
 
     const nothingYet = entries !== null && entries.length === 0;
@@ -236,7 +265,11 @@ export function Welcome(): JSX.Element {
                     <button className="primary wide" onClick={() => setDialog({ kind: 'new' })}>
                         ＋ New flow
                     </button>
-                    <button className="wide" onClick={() => void importFlow()}>
+                    <button
+                        className="wide"
+                        title="Opens it where it is: edits are saved to that file, and its folder is where it runs"
+                        onClick={() => void openFile()}
+                    >
                         ↓ Open flow file…
                     </button>
 
@@ -244,7 +277,7 @@ export function Welcome(): JSX.Element {
 
                     <div className="section-title">Workspace</div>
                     <div className="side-note">
-                        Every flow, skill, run and log this install holds sits under here.
+                        Global skills, runs and logs sit under here. Flows stay wherever you keep them.
                     </div>
                     {about && <code className="path">{about.workspace}</code>}
                     <button className="wide" onClick={() => void window.api.revealWorkspace()}>
@@ -350,7 +383,7 @@ export function Welcome(): JSX.Element {
                                         {shape(entry.flow)} · edited {ago(entry.flow.updatedAt)}
                                     </div>
                                 </div>
-                                <Where path={entry.path}/>
+                                <Where path={entry.inPlace ? entry.file : entry.path}/>
                             </div>
                         ))}
                     </div>
@@ -368,16 +401,11 @@ export function Welcome(): JSX.Element {
             )}
 
             {dialog?.kind === 'new' && (
-                <NameDialog
-                    title="New flow"
-                    label="Flow name"
-                    initial="New flow"
-                    confirmLabel="Create"
-                    hint="It gets a folder of its own, named after it, and opens on the canvas."
+                <NewFlowDialog
                     onCancel={() => setDialog(null)}
-                    onConfirm={(name) => {
+                    onConfirm={(name, location) => {
                         setDialog(null);
-                        void create(name);
+                        void create(name, location);
                     }}
                 />
             )}
@@ -396,17 +424,16 @@ export function Welcome(): JSX.Element {
             )}
 
             {dialog?.kind === 'duplicate' && (
-                <NameDialog
+                <NewFlowDialog
                     title="Duplicate flow"
-                    label="Name for the copy"
-                    initial={`${dialog.entry.flow.name} copy`}
+                    initialName={`${dialog.entry.flow.name} copy`}
                     confirmLabel="Duplicate"
-                    hint="The copy gets its own folder, and the skills belonging to this flow come with it."
+                    note="The skills belonging to this flow come with it."
                     onCancel={() => setDialog(null)}
-                    onConfirm={(name) => {
+                    onConfirm={(name, location) => {
                         const { entry } = dialog;
                         setDialog(null);
-                        void duplicate(entry, name);
+                        void duplicate(entry, name, location);
                     }}
                 />
             )}
@@ -414,8 +441,8 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'rename' && (
                 <RenameFlowDialog
                     name={dialog.entry.flow.name}
-                    folder={dialog.entry.folder}
-                    path={dialog.entry.path}
+                    folder={dialog.entry.inPlace ? null : dialog.entry.folder}
+                    path={dialog.entry.inPlace ? dialog.entry.file : dialog.entry.path}
                     onCancel={() => setDialog(null)}
                     onConfirm={(result) => {
                         const { entry } = dialog;
@@ -427,9 +454,7 @@ export function Welcome(): JSX.Element {
 
             {dialog?.kind === 'delete' && (
                 <ConfirmDialog
-                    title="Delete flow"
-                    message={`Delete “${dialog.entry.flow.name}”? Its folder goes too, with the skills only this flow has. Runs already recorded stay. This cannot be undone.`}
-                    confirmLabel="Delete"
+                    {...removal(dialog.entry)}
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
                         const { entry } = dialog;

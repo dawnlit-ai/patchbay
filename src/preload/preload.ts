@@ -34,13 +34,15 @@ const api: Api = {
     flows: {
         entries: () => call(IPC.flowsEntries),
         save: (flow) => call(IPC.flowsSave, flow),
-        create: (name) => call(IPC.flowsCreate, name),
-        duplicate: (flow, name) => call(IPC.flowsDuplicate, flow, name),
+        create: (name, location) => call(IPC.flowsCreate, name, location),
+        location: () => call(IPC.flowsLocation),
+        pickLocation: (current) => call(IPC.flowsPickLocation, current),
+        duplicate: (flow, name, location) => call(IPC.flowsDuplicate, flow, name, location),
         rename: (flowId, name) => call(IPC.flowsRename, flowId, name),
         remove: (id) => call(IPC.flowsRemove, id),
         setFolder: (flowId, folder) => call(IPC.flowsSetFolder, flowId, folder),
         revealFolder: (flowId) => call(IPC.flowsReveal, flowId),
-        pickAndImport: () => call(IPC.flowsPickAndImport),
+        pickAndOpen: () => call(IPC.flowsPickAndOpen),
     },
     settings: {
         get: () => call(IPC.settingsGet),
