@@ -73,6 +73,8 @@ export interface ModelOption {
     description: string;
     /** The effort levels this model takes, as Claude Code lists them. Empty when it takes none. */
     effortLevels: string[];
+    /** The model has no default level, as agy's Gemini models have none: a node on it names one. */
+    effortRequired?: boolean;
 }
 
 /**

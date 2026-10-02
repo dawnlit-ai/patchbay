@@ -25,7 +25,7 @@ import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate
 export interface ClaudeRunRequest {
     prompt: string;
     model: string;
-    /** One of the levels Claude Code lists for the model. Empty or absent leaves it to the model's default. */
+    /** One of the levels Claude Code or agy lists for the model. Empty or absent leaves it to the model's default. */
     effort?: string;
     /** Agent SDK cwd. Must be the flow's directory, so its `.claude/skills` is discoverable. */
     cwd: string;
@@ -109,7 +109,8 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
         return models.map((m) => ({
             value: m.value,
             resolvedModel: m.resolvedModel,
-            displayName: m.displayName,
+            // Marked like agy's, as the two share one list.
+            displayName: `${m.displayName} · claude`,
             description: m.description,
             effortLevels: m.supportsEffort ? (m.supportedEffortLevels ?? []) : [],
         }));

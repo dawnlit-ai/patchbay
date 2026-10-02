@@ -47,6 +47,8 @@ export type MailScope = Pick<TriggerConfig, 'account' | 'folder' | 'includeSubfo
 export interface CategorizerConfig {
     categories: Category[];
     model: string;
+    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
+    effort: string;
     /** Fetch the full body before classifying. Off = subject and preview only. */
     includeBody: boolean;
     bodyMaxChars: number;
@@ -64,7 +66,7 @@ export interface ExtractorConfig {
     /** Slots an earlier node filled, put into the prompt as JSON after the email. */
     inputs: string[];
     model: string;
-    /** One of the levels Claude Code lists for this model. Empty uses the model's default. */
+    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
@@ -93,7 +95,7 @@ export interface ProcessorConfig {
     /** JSON Schema that result has to match. Unused while `output` is empty. */
     schema: JsonSchema;
     model: string;
-    /** One of the levels Claude Code lists for this model. Empty uses the model's default. */
+    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
@@ -407,6 +409,11 @@ export const DEFAULT_MODEL = 'opus';
 export const AGY_MODEL_PREFIX = 'agy:';
 export const isAgyModel = (model: string): boolean => model.startsWith(AGY_MODEL_PREFIX);
 
+/** The levels `agy --effort` takes, lowest first. */
+export const AGY_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** `agy models` lists a model once per level, as `<id>-<level>`; a run names the two apart. */
+export const AGY_LEVEL_SUFFIX = new RegExp(`-(${AGY_LEVELS.join('|')})$`);
+
 export function defaultConfig(kind: NodeKind): NodeConfig {
     switch (kind) {
         case 'trigger.outlook':
@@ -429,6 +436,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     { id: 'b', label: 'Category B', description: 'Describe the emails that belong here.' },
                 ],
                 model: DEFAULT_MODEL,
+                effort: '',
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -617,6 +625,17 @@ const strings = (value: unknown, fallback: string[]): string[] =>
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
+/**
+ * A node's model and level. An agy model saved with its level in the id, as
+ * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
+ */
+function modelAndEffort(from: Json, base: { model: string; effort: string }): { model: string; effort: string } {
+    const model = str(from.model, base.model);
+    const level = isAgyModel(model) ? AGY_LEVEL_SUFFIX.exec(model)?.[1] : undefined;
+    if (level) return { model: model.slice(0, -level.length - 1), effort: level };
+    return { model, effort: str(from.effort, base.effort) };
+}
+
 /** Every field replaced by its default unless the file supplies the right type. */
 function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
     const base = defaultConfig(kind);
@@ -649,7 +668,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 categories: categories.length > 0 ? categories : base.categories,
-                model: str(from.model, base.model),
+                ...modelAndEffort(from, base),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
             };
@@ -663,8 +682,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 instruction: str(from.instruction, base.instruction),
                 skills: strings(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
-                model: str(from.model, base.model),
-                effort: str(from.effort, base.effort),
+                ...modelAndEffort(from, base),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 // Never null, unlike a Processor's: no Extractor predates the list.
                 mcpTools: strings(from.mcpTools, base.mcpTools),
@@ -680,8 +698,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 inputs: strings(from.inputs, base.inputs),
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
                 schema: isObject(from.schema) ? from.schema : base.schema,
-                model: str(from.model, base.model),
-                effort: str(from.effort, base.effort),
+                ...modelAndEffort(from, base),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),

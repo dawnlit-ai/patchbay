@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import { AGY_MODEL_PREFIX } from '@shared/flow';
+import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX } from '@shared/flow';
 import type { ModelOption } from '@shared/ipc';
 import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
 import { now, truncate } from '@shared/trace';
@@ -147,18 +147,31 @@ async function askForModels(): Promise<ModelOption[]> {
     const lines: string[] = [];
     const { code } = await runAgyCommand(['models'], { onLine: (line) => lines.push(line) });
     if (code !== 0) return [];
-    return lines
-        .map((line) => line.split('\t') as [string, string?])
+    // One entry per model, with the levels agy lists it at as its effort levels.
+    const models = new Map<string, { name: string; levels: string[] }>();
+    for (const line of lines) {
+        const [id = '', name] = line.split('\t');
         // Gemini only: the Claude models agy also offers are better run directly.
-        .filter((row): row is [string, string] => row[0].startsWith('gemini-') && !!row[1])
-        .map(([id, name]) => ({
-            value: `${AGY_MODEL_PREFIX}${id}`,
-            displayName: `${name.trim()} · agy`,
-            description:
-                `Gemini through the Antigravity CLI (agy), on its own Google login. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a Processor with file-system access cannot run on it.`,
-            // The level is part of the id.
-            effortLevels: [],
-        }));
+        if (!id.startsWith('gemini-') || !name) continue;
+        const level = AGY_LEVEL_SUFFIX.exec(id)?.[1];
+        const model = level ? id.slice(0, -level.length - 1) : id;
+        // "Gemini 3.1 Pro (High)" names the level too.
+        const entry = models.get(model) ?? {
+            name: (level ? name.replace(/\s*\([^)]*\)\s*$/, '') : name).trim(),
+            levels: [],
+        };
+        if (level) entry.levels.push(level);
+        models.set(model, entry);
+    }
+    return [...models].map(([id, { name, levels }]) => ({
+        value: `${AGY_MODEL_PREFIX}${id}`,
+        displayName: `${name} · agy`,
+        description:
+            `Gemini through the Antigravity CLI (agy), on its own Google login. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a Processor with file-system access cannot run on it.`,
+        effortLevels: levels.sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b)),
+        // agy refuses a model listed by level unless the run names one.
+        effortRequired: levels.length > 0,
+    }));
 }
 
 /** The Gemini models agy offers. Empty when agy is not installed or not signed in, never a failure. */
@@ -297,6 +310,8 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
 
 export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
     const model = request.model.slice(AGY_MODEL_PREFIX.length);
+    // The id `agy models` lists this model at this level by.
+    const shown = request.effort ? `${model}-${request.effort}` : model;
     const fail = (error: string): ClaudeRunResult => {
         request.onEvent({ at: now(), type: 'error', label: error });
         return { ok: false, error };
@@ -351,6 +366,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
         );
 
         const args = ['--model', model, '--output-format', 'stream-json'];
+        if (request.effort) args.push('--effort', request.effort);
         if (request.jsonSchema) {
             const schemaFile = join(workspace, 'schema.json');
             await writeFile(schemaFile, JSON.stringify(request.jsonSchema));
@@ -362,7 +378,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
         request.onEvent({
             at: now(),
             type: 'prompt',
-            label: `Prompt to ${model} (agy)`,
+            label: `Prompt to ${shown} (agy)`,
             detail: truncate(prompt, 20_000),
         });
 
@@ -483,7 +499,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
             request.onEvent({
                 at: now(),
                 type: 'note',
-                label: `agy ${model} finished in ${result.duration_seconds?.toFixed(1) ?? '?'}s`,
+                label: `agy ${shown} finished in ${result.duration_seconds?.toFixed(1) ?? '?'}s`,
                 detail: `input tokens: ${usage.input_tokens ?? '?'}, output: ${usage.output_tokens ?? '?'}, thinking: ${usage.thinking_tokens ?? '?'}`,
             });
 

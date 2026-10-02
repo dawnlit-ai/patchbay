@@ -175,6 +175,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     const result = await runClaude({
         prompt,
         model: config.model,
+        effort: config.effort,
         cwd: flowDir(ctx.flowId),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.

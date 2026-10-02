@@ -145,15 +145,16 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
   `engine-strict`, which makes an older Node refuse the installation rather than fail somewhere later.
 - **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
   `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login. The
-  inspector's model lists come from it too: they show what that login offers now, so a new model appears without a
-  new build of the app. So do the effort levels, which differ from model to model — a Processor offers the ones its
-  model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
+  inspector's model lists come from it too, marked *· claude*: they show what that login offers now, so a new model
+  appears without a new build of the app. So do the effort levels, which differ from model to model — a node offers the
+  ones its model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
 - **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on Gemini. Its Gemini models join the model
-  lists, marked *· agy*. Each run gets a workspace of its own holding the node's skills and servers, with a hook that
-  refuses every tool the node was not given — agy's shell, browser and web search included. The hook can refuse but
-  not grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses needs an
-  `mcp(patchbay_<server>/<tool>)` rule under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. A run
-  that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
+  lists, marked *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a
+  node on one always names its level. Each run gets a workspace of its own holding the node's skills and servers, with a
+  hook that refuses every tool the node was not given — agy's shell, browser and web search included. The hook can
+  refuse but not grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses
+  needs an `mcp(patchbay_<server>/<tool>)` rule under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`.
+  A run that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
 
 ## Install
 

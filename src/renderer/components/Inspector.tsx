@@ -127,6 +127,18 @@ function ModelField({
     );
 }
 
+/**
+ * A node's level once its model changes. A level the new model does not take goes
+ * back to that model's default, or to its top level where it has none. A model
+ * that takes none leaves the level alone, for the next one that does.
+ */
+function effortAfter(models: ModelOption[] | null, model: string, effort: string): string {
+    const picked = findModel(models, model);
+    const levels = picked?.effortLevels ?? [];
+    if (levels.length === 0 || levels.includes(effort)) return effort;
+    return picked?.effortRequired ? (levels.at(-1) ?? '') : '';
+}
+
 /** The chosen model's effort levels. A saved level it doesn't take is kept, with a note. */
 function EffortField({
                          value,
@@ -151,16 +163,21 @@ function EffortField({
     }
 
     const levels = model?.effortLevels ?? [];
-    const offered = value === '' || levels.includes(value);
+    const required = model?.effortRequired ?? false;
+    const offered = (value === '' && !required) || levels.includes(value);
     let hint: string | undefined;
     if (!model && !loading) hint = 'The levels come from the chosen model, which is not in the list above.';
-    else if (model && !offered) hint = `${model.displayName} does not take ${value}. Pick one of the levels it does.`;
+    else if (model && !offered) {
+        hint = value === ''
+            ? `${model.displayName} has no default level. Pick one.`
+            : `${model.displayName} does not take ${value}. Pick one of the levels it does.`;
+    }
 
     return (
         <Field label="Effort" hint={hint}>
             <select value={value} onChange={(e) => onChange(e.target.value)}>
-                <option value="">Model default</option>
-                {!offered && <option value={value}>{value}</option>}
+                {!required && <option value="">Model default</option>}
+                {!offered && <option value={value}>{value || '—'}</option>}
                 {levels.map((level) => (
                     <option key={level}>{level}</option>
                 ))}
@@ -314,6 +331,8 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
 function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.Element {
     const { categories } = config;
     const listing = useModels();
+    const pickModel = (model: string): void =>
+        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
 
     const replace = (index: number, category: Partial<CategorizerConfig['categories'][number]>): void =>
         patch({ categories: categories.map((c, j) => (j === index ? { ...c, ...category } : c)) });
@@ -364,7 +383,13 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
 
             <div className="gap"/>
 
-            <ModelField {...listing} value={config.model} onChange={(model) => patch({ model })}/>
+            <ModelField {...listing} value={config.model} onChange={pickModel}/>
+            <EffortField
+                value={config.effort}
+                model={findModel(listing.models, config.model)}
+                loading={!listing.models && !listing.error}
+                onChange={(effort) => patch({ effort })}
+            />
 
             <label className="check">
                 <input
@@ -474,11 +499,8 @@ function ExtractorFields({
     available: Available | undefined;
 }): JSX.Element {
     const listing = useModels();
-    const pickModel = (model: string): void => {
-        const levels = findModel(listing.models, model)?.effortLevels ?? [];
-        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
-        patch(kept ? { model } : { model, effort: '' });
-    };
+    const pickModel = (model: string): void =>
+        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
 
     return (
         <>
@@ -557,13 +579,8 @@ function ProcessorFields({
     available: Available | undefined;
 }): JSX.Element {
     const listing = useModels();
-    // A level the new model does not take goes back to that model's default. A
-    // model that takes none leaves the level alone, for the next one that does.
-    const pickModel = (model: string): void => {
-        const levels = findModel(listing.models, model)?.effortLevels ?? [];
-        const kept = config.effort === '' || levels.length === 0 || levels.includes(config.effort);
-        patch(kept ? { model } : { model, effort: '' });
-    };
+    const pickModel = (model: string): void =>
+        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
 
     return (
         <>
