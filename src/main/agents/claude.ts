@@ -1,71 +1,22 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type {
-    McpServerConfig,
-    Options,
-    SdkPluginConfig,
-    SDKUserMessage,
-    SettingSource,
-} from '@anthropic-ai/claude-agent-sdk';
-import { isAgyModel } from '@shared/flow';
+import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelOption } from '@shared/ipc';
-import { now, type TraceEvent, truncate } from '@shared/trace';
-import { log } from '../log';
-import { getSettings } from '../store/settingsStore';
-import { EMAIL_SERVER_NAME } from './emailTools';
-import { runAgy } from './agy';
+import { now, truncate } from '@shared/trace';
+import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult } from './types';
 import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
- * The one place the app talks to Claude, and so the one mapping from the SDK's
+ * Claude through the Claude Agent SDK, and so the one mapping from the SDK's
  * message stream onto a pass's trace events.
  */
 
-export interface ClaudeRunRequest {
-    prompt: string;
-    model: string;
-    /** One of the levels Claude Code or agy lists for the model. Empty or absent leaves it to the model's default. */
-    effort?: string;
-    /** Agent SDK cwd. Must be the flow's directory, so its `.claude/skills` is discoverable. */
-    cwd: string;
-    /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
-    additionalDirectories?: string[];
-    /**
-     * Skill directories outside `cwd`, each as a local plugin — the only way the
-     * SDK loads skills a run's own working directory does not hold.
-     */
-    plugins?: SdkPluginConfig[];
-    skills?: string[];
-    allowedTools: string[];
-    /** `[]` disables every built-in tool — right for a pure classification call. */
-    tools?: string[];
-    /**
-     * Built-in tools taken out of the run altogether. Stronger than leaving them
-     * out of `allowedTools`: `dontAsk` still lets read-only shell commands through.
-     */
-    disallowedTools?: string[];
-    mcpServers?: Record<string, McpServerConfig>;
-    /** When set, the run is constrained to this shape and `structured` is filled. */
-    jsonSchema?: Record<string, unknown>;
-    settingSources?: SettingSource[];
-    signal?: AbortSignal;
-
-    onEvent(event: TraceEvent): void;
-}
-
-export interface ClaudeRunResult {
-    ok: boolean;
-    structured?: unknown;
-    error?: string;
-}
-
 /**
- * The `claude` binary: the setting, else an existing Claude Code install (saves a
- * ~200MB download), else undefined for the SDK's own.
+ * The `claude` binary: the one the host names, else an existing Claude Code
+ * install (saves a ~200MB download), else undefined for the SDK's own.
  */
-export function resolveClaudePath(): string | undefined {
-    const configured = getSettings().claudeExecutablePath.trim();
+function resolveClaudePath(configured: string | undefined): string | undefined {
     if (configured) return configured;
     const candidates =
         process.platform === 'win32'
@@ -121,8 +72,7 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
 }
 
 /** The models the Claude login offers, asked of the CLI so the list never goes stale. */
-export function listModels(): Promise<ModelOption[]> {
-    const exe = resolveClaudePath();
+function listModels(exe: string | undefined): Promise<ModelOption[]> {
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {
         return modelsAsked.list;
     }
@@ -169,18 +119,11 @@ function renderToolResult(block: LooseBlock): string {
 }
 
 /**
- * Tools a step can call again without doing anything twice: they read, or write
- * only into the run's own folder. Any other tool may have drafted, filed or
- * written a record, so a step cut short after one is not repeated.
+ * Built-in tools a step can call again without doing anything twice: they only
+ * read. Any tool but these and the request's repeatable ones may have drafted,
+ * filed or written a record, so a step cut short after one is not repeated.
  */
-const REPEATABLE_TOOLS = new Set([
-    'ToolSearch',
-    'Skill',
-    'Read',
-    'Glob',
-    'Grep',
-    ...['read_email', 'record_note', 'save_file', 'save_attachment'].map((t) => `mcp__${EMAIL_SERVER_NAME}__${t}`),
-]);
+const REPEATABLE_TOOLS = ['ToolSearch', 'Skill', 'Read', 'Glob', 'Grep'];
 
 interface Attempt {
     structured?: unknown;
@@ -191,15 +134,14 @@ interface Attempt {
 
 const clock = (at: number): string => new Date(at).toLocaleString();
 
-export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
-    if (isAgyModel(request.model)) return runAgy(request);
-
+async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     /** Tool name by tool_use id, so a result can name the call it answers. */
     const toolNames = new Map<string, string>();
+    const repeatable = new Set([...REPEATABLE_TOOLS, ...(request.repeatableTools ?? [])]);
 
     const options: Options = {
         model: request.model,
@@ -215,14 +157,16 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         settingSources: request.settingSources ?? [],
         persistSession: false,
         includePartialMessages: false,
-        pathToClaudeCodeExecutable: resolveClaudePath(),
+        pathToClaudeCodeExecutable: resolveClaudePath(host.claudeExecutable()),
         stderr: (data) => {
             const line = data.trim();
             if (line) request.onEvent({ at: now(), type: 'error', label: 'claude stderr', detail: line });
         },
     };
 
-    if (request.plugins?.length) options.plugins = request.plugins;
+    if (request.skillPlugins?.length) {
+        options.plugins = request.skillPlugins.map((path) => ({ type: 'local', path, skipMcpDiscovery: true }));
+    }
     if (request.additionalDirectories?.length) {
         options.additionalDirectories = request.additionalDirectories;
     }
@@ -283,7 +227,7 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
                             // The answering result quotes this call's id, so the pair can be
                             // labelled in the trace.
                             if (block.id) toolNames.set(block.id, name);
-                            if (!REPEATABLE_TOOLS.has(name)) acted = true;
+                            if (!repeatable.has(name)) acted = true;
                             request.onEvent({
                                 at: now(),
                                 type: 'tool-call',
@@ -347,9 +291,7 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
         const limit = result.error ? usageLimit(result.error) : null;
         if (!limit) return settle(request, result);
         if (holdUsage(limit)) {
-            log.warn('run', `Claude's usage limit was hit, so every run waits until ${clock(limit.until)}`, {
-                detail: result.error,
-            });
+            host.warn(`Claude's usage limit was hit, so every run waits until ${clock(limit.until)}`, result.error);
         }
         // Asking again would repeat what those tools did.
         if (result.acted) {
@@ -362,7 +304,7 @@ export async function runClaude(request: ClaudeRunRequest): Promise<ClaudeRunRes
     }
 }
 
-function settle(request: ClaudeRunRequest, { structured, error }: Attempt): ClaudeRunResult {
+function settle(request: AgentRunRequest, { structured, error }: Attempt): AgentRunResult {
     // No structured output means the question went unanswered, whatever text came
     // back with it.
     if (!error && request.jsonSchema && structured === undefined) {
@@ -372,4 +314,13 @@ function settle(request: ClaudeRunRequest, { structured, error }: Attempt): Clau
     if (error) request.onEvent({ at: now(), type: 'error', label: error });
 
     return { ok: !error, structured, error };
+}
+
+/** Claude takes any model another backend does not claim: its aliases carry no prefix. */
+export function claudeBackend(host: AgentHost): AgentBackend {
+    return {
+        owns: () => true,
+        listModels: () => listModels(resolveClaudePath(host.claudeExecutable())),
+        run: (request) => runClaude(host, request),
+    };
 }

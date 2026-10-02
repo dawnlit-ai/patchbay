@@ -14,14 +14,14 @@ import {
     UNMATCHED_PORT,
 } from '@shared/flow';
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
-import { runClaude } from '../claude/runner';
-import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames } from '../claude/emailTools';
+import type { AgentMcpServer } from '../agents';
+import { agents } from '../agentHost';
+import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { getSettings } from '../store/settingsStore';
 import { globalPluginFor, missingSkills } from '../store/skillStore';
 import { flowDir } from '../paths';
 import * as outlook from '../outlook/bridge';
 import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
-import type { McpServerConfig, SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
@@ -69,8 +69,8 @@ function slotContext(ctx: NodeContext, names: string[]): string[] {
  * The MCP servers in Settings that `mcpTools` names anything of, and the
  * allowlist entries for what it names. Null names every tool of every server.
  */
-function settingsServers(mcpTools: string[] | null): { servers: Record<string, McpServerConfig>; allowed: string[] } {
-    const servers: Record<string, McpServerConfig> = {};
+function settingsServers(mcpTools: string[] | null): { servers: Record<string, AgentMcpServer>; allowed: string[] } {
+    const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
     for (const extra of getSettings().mcpServers) {
         if (!extra.enabled || !extra.name.trim()) continue;
@@ -91,11 +91,11 @@ function settingsServers(mcpTools: string[] | null): { servers: Record<string, M
  * from it arrives as a plugin — and only when it ticks something there. The
  * plugin is disposed of once the run is over.
  */
-function globalSkills(skills: string[]): { plugins: SdkPluginConfig[] | undefined; dispose(): void } {
+function globalSkills(skills: string[]): { plugins: string[] | undefined; dispose(): void } {
     const ticks = skills.filter(isGlobalRef).map((ref) => ref.slice(GLOBAL_SKILL_PLUGIN.length + 1));
     const plugin = ticks.length > 0 ? globalPluginFor(ticks) : null;
     return {
-        plugins: plugin ? [{ type: 'local', path: plugin.path, skipMcpDiscovery: true }] : undefined,
+        plugins: plugin ? [plugin.path] : undefined,
         dispose: () => plugin?.dispose(),
     };
 }
@@ -172,7 +172,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         emailContext(ctx.email, body),
     ].join('\n');
 
-    const result = await runClaude({
+    const result = await agents.run({
         prompt,
         model: config.model,
         effort: config.effort,
@@ -311,14 +311,14 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 
     const library = globalSkills(config.skills);
 
-    const result = await runClaude({
+    const result = await agents.run({
         prompt,
         model: config.model,
         effort: config.effort,
         cwd: flowDir(ctx.flowId),
         // 'project' makes the flow's own `.claude/skills` discoverable, as for a Processor.
         settingSources: ticked ? ['project'] : undefined,
-        plugins: library.plugins,
+        skillPlugins: library.plugins,
         skills: ticked ? config.skills : undefined,
         additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
         // Nothing that writes or runs a command: Skill to load what it ticks, and
@@ -326,6 +326,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         tools: [...(ticked ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
         allowedTools,
         mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
+        repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
         jsonSchema: {
@@ -444,7 +445,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
     const library = globalSkills(config.skills);
 
-    const result = await runClaude({
+    const result = await agents.run({
         prompt,
         model: config.model,
         effort: config.effort,
@@ -452,7 +453,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),
         settingSources: ['project'],
-        plugins: library.plugins,
+        skillPlugins: library.plugins,
         // The scratch folder, where attachments are saved, is outside that directory.
         additionalDirectories: [ctx.scratchDir],
         // Already in the SDK's own spelling: `global:name` for a plugin skill, a
@@ -464,6 +465,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // read-only commands through too, and "read-only" is the shell's own guess.
         disallowedTools: config.allowFileSystem ? undefined : ['Bash', 'PowerShell'],
         mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
+        repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
         jsonSchema: {

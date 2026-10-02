@@ -11,9 +11,8 @@ import { rewatch, watchSkills } from './store/skillWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
-import { listModels } from './claude/runner';
-import { listAgyModels } from './claude/agy';
-import { listServerTools } from './claude/serverTools';
+import { agents } from './agentHost';
+import { listServerTools } from './tools/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
@@ -245,7 +244,7 @@ export function registerIpc(): void {
     handle(IPC.outlookSelected, (account: string) => outlook.readSelected(account));
 
     // Claude's first; agy's Gemini models after, or none when agy is not installed.
-    handle(IPC.claudeModels, async () => [...(await listModels()), ...(await listAgyModels())]);
+    handle(IPC.claudeModels, () => agents.listModels());
 
     // Skills are edited in other apps, so main watches their folders and every
     // window re-reads its list on a change, whoever made it.

@@ -255,6 +255,14 @@ export function createEmailToolServer(ctx: EmailToolContext) {
     });
 }
 
+/**
+ * The email tools a step can call again without doing anything twice: they read,
+ * or write only into the run's own folder. Drafting and moving are not among them.
+ */
+export const REPEATABLE_EMAIL_TOOLS = ['read_email', 'record_note', 'save_file', 'save_attachment'].map(
+    (n) => `mcp__${EMAIL_SERVER_NAME}__${n}`,
+);
+
 /** The allowlist entries matching the tools built above, for `dontAsk` mode. */
 export function emailToolNames(config: EmailCapabilities): string[] {
     const names = ['record_note', 'save_file'];

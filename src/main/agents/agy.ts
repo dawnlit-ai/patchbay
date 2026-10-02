@@ -5,14 +5,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX } from '@shared/flow';
+import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
 import type { ModelOption } from '@shared/ipc';
-import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
 import { now, truncate } from '@shared/trace';
-import { EMAIL_SERVER_NAME } from './emailTools';
 import { serveOnLoopback } from './loopback';
-import type { ClaudeRunRequest, ClaudeRunResult } from './runner';
+import type { AgentBackend, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 
 /**
  * Gemini through the Antigravity CLI (`agy`), for a node whose model is stored as
@@ -44,7 +41,7 @@ interface Attempt {
     spawnError?: NodeJS.ErrnoException;
     /** The rules an MCP call the hook let through would need in agy's settings. */
     grants: Set<string>;
-    /** An MCP tool outside REPEATABLE_MCP ran. */
+    /** An MCP tool outside the request's repeatable ones ran. */
     acted: boolean;
 }
 
@@ -63,15 +60,6 @@ const AGY_SETTINGS = '~/.gemini/antigravity-cli/settings.json';
 /** The plugin a run's servers arrive under: agy names each one `patchbay_<server>`. */
 const PLUGIN = 'patchbay';
 const agyServer = (server: string): string => `${PLUGIN}_${server}`;
-
-/**
- * MCP tools a step can call again without doing anything twice: they read, or
- * write only into the run's own folder. Once any other has run, a failed step is
- * not repeated.
- */
-const REPEATABLE_MCP = new Set(
-    ['read_email', 'record_note', 'save_file', 'save_attachment'].map((t) => `${agyServer(EMAIL_SERVER_NAME)}/${t}`),
-);
 
 /** agy's own tools a step may use, within its folders; `finish` is what carries the result. */
 const READ_TOOLS = ['view_file', 'list_dir', 'grep_search', 'find_by_name'];
@@ -175,7 +163,7 @@ async function askForModels(): Promise<ModelOption[]> {
 }
 
 /** The Gemini models agy offers. Empty when agy is not installed or not signed in, never a failure. */
-export function listAgyModels(): Promise<ModelOption[]> {
+function listAgyModels(): Promise<ModelOption[]> {
     if (modelsAsked && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
     const asked = { at: Date.now(), list: askForModels().catch(() => []) };
     modelsAsked = asked;
@@ -184,7 +172,7 @@ export function listAgyModels(): Promise<ModelOption[]> {
 
 /** The run's MCP servers as agy's plugin config: the in-process ones served on loopback. */
 async function pluginServers(
-    servers: Record<string, McpServerConfig>,
+    servers: Record<string, AgentMcpServer>,
 ): Promise<{ config: Record<string, unknown>; close(): Promise<void> }> {
     const config: Record<string, unknown> = {};
     const closers: (() => Promise<void>)[] = [];
@@ -197,13 +185,11 @@ async function pluginServers(
                 const hosted = await serveOnLoopback(server.instance);
                 closers.push(hosted.close);
                 config[name] = { serverUrl: hosted.url };
-            } else if (server.type === undefined || server.type === 'stdio') {
+            } else {
                 config[name] = {
                     command: server.command,
                     args: server.args ?? [], ...(server.env ? { env: server.env } : {})
                 };
-            } else {
-                throw new Error(`agy is not handed ${server.type} servers yet, so it cannot reach ${name}.`);
             }
         }
     } catch (e) {
@@ -222,17 +208,23 @@ function mcpGrants(allowedTools: string[], servers: string[]): string[] {
     });
 }
 
+/** A skill as Claude names it: `<plugin>:<name>` for a plugin's, a bare name for the working directory's. */
+function skillRef(ref: string): { plugin?: string; name: string } {
+    const colon = ref.indexOf(':');
+    return colon < 0 ? { name: ref } : { plugin: ref.slice(0, colon), name: ref.slice(colon + 1) };
+}
+
 /**
  * Each ticked skill, copied to where agy finds skills: `.agents/skills/<name>`.
- * A global one comes from the plugin the node built for Claude, a flow's own from
- * its `.claude/skills`.
+ * A plugin's comes from the plugin folders the request names, the working
+ * directory's own from its `.claude/skills`.
  */
-async function copySkills(request: ClaudeRunRequest, workspace: string): Promise<string[]> {
+async function copySkills(request: AgentRunRequest, workspace: string): Promise<string[]> {
     const copied: string[] = [];
     for (const ref of request.skills ?? []) {
-        const name = isGlobalRef(ref) ? ref.slice(GLOBAL_SKILL_PLUGIN.length + 1) : ref;
-        const from = isGlobalRef(ref)
-            ? request.plugins?.map((p) => join(p.path, 'skills', name)).find((p) => existsSync(p))
+        const { plugin, name } = skillRef(ref);
+        const from = plugin
+            ? request.skillPlugins?.map((p) => join(p, 'skills', name)).find((p) => existsSync(p))
             : join(request.cwd, '.claude', 'skills', name);
         if (!from || !existsSync(from)) continue;
         await cp(from, join(workspace, '.agents', 'skills', name), { recursive: true, dereference: true });
@@ -242,8 +234,9 @@ async function copySkills(request: ClaudeRunRequest, workspace: string): Promise
 }
 
 /** How the node's Claude wording maps onto agy, after its prompt. */
-function environmentNotes(servers: string[], skills: string[]): string[] {
+function environmentNotes(servers: string[], skills: string[], pluginNames: string[]): string[] {
     const one = skills.length === 1;
+    const spelled = pluginNames.map((p) => `\`${p}:<name>\``).join(' or ');
     return [
         '',
         '--- This environment ---',
@@ -255,8 +248,8 @@ function environmentNotes(servers: string[], skills: string[]): string[] {
             : []),
         ...(skills.length > 0
             ? [
-                `Before anything else, read the skill${one ? '' : 's'} this step is given — ${skills.map((s) => `\`${s}\``).join(', ')}, ` +
-                `also written \`global:<name>\` — at .agents/skills/<name>/SKILL.md, and follow ${one ? 'it' : 'them'}. ` +
+                `Before anything else, read the skill${one ? '' : 's'} this step is given — ${skills.map((s) => `\`${s}\``).join(', ')}` +
+                `${spelled ? `, also written ${spelled}` : ''} — at .agents/skills/<name>/SKILL.md, and follow ${one ? 'it' : 'them'}. ` +
                 'Where a skill says to load another with the Skill tool, read its SKILL.md; where it says Read, use view_file.',
             ]
             : []),
@@ -308,11 +301,11 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
     return { label: info.name ?? 'tool', input: params };
 }
 
-export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
+async function runAgy(request: AgentRunRequest): Promise<AgentRunResult> {
     const model = request.model.slice(AGY_MODEL_PREFIX.length);
     // The id `agy models` lists this model at this level by.
     const shown = request.effort ? `${model}-${request.effort}` : model;
-    const fail = (error: string): ClaudeRunResult => {
+    const fail = (error: string): AgentRunResult => {
         request.onEvent({ at: now(), type: 'error', label: error });
         return { ok: false, error };
     };
@@ -331,12 +324,14 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
         servers = await pluginServers(request.mcpServers ?? {});
         const serverNames = Object.keys(request.mcpServers ?? {});
         const skills = await copySkills(request, workspace);
+        const pluginNames = [...new Set((request.skills ?? []).flatMap((ref) => skillRef(ref).plugin ?? []))];
         const folders = [...new Set([request.cwd, ...(request.additionalDirectories ?? [])])];
         // A Categorizer's one judgement reads nothing, so it is given no folder to read.
         const readable = request.tools?.length === 0 && serverNames.length === 0 ? [] : folders;
         const agyHome = join(homedir(), '.gemini', 'antigravity-cli');
         const roots = [workspace, ...readable, join(agyHome, 'mcp')];
         const granted = mcpGrants(request.allowedTools, serverNames);
+        const repeatable = mcpGrants(request.repeatableTools ?? [], serverNames);
 
         await mkdir(plugin, { recursive: true });
         await writeFile(join(plugin, 'plugin.json'), JSON.stringify({ name: PLUGIN }));
@@ -374,7 +369,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
         }
         for (const folder of readable) args.push('--add-dir', folder);
 
-        const prompt = [request.prompt, ...(request.tools?.length === 0 && serverNames.length === 0 ? [] : environmentNotes(serverNames, skills))].join('\n');
+        const prompt = [request.prompt, ...(request.tools?.length === 0 && serverNames.length === 0 ? [] : environmentNotes(serverNames, skills, pluginNames))].join('\n');
         request.onEvent({
             at: now(),
             type: 'prompt',
@@ -436,7 +431,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
                     const server = tool.mcp?.split('/')[0];
                     if (tool.mcp && (granted.includes(tool.mcp) || granted.includes(`${server}/*`))) {
                         attempt.grants.add(`mcp(${tool.mcp})`);
-                        if (!REPEATABLE_MCP.has(tool.mcp)) attempt.acted = true;
+                        if (!repeatable.includes(tool.mcp)) attempt.acted = true;
                     }
                     request.onEvent({
                         at: now(),
@@ -487,7 +482,7 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
             await sleep(wait, undefined, { signal: request.signal });
         }
 
-        function settle({ result, exited, spawnError, grants }: Attempt): ClaudeRunResult {
+        function settle({ result, exited, spawnError, grants }: Attempt): AgentRunResult {
             if (spawnError?.code === 'ENOENT') {
                 return fail('agy is not installed, or not where this app looks for it (~/.local/bin).');
             }
@@ -526,3 +521,10 @@ export async function runAgy(request: ClaudeRunRequest): Promise<ClaudeRunResult
         await rm(workspace, { recursive: true, force: true });
     }
 }
+
+/** Gemini through agy, for a model stored as `agy:<id>`. */
+export const agyBackend: AgentBackend = {
+    owns: isAgyModel,
+    listModels: listAgyModels,
+    run: runAgy,
+};

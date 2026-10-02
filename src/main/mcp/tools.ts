@@ -31,7 +31,7 @@ import * as skillStore from '../store/skillStore';
 import { rewatch } from '../store/skillWatch';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
-import { listServerTools } from '../claude/serverTools';
+import { listServerTools } from '../tools/serverTools';
 
 /**
  * The app as MCP tools, going through the same stores as the window; every write
