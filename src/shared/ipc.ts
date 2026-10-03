@@ -77,6 +77,33 @@ export interface ModelOption {
     effortRequired?: boolean;
 }
 
+/** One of a plan's usage limits, as the agent reports it. */
+export interface UsageWindow {
+    /** What the limit covers, e.g. "5-hour session" or "Gemini · week". */
+    label: string;
+    /** How much of it is used, 0–100. */
+    percentUsed: number;
+    /** When it resets, as an ISO time. Null when the agent does not say. */
+    resetsAt: string | null;
+}
+
+/** How one agent stands, as Settings → Agents shows it: found, which version, and signed in. */
+export interface AgentStatus {
+    /** `claude` or `agy`. */
+    id: string;
+    name: string;
+    /** The binary a run starts. Empty for the copy of Claude Code that comes with the Agent SDK. */
+    executable: string;
+    /** What it says its version is. Null when it did not say. */
+    version: string | null;
+    /** Found and signed in, so a node on one of its models can run. */
+    ready: boolean;
+    /** Who it is signed in as, or what is in the way. */
+    detail: string;
+    /** The plan's limits and how much of each is used. Empty when the agent reports none, as for an API key. */
+    usage: UsageWindow[];
+}
+
 /**
  * What an external drag dropped on a trigger carried. Outlook gives a `.msg`
  * named after the subject and some text, but no id, so this only confirms the
@@ -153,12 +180,14 @@ export interface Api {
         /** The email selected in Outlook, for a trigger. Refused if it lives in another mailbox. */
         selected(account: string): Promise<EmailEnvelope>;
     };
-    claude: {
+    agents: {
         /**
          * The models the Claude login offers now, asked of Claude Code rather than written into the app,
          * then the Gemini models agy offers.
          */
         models(): Promise<ModelOption[]>;
+        /** Each agent's version and whether it is signed in, asked of it now. */
+        status(): Promise<AgentStatus[]>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every
@@ -306,7 +335,8 @@ export const IPC = {
     outlookDragged: 'outlook:dragged',
     outlookSelected: 'outlook:selected',
 
-    claudeModels: 'claude:models',
+    agentsModels: 'agents:models',
+    agentsStatus: 'agents:status',
 
     skillsList: 'skills:list',
     skillsCreate: 'skills:create',

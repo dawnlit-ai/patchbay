@@ -3,6 +3,16 @@
 /** Just the time of day: these lists are read the day they are written. */
 export const time = (iso: string): string => new Date(iso).toLocaleTimeString();
 
+/** When something still ahead happens: the time if today, the weekday and time within the week, else the date. */
+export function ahead(iso: string): string {
+    const at = new Date(iso);
+    if (!Number.isFinite(at.getTime())) return 'at an unknown time';
+    const clock = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (at.toDateString() === new Date().toDateString()) return clock;
+    if (at.getTime() - Date.now() < 6 * 86_400_000) return `${at.toLocaleDateString([], { weekday: 'short' })} ${clock}`;
+    return at.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 /** How long ago, falling back to a date once "days ago" stops meaning much. */
 export function ago(iso: string): string {
     const ms = Date.now() - new Date(iso).getTime();

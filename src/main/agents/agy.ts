@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
-import type { ModelOption } from '@shared/ipc';
+import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import { serveOnLoopback } from './loopback';
-import type { AgentBackend, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
+import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 
 /**
  * Gemini through the Antigravity CLI (`agy`), for a node whose model is stored as
@@ -20,8 +20,12 @@ import type { AgentBackend, AgentMcpServer, AgentRunRequest, AgentRunResult } fr
  * tool only when the user's own agy settings allow it, so each needs a rule there.
  */
 
-/** Where agy installs itself; an app opened from the Finder has no shell PATH to find it by. */
-function resolveAgyPath(): string {
+/**
+ * The `agy` binary: the one the host names, else where agy installs itself, as
+ * an app opened from the Finder has no shell PATH to find it by.
+ */
+function resolveAgyPath(configured: string | undefined): string {
+    if (configured) return configured;
     const candidates =
         process.platform === 'win32'
             ? [join(homedir(), '.local', 'bin', 'agy.exe')]
@@ -112,11 +116,12 @@ interface Exited {
 }
 
 function runAgyCommand(
+    exe: string,
     args: string[],
     options: { cwd?: string; input?: string; signal?: AbortSignal; onLine?(line: string): void } = {},
 ): Promise<Exited> {
     return new Promise((resolve, reject) => {
-        const child = spawn(resolveAgyPath(), args, { cwd: options.cwd, signal: options.signal });
+        const child = spawn(exe, args, { cwd: options.cwd, signal: options.signal });
         let stderr = '';
         createInterface({ input: child.stdout }).on('line', (line) => options.onLine?.(line));
         child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
@@ -129,12 +134,18 @@ function runAgyCommand(
 
 const MODELS_TTL_MS = 10 * 60_000;
 
-let modelsAsked: { at: number; list: Promise<ModelOption[]> } | null = null;
+let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | null = null;
 
-async function askForModels(): Promise<ModelOption[]> {
+/** What agy said went wrong: its last line, without the "Error:" in front. */
+function complaint({ code, stderr }: Exited): string {
+    return stderr.trim().split('\n').at(-1)?.replace(/^Error:\s*/, '').trim() || `agy exited with ${code}.`;
+}
+
+/** The Gemini models agy offers, or what agy says is in the way — not signed in, say. */
+async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOption[]> {
     const lines: string[] = [];
-    const { code } = await runAgyCommand(['models'], { onLine: (line) => lines.push(line) });
-    if (code !== 0) return [];
+    const exited = await runAgyCommand(exe, ['models'], { signal, onLine: (line) => lines.push(line) });
+    if (exited.code !== 0) throw new Error(complaint(exited));
     // One entry per model, with the levels agy lists it at as its effort levels.
     const models = new Map<string, { name: string; levels: string[] }>();
     for (const line of lines) {
@@ -163,11 +174,91 @@ async function askForModels(): Promise<ModelOption[]> {
 }
 
 /** The Gemini models agy offers. Empty when agy is not installed or not signed in, never a failure. */
-function listAgyModels(): Promise<ModelOption[]> {
-    if (modelsAsked && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
-    const asked = { at: Date.now(), list: askForModels().catch(() => []) };
+function listAgyModels(exe: string): Promise<ModelOption[]> {
+    if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
+    const asked = { exe, at: Date.now(), list: askForModels(exe).catch(() => []) };
     modelsAsked = asked;
     return asked.list;
+}
+
+/** Long enough for `agy models` to ask Google over a slow connection. */
+const STATUS_TIMEOUT_MS = 30_000;
+
+/** Why agy could not be asked, from the error its spawn or `askForModels` ended in. */
+function unreachable(e: unknown, exe: string): string {
+    const error = e as NodeJS.ErrnoException;
+    if (error.name === 'AbortError') return `agy did not answer within ${STATUS_TIMEOUT_MS / 1000} seconds.`;
+    if (error.code !== 'ENOENT') return error.message;
+    // A bare name is what is left when it is in none of the places agy installs itself.
+    return exe === 'agy' ? 'Not installed: not in ~/.local/bin, nor on the PATH.' : `Not found at ${exe}.`;
+}
+
+/** What `agy -p /usage --output-format json` answers, read structurally. */
+interface UsageAnswer {
+    command?: {
+        data?: {
+            groups?: {
+                name?: string;
+                buckets?: { window?: string; remaining_fraction?: number; reset_time?: string }[];
+            }[];
+        };
+    };
+}
+
+/** agy's windows, the shorter first. */
+const USAGE_WINDOWS: [string, string][] = [['5h', '5 hours'], ['weekly', 'week']];
+
+/**
+ * agy's quota for each group of models it offers, as used rather than remaining
+ * so it reads like Claude's. Asked only of a signed-in agy: a signed-out one waits
+ * a minute for a browser sign-in instead of answering.
+ */
+async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindow[]> {
+    const lines: string[] = [];
+    // Out of any folder of the user's, which agy would otherwise take for a project.
+    const exited = await runAgyCommand(exe, ['-p', '/usage', '--output-format', 'json'], {
+        cwd: tmpdir(),
+        signal,
+        onLine: (line) => lines.push(line),
+    });
+    if (exited.code !== 0) return [];
+    const answer = JSON.parse(lines.join('\n')) as UsageAnswer;
+    return (answer.command?.data?.groups ?? []).flatMap((group) =>
+        USAGE_WINDOWS.flatMap(([window, named]) =>
+            (group.buckets ?? [])
+                .filter((b) => b.window === window && typeof b.remaining_fraction === 'number')
+                .map((b) => ({
+                    // "Gemini Models" is "Gemini" here, as the label says it is about models.
+                    label: `${(group.name ?? 'Models').replace(/\s+models$/i, '')} · ${named}`,
+                    percentUsed: Math.round((1 - (b.remaining_fraction ?? 1)) * 100),
+                    resetsAt: b.reset_time ?? null,
+                })),
+        ),
+    );
+}
+
+/** The binary a run would start, its version, whether it is signed in, and its quota. */
+async function agyStatus(exe: string): Promise<AgentStatus> {
+    const base = { id: 'agy', name: 'agy', executable: exe };
+    const said: string[] = [];
+    try {
+        await runAgyCommand(exe, ['--version'], {
+            signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+            onLine: (line) => said.push(line),
+        });
+    } catch (e) {
+        return { ...base, version: null, ready: false, detail: unreachable(e, exe), usage: [] };
+    }
+    const version = said[0]?.trim() || null;
+    try {
+        // Only a signed-in agy lists its models.
+        const models = await askForModels(exe, AbortSignal.timeout(STATUS_TIMEOUT_MS));
+        const offered = `${models.length} Gemini model${models.length === 1 ? '' : 's'} on offer`;
+        const usage = await askForUsage(exe, AbortSignal.timeout(STATUS_TIMEOUT_MS)).catch(() => []);
+        return { ...base, version, ready: true, detail: `Signed in · ${offered}`, usage };
+    } catch (e) {
+        return { ...base, version, ready: false, detail: unreachable(e, exe), usage: [] };
+    }
 }
 
 /** The run's MCP servers as agy's plugin config: the in-process ones served on loopback. */
@@ -301,7 +392,7 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
     return { label: info.name ?? 'tool', input: params };
 }
 
-async function runAgy(request: AgentRunRequest): Promise<AgentRunResult> {
+async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunResult> {
     const model = request.model.slice(AGY_MODEL_PREFIX.length);
     // The id `agy models` lists this model at this level by.
     const shown = request.effort ? `${model}-${request.effort}` : model;
@@ -456,7 +547,7 @@ async function runAgy(request: AgentRunRequest): Promise<AgentRunResult> {
             };
 
             try {
-                attempt.exited = await runAgyCommand(args, {
+                attempt.exited = await runAgyCommand(exe, args, {
                     cwd: workspace,
                     input: prompt,
                     signal: request.signal,
@@ -484,7 +575,7 @@ async function runAgy(request: AgentRunRequest): Promise<AgentRunResult> {
 
         function settle({ result, exited, spawnError, grants }: Attempt): AgentRunResult {
             if (spawnError?.code === 'ENOENT') {
-                return fail('agy is not installed, or not where this app looks for it (~/.local/bin).');
+                return fail(`agy is not installed, or not at ${exe}. Set where it is under Settings → Agents.`);
             }
             if (spawnError) return fail(spawnError.message);
             if (!result) {
@@ -523,8 +614,12 @@ async function runAgy(request: AgentRunRequest): Promise<AgentRunResult> {
 }
 
 /** Gemini through agy, for a model stored as `agy:<id>`. */
-export const agyBackend: AgentBackend = {
-    owns: isAgyModel,
-    listModels: listAgyModels,
-    run: runAgy,
-};
+export function agyBackend(host: AgentHost): AgentBackend {
+    const exe = (): string => resolveAgyPath(host.agyExecutable());
+    return {
+        owns: isAgyModel,
+        listModels: () => listAgyModels(exe()),
+        status: () => agyStatus(exe()),
+        run: (request) => runAgy(exe(), request),
+    };
+}

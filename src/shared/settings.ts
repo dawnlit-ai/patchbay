@@ -30,6 +30,8 @@ export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 export interface Settings {
     /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
     claudeExecutablePath: string;
+    /** The `agy` executable, for nodes on Gemini. Empty looks where agy installs itself. */
+    agyExecutablePath: string;
     /** Extra MCP servers, whose tools a Processor or Extractor is handed as its `mcpTools` names them. */
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
@@ -51,6 +53,7 @@ export interface Settings {
 export function defaultSettings(): Settings {
     return {
         claudeExecutablePath: '',
+        agyExecutablePath: '',
         skillSeedPath: '',
         globalSkillFolders: [],
         mcpServers: [],

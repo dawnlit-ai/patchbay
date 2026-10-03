@@ -922,7 +922,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read settings',
             description:
-                'App settings, with the agent-control token withheld. There is no tool that writes these: the Claude executable and the MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
+                'App settings, with the agent-control token withheld. There is no tool that writes these: the Claude and agy executables and the MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
             inputSchema: {},
             annotations: { readOnlyHint: true },
         },

@@ -872,6 +872,82 @@ button.wide {
     color: var(--err);
 }
 
+/* An agent's state under its executable: a dot, then what it said about itself. */
+.agent-state {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.agent-state .dot {
+    flex: none;
+    transform: translateY(-1px);
+}
+
+.agent-state.ok .dot {
+    background: var(--ok);
+}
+
+.agent-state.bad .dot {
+    background: var(--warn);
+}
+
+.agent-state strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* A plan's limits, one row each: what it covers, a bar, how much is used, when it resets. */
+.usage {
+    display: grid;
+    /* Fixed label and bar widths, so the two agents' bars line up. */
+    grid-template-columns: minmax(150px, max-content) 140px max-content max-content;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    margin-top: 10px;
+    font-size: 11.5px;
+}
+
+.usage-row {
+    display: contents;
+}
+
+.usage-bar {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--panel-3);
+}
+
+.usage-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
+
+.usage-fill.mid {
+    background: var(--warn);
+}
+
+.usage-fill.high {
+    background: var(--err);
+}
+
+.usage-pct {
+    color: var(--text);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.usage-reset {
+    color: var(--dim);
+}
+
 /* Which folder a skill on the shelf came from, when there is more than one. */
 .set-from {
     display: block;

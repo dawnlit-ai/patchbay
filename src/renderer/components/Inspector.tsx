@@ -76,7 +76,7 @@ function useModels(): Models {
 
     useEffect(() => {
         let cancelled = false;
-        window.api.claude
+        window.api.agents
             .models()
             .then((list) => {
                 if (!cancelled) setModels(list);

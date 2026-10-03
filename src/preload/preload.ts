@@ -60,8 +60,9 @@ const api: Api = {
         dragged: (account, drag) => call(IPC.outlookDragged, account, drag),
         selected: (account) => call(IPC.outlookSelected, account),
     },
-    claude: {
-        models: () => call(IPC.claudeModels),
+    agents: {
+        models: () => call(IPC.agentsModels),
+        status: () => call(IPC.agentsStatus),
     },
     skills: {
         list: (flowId) => call(IPC.skillsList, flowId),

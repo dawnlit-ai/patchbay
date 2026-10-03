@@ -10,7 +10,8 @@ import {
     type Settings,
     type SkillSummary,
 } from '@shared/settings';
-import { time } from '../format';
+import type { AgentStatus, UsageWindow } from '@shared/ipc';
+import { ahead, time } from '../format';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface Props {
@@ -26,10 +27,10 @@ interface Props {
 
 /** The settings window's content: a rail of pages, the current page, and Save. */
 
-type Page = 'claude' | 'skills' | 'runs' | 'servers' | 'agent';
+type Page = 'agents' | 'skills' | 'runs' | 'servers' | 'agent';
 
 const PAGES: { id: Page; label: string }[] = [
-    { id: 'claude', label: 'Claude' },
+    { id: 'agents', label: 'Agents' },
     { id: 'skills', label: 'Global skills' },
     { id: 'runs', label: 'Runs' },
     { id: 'servers', label: 'MCP servers' },
@@ -41,7 +42,7 @@ const PAGES: { id: Page; label: string }[] = [
  * are left out: main ignores both on save, so a stale copy here is not a change.
  */
 const EDITS: Record<Page, (s: Settings) => unknown> = {
-    claude: (s) => s.claudeExecutablePath,
+    agents: (s) => [s.claudeExecutablePath, s.agyExecutablePath],
     skills: (s) => s.skillSeedPath,
     runs: (s) => [s.pollingEnabled, s.maxConcurrentRuns],
     servers: (s) => s.mcpServers,
@@ -102,6 +103,52 @@ function Row({
     );
 }
 
+/** A plan's limits as bars: how much of each is used, and when it resets. */
+function Usage({ usage }: { usage: UsageWindow[] }): JSX.Element | null {
+    if (usage.length === 0) return null;
+    return (
+        <div className="usage">
+            {usage.map((u) => (
+                <div key={u.label} className="usage-row">
+                    <span className="usage-label">{u.label}</span>
+                    <span
+                        className="usage-bar"
+                        role="meter"
+                        aria-label={`${u.label} used`}
+                        aria-valuenow={u.percentUsed}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                    >
+                        <span
+                            className={`usage-fill${u.percentUsed >= 90 ? ' high' : u.percentUsed >= 70 ? ' mid' : ''}`}
+                            style={{ width: `${Math.min(100, u.percentUsed)}%` }}
+                        />
+                    </span>
+                    <span className="usage-pct">{u.percentUsed}% used</span>
+                    <span className="usage-reset">{u.resetsAt ? `resets ${ahead(u.resetsAt)}` : ''}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** One agent's state under its executable: found, which version, signed in. */
+function AgentState({ status, checking }: { status: AgentStatus | undefined; checking: boolean }): JSX.Element {
+    if (!status) return <div className="agent-state">{checking ? 'Checking…' : 'Not checked.'}</div>;
+    return (
+        <div className={`agent-state ${status.ready ? 'ok' : 'bad'}`}>
+            <span className="dot"/>
+            <div>
+                <strong>{status.version ? `${status.name} ${status.version}` : status.name}</strong>
+                {' — '}
+                {status.detail}
+                <span className="set-from">{status.executable || 'The copy that comes with the Agent SDK'}</span>
+                <Usage usage={status.usage}/>
+            </div>
+        </div>
+    );
+}
+
 function PageHead({ title, children }: { title: string; children: ReactNode }): JSX.Element {
     return (
         <header className="set-head">
@@ -119,7 +166,7 @@ export function SettingsPanel({
                                   onRegenerateToken,
                               }: Props): JSX.Element {
     const [draft, setDraft] = useState<Settings>(settings);
-    const [page, setPage] = useState<Page>('claude');
+    const [page, setPage] = useState<Page>('agents');
     /** The token stays dotted out unless asked for: a settings window gets screen-shared. */
     const [revealToken, setRevealToken] = useState(false);
     /** Which copy button just put something on the clipboard. */
@@ -155,6 +202,26 @@ export function SettingsPanel({
             ...d,
             mcpServers: [...d.mcpServers, { name: '', command: '', args: [], enabled: true }],
         }));
+
+    /** Each agent as the saved settings find it. Asked again on Save, as a new path changes the answer. */
+    const [agentStates, setAgentStates] = useState<AgentStatus[] | null>(null);
+    const [checkingAgents, setCheckingAgents] = useState(false);
+    const agentCheck = useRef(0);
+    const checkAgents = async (): Promise<void> => {
+        const mine = ++agentCheck.current;
+        setCheckingAgents(true);
+        try {
+            const states = await window.api.agents.status();
+            if (mine === agentCheck.current) setAgentStates(states);
+        } finally {
+            if (mine === agentCheck.current) setCheckingAgents(false);
+        }
+    };
+    const agentState = (id: string): AgentStatus | undefined => agentStates?.find((a) => a.id === id);
+
+    useEffect(() => {
+        void checkAgents();
+    }, [settings.claudeExecutablePath, settings.agyExecutablePath]);
 
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({ ...d, agentControl: { ...d.agentControl, ...partial } }));
@@ -354,26 +421,54 @@ export function SettingsPanel({
             <div className="set-main">
                 <div className="set-scroll">
                     <div className="set-page">
-                        {page === 'claude' && (
+                        {page === 'agents' && (
                             <>
-                                <PageHead title="Claude">
-                                    Which Claude your Processor nodes run.
+                                <PageHead title="Agents">
+                                    What your Categorizer, Extractor and Processor nodes run on: Claude, or Gemini
+                                    through the Antigravity CLI where a node picks a model marked · agy.
                                 </PageHead>
                                 <div className="set-group">
                                     <Row
                                         label="Claude executable"
                                         description="Leave it blank to use Claude Code on this computer, or the copy that comes with the Agent SDK. Set a path only if Patchbay can't find either."
                                         below={
-                                            <input
-                                                className="mono"
-                                                aria-label="Claude executable"
-                                                value={draft.claudeExecutablePath}
-                                                placeholder="Found automatically"
-                                                onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
-                                            />
+                                            <>
+                                                <input
+                                                    className="mono"
+                                                    aria-label="Claude executable"
+                                                    value={draft.claudeExecutablePath}
+                                                    placeholder="Found automatically"
+                                                    onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
+                                                />
+                                                <AgentState status={agentState('claude')} checking={checkingAgents}/>
+                                            </>
+                                        }
+                                    />
+                                    <Row
+                                        label="agy executable"
+                                        description="Leave it blank to use agy where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Gemini models join the model lists once agy is found and signed in."
+                                        below={
+                                            <>
+                                                <input
+                                                    className="mono"
+                                                    aria-label="agy executable"
+                                                    value={draft.agyExecutablePath}
+                                                    placeholder="Found automatically"
+                                                    onChange={(e) => patch({ agyExecutablePath: e.target.value })}
+                                                />
+                                                <AgentState status={agentState('agy')} checking={checkingAgents}/>
+                                            </>
                                         }
                                     />
                                 </div>
+                                <div className="set-actions">
+                                    <button disabled={checkingAgents} onClick={() => void checkAgents()}>
+                                        {checkingAgents ? 'Checking…' : 'Check again'}
+                                    </button>
+                                </div>
+                                <p className="set-note">
+                                    Checked with the saved paths: a path typed above is checked once it is saved.
+                                </p>
                             </>
                         )}
 

@@ -148,13 +148,16 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
   inspector's model lists come from it too, marked *· claude*: they show what that login offers now, so a new model
   appears without a new build of the app. So do the effort levels, which differ from model to model — a node offers the
   ones its model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
-- **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on Gemini. Its Gemini models join the model
-  lists, marked *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a
-  node on one always names its level. Each run gets a workspace of its own holding the node's skills and servers, with a
-  hook that refuses every tool the node was not given — agy's shell, browser and web search included. The hook can
-  refuse but not grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses
-  needs an `mcp(patchbay_<server>/<tool>)` rule under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`.
-  A run that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
+- **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on Gemini — found where it installs itself, in
+  `~/.local/bin`, or at the path set under **Settings → Agents**. Its Gemini models join the model lists, marked
+  *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a node on one
+  always names its level. Each run gets a workspace of its own holding the node's skills and servers, with a hook that
+  refuses every tool the node was not given — agy's shell, browser and web search included. The hook can refuse but not
+  grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses needs an
+  `mcp(patchbay_<server>/<tool>)` rule under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. A run
+  that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
+  **Settings → Agents** shows each agent's version, whether it is signed in, and how much of its plan's 5-hour and
+  weekly limits it has used.
 
 ## Install
 
@@ -382,8 +385,8 @@ Three things are deliberately absent:
   fetching a body is the job of the run's own scoped tools, and those cannot reach a second message. A run already
   recorded is another matter — `get_run` returns the prompts a node sent, email and all, because a trace you cannot
   read is not a trace.
-- **No tool writes settings.** The Claude executable and the servers handed to a Processor decide what code a run
-  executes, so they stay with the person at the window.
+- **No tool writes settings.** The Claude and agy executables and the servers handed to a Processor decide what code
+  a run executes, so they stay with the person at the window.
 - **Nothing sends mail.** Nothing in this app does.
 
 It is off until you switch it on. When it is on it binds to `127.0.0.1` only; every request has to carry the token
@@ -402,7 +405,8 @@ src/
 ├─ shared/      flow graph, run/trace records, IPC contract   (both processes)
 ├─ main/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
-│  ├─ claude/   Agent SDK wrapper, and the email-scoped MCP tools
+│  ├─ agents/   runs a step on Claude (Agent SDK) or Gemini (agy); takes nothing from the app but its host
+│  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
 │  ├─ store/    flows and their skills, settings, run traces (files on disk)

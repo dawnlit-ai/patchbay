@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ModelOption } from '@shared/ipc';
+import type { AgentStatus, ModelOption } from '@shared/ipc';
 import type { TraceEvent } from '@shared/trace';
 
 /** An MCP server a run is handed: a command to start, or one this process serves itself. */
@@ -63,6 +63,8 @@ export interface AgentBackend {
     owns(model: string): boolean;
     /** The models it offers now. */
     listModels(): Promise<ModelOption[]>;
+    /** Its version and whether it is signed in, asked of it now. Never a failure: what went wrong is the detail. */
+    status(): Promise<AgentStatus>;
     run(request: AgentRunRequest): Promise<AgentRunResult>;
 }
 
@@ -70,6 +72,8 @@ export interface AgentBackend {
 export interface AgentHost {
     /** The `claude` binary the app names, if it names one. Otherwise an installed one is looked for. */
     claudeExecutable(): string | undefined;
+    /** The `agy` binary the app names, if it names one. Otherwise it is looked for where agy installs itself. */
+    agyExecutable(): string | undefined;
     /** Something the app's own log should hear, beyond the run's trace. */
     warn(message: string, detail?: string): void;
 }

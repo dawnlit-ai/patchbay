@@ -1,8 +1,16 @@
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelOption } from '@shared/ipc';
+import { promisify } from 'node:util';
+import type {
+    AccountInfo,
+    Options,
+    Query,
+    SDKControlGetUsageResponse,
+    SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult } from './types';
 import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
@@ -30,7 +38,8 @@ const MODELS_TTL_MS = 10 * 60_000;
 
 let modelsAsked: { exe: string | undefined; at: number; list: Promise<ModelOption[]> } | null = null;
 
-async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
+/** Asks the CLI something about itself, in a session that never runs a turn. */
+async function askIdle<T>(exe: string | undefined, ask: (q: Query) => Promise<T>): Promise<T> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     // A prompt stream that never yields: the CLI answers control requests and is
@@ -46,7 +55,7 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
     const q = query({
         prompt: nothing(),
         options: {
-            // What a run is started with, so the list is the one a run can use.
+            // What a run is started with, so the answer is the one a run would get.
             pathToClaudeCodeExecutable: exe,
             settingSources: [],
             strictMcpConfig: true,
@@ -56,19 +65,23 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
         },
     });
     try {
-        const models = await q.supportedModels();
-        return models.map((m) => ({
-            value: m.value,
-            resolvedModel: m.resolvedModel,
-            // Marked like agy's, as the two share one list.
-            displayName: `${m.displayName} · claude`,
-            description: m.description,
-            effortLevels: m.supportsEffort ? (m.supportedEffortLevels ?? []) : [],
-        }));
+        return await ask(q);
     } finally {
         release();
         q.close();
     }
+}
+
+async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
+    const models = await askIdle(exe, (q) => q.supportedModels());
+    return models.map((m) => ({
+        value: m.value,
+        resolvedModel: m.resolvedModel,
+        // Marked like agy's, as the two share one list.
+        displayName: `${m.displayName} · claude`,
+        description: m.description,
+        effortLevels: m.supportsEffort ? (m.supportedEffortLevels ?? []) : [],
+    }));
 }
 
 /** The models the Claude login offers, asked of the CLI so the list never goes stale. */
@@ -84,6 +97,88 @@ function listModels(exe: string | undefined): Promise<ModelOption[]> {
         if (modelsAsked === asked) modelsAsked = null;
     });
     return asked.list;
+}
+
+/** Long enough for the SDK to unpack its own copy of Claude Code on a first start. */
+const STATUS_TIMEOUT_MS = 30_000;
+
+function within<T>(promise: Promise<T>, what: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} did not answer within ${STATUS_TIMEOUT_MS / 1000} seconds`)), STATUS_TIMEOUT_MS);
+    });
+    return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** "2.1.288" from `claude --version`'s "2.1.288 (Claude Code)". */
+async function versionOf(exe: string): Promise<string | null> {
+    try {
+        const { stdout } = await promisify(execFile)(exe, ['--version'], { timeout: STATUS_TIMEOUT_MS });
+        return stdout.trim().split(/\s+/)[0] || null;
+    } catch {
+        return null;
+    }
+}
+
+/** Who a run would be billed to, or null when it has nothing to sign its requests with. */
+function signedInAs(account: AccountInfo): string | null {
+    if (account.email) return [`Signed in as ${account.email}`, account.subscriptionType].filter(Boolean).join(' · ');
+    if (account.apiKeySource && account.apiKeySource !== 'none') return `Using an API key from ${account.apiKeySource}`;
+    // Bedrock, Vertex and the rest sign requests with their own cloud credentials.
+    if (account.apiProvider && account.apiProvider !== 'firstParty') return `Through ${account.apiProvider}`;
+    return null;
+}
+
+/** The plan's limits that carry a figure, each as "<models> · <window>". None for an API key. */
+function planUsage(usage: SDKControlGetUsageResponse | null): UsageWindow[] {
+    const limits = usage?.rate_limits;
+    if (!limits) return [];
+    type Limit = { utilization: number | null; resets_at: string | null } | null | undefined;
+    const named: [string, Limit][] = [
+        ['All models · 5 hours', limits.five_hour],
+        ['All models · week', limits.seven_day],
+        ['Opus · week', limits.seven_day_opus],
+        ['Sonnet · week', limits.seven_day_sonnet],
+        ...(limits.model_scoped ?? []).map((m): [string, Limit] => [`${m.display_name} · week`, m]),
+    ];
+    return named.flatMap(([label, limit]) =>
+        limit && limit.utilization !== null ? [{ label, percentUsed: limit.utilization, resetsAt: limit.resets_at }] : [],
+    );
+}
+
+/** The binary a run would start, its version, whether it is signed in, and its plan's usage — asked as a run would. */
+async function claudeStatus(exe: string | undefined): Promise<AgentStatus> {
+    const base = { id: 'claude', name: 'Claude Code', executable: exe ?? '' };
+    const asked = askIdle(exe, async (q) => {
+        const account = await q.accountInfo();
+        // Experimental in the SDK, so a CLI that cannot answer it just shows no usage.
+        const usage = signedInAs(account)
+            ? await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).catch(() => null)
+            : null;
+        return { account, usage };
+    });
+    const [version, answer] = await Promise.all([
+        exe ? versionOf(exe) : Promise.resolve(null),
+        within(asked, 'Claude Code').catch((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
+    ]);
+    if (answer instanceof Error) {
+        const missing = exe !== undefined && /ENOENT|not found/i.test(answer.message);
+        return {
+            ...base,
+            version,
+            ready: false,
+            detail: missing ? `Not found at ${exe}.` : `It did not start: ${answer.message}`,
+            usage: [],
+        };
+    }
+    const who = signedInAs(answer.account);
+    return {
+        ...base,
+        version,
+        ready: who !== null,
+        detail: who ?? 'Not signed in. Run claude in a terminal and sign in with /login.',
+        usage: planUsage(answer.usage),
+    };
 }
 
 /** Content blocks arrive as a loose union; read them structurally. */
@@ -321,6 +416,7 @@ export function claudeBackend(host: AgentHost): AgentBackend {
     return {
         owns: () => true,
         listModels: () => listModels(resolveClaudePath(host.claudeExecutable())),
+        status: () => claudeStatus(resolveClaudePath(host.claudeExecutable())),
         run: (request) => runClaude(host, request),
     };
 }

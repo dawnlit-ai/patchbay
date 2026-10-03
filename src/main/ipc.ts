@@ -244,7 +244,8 @@ export function registerIpc(): void {
     handle(IPC.outlookSelected, (account: string) => outlook.readSelected(account));
 
     // Claude's first; agy's Gemini models after, or none when agy is not installed.
-    handle(IPC.claudeModels, () => agents.listModels());
+    handle(IPC.agentsModels, () => agents.listModels());
+    handle(IPC.agentsStatus, () => agents.status());
 
     // Skills are edited in other apps, so main watches their folders and every
     // window re-reads its list on a change, whoever made it.
