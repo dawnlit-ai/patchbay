@@ -62,7 +62,8 @@ const api: Api = {
     },
     agents: {
         models: () => call(IPC.agentsModels),
-        status: () => call(IPC.agentsStatus),
+        status: (id) => call(IPC.agentsStatus, id),
+        lastStatus: (id) => call(IPC.agentsLastStatus, id),
     },
     skills: {
         list: (flowId) => call(IPC.skillsList, flowId),

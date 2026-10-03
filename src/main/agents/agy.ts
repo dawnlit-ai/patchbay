@@ -237,27 +237,37 @@ async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindo
     );
 }
 
+/** What `agy --version` says. */
+async function askForVersion(exe: string, signal: AbortSignal): Promise<string | null> {
+    const said: string[] = [];
+    await runAgyCommand(exe, ['--version'], { signal, onLine: (line) => said.push(line) });
+    return said[0]?.trim() || null;
+}
+
 /** The binary a run would start, its version, whether it is signed in, and its quota. */
 async function agyStatus(exe: string): Promise<AgentStatus> {
     const base = { id: 'agy', name: 'agy', executable: exe };
-    const said: string[] = [];
+    const timeout = AbortSignal.timeout(STATUS_TIMEOUT_MS);
+    // All three at once, as each takes a second or two. Only a signed-in agy lists
+    // its models, and the quota is asked before that is known, so a model list that
+    // fails stops the quota too, rather than leaving agy waiting on a browser sign-in.
+    const signedOut = new AbortController();
+    const version = askForVersion(exe, timeout);
+    const models = askForModels(exe, timeout);
+    const usage = askForUsage(exe, AbortSignal.any([timeout, signedOut.signal])).catch((): UsageWindow[] => []);
     try {
-        await runAgyCommand(exe, ['--version'], {
-            signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
-            onLine: (line) => said.push(line),
-        });
+        const [said, offered] = await Promise.all([version, models]);
+        const count = `${offered.length} Gemini model${offered.length === 1 ? '' : 's'} on offer`;
+        return { ...base, version: said, ready: true, detail: `Signed in · ${count}`, usage: await usage };
     } catch (e) {
-        return { ...base, version: null, ready: false, detail: unreachable(e, exe), usage: [] };
-    }
-    const version = said[0]?.trim() || null;
-    try {
-        // Only a signed-in agy lists its models.
-        const models = await askForModels(exe, AbortSignal.timeout(STATUS_TIMEOUT_MS));
-        const offered = `${models.length} Gemini model${models.length === 1 ? '' : 's'} on offer`;
-        const usage = await askForUsage(exe, AbortSignal.timeout(STATUS_TIMEOUT_MS)).catch(() => []);
-        return { ...base, version, ready: true, detail: `Signed in · ${offered}`, usage };
-    } catch (e) {
-        return { ...base, version, ready: false, detail: unreachable(e, exe), usage: [] };
+        signedOut.abort();
+        return {
+            ...base,
+            version: await version.catch(() => null),
+            ready: false,
+            detail: unreachable(e, exe),
+            usage: [],
+        };
     }
 }
 
@@ -617,6 +627,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
 export function agyBackend(host: AgentHost): AgentBackend {
     const exe = (): string => resolveAgyPath(host.agyExecutable());
     return {
+        id: 'agy',
         owns: isAgyModel,
         listModels: () => listAgyModels(exe()),
         status: () => agyStatus(exe()),

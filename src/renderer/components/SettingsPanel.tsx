@@ -132,6 +132,9 @@ function Usage({ usage }: { usage: UsageWindow[] }): JSX.Element | null {
     );
 }
 
+/** The agents the Agents page checks, each under its executable. */
+const AGENTS = ['claude', 'agy'];
+
 /** One agent's state under its executable: found, which version, signed in. */
 function AgentState({ status, checking }: { status: AgentStatus | undefined; checking: boolean }): JSX.Element {
     if (!status) return <div className="agent-state">{checking ? 'Checking…' : 'Not checked.'}</div>;
@@ -142,6 +145,7 @@ function AgentState({ status, checking }: { status: AgentStatus | undefined; che
                 <strong>{status.version ? `${status.name} ${status.version}` : status.name}</strong>
                 {' — '}
                 {status.detail}
+                {checking && <span className="agent-checking"> · checking again…</span>}
                 <span className="set-from">{status.executable || 'The copy that comes with the Agent SDK'}</span>
                 <Usage usage={status.usage}/>
             </div>
@@ -203,25 +207,39 @@ export function SettingsPanel({
             mcpServers: [...d.mcpServers, { name: '', command: '', args: [], enabled: true }],
         }));
 
-    /** Each agent as the saved settings find it. Asked again on Save, as a new path changes the answer. */
-    const [agentStates, setAgentStates] = useState<AgentStatus[] | null>(null);
-    const [checkingAgents, setCheckingAgents] = useState(false);
-    const agentCheck = useRef(0);
-    const checkAgents = async (): Promise<void> => {
-        const mine = ++agentCheck.current;
-        setCheckingAgents(true);
+    /**
+     * Each agent as the saved settings find it, shown as soon as its own check
+     * ends: one slow agent does not hold up the other. Asked again on Save, as a
+     * new path changes the answer.
+     */
+    const [agentStates, setAgentStates] = useState<Record<string, AgentStatus>>({});
+    const [checking, setChecking] = useState<Record<string, boolean>>({});
+    const agentChecks = useRef<Record<string, number>>({});
+    const checkAgent = async (id: string): Promise<void> => {
+        const mine = (agentChecks.current[id] ?? 0) + 1;
+        agentChecks.current[id] = mine;
+        const latest = (): boolean => agentChecks.current[id] === mine;
+        setChecking((c) => ({ ...c, [id]: true }));
         try {
-            const states = await window.api.agents.status();
-            if (mine === agentCheck.current) setAgentStates(states);
+            const status = await window.api.agents.status(id);
+            if (latest()) setAgentStates((states) => ({ ...states, [id]: status }));
         } finally {
-            if (mine === agentCheck.current) setCheckingAgents(false);
+            if (latest()) setChecking((c) => ({ ...c, [id]: false }));
         }
     };
-    const agentState = (id: string): AgentStatus | undefined => agentStates?.find((a) => a.id === id);
+    const checkAgents = (): void => AGENTS.forEach((id) => void checkAgent(id));
+    const checkingAgents = AGENTS.some((id) => checking[id]);
 
+    // What the last check this session found, at once, while the next one runs.
     useEffect(() => {
-        void checkAgents();
-    }, [settings.claudeExecutablePath, settings.agyExecutablePath]);
+        for (const id of AGENTS) {
+            void window.api.agents.lastStatus(id).then((last) => {
+                if (last) setAgentStates((states) => (states[id] ? states : { ...states, [id]: last }));
+            });
+        }
+    }, []);
+
+    useEffect(checkAgents, [settings.claudeExecutablePath, settings.agyExecutablePath]);
 
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({ ...d, agentControl: { ...d.agentControl, ...partial } }));
@@ -440,7 +458,8 @@ export function SettingsPanel({
                                                     placeholder="Found automatically"
                                                     onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
                                                 />
-                                                <AgentState status={agentState('claude')} checking={checkingAgents}/>
+                                                <AgentState status={agentStates.claude}
+                                                            checking={checking.claude === true}/>
                                             </>
                                         }
                                     />
@@ -456,7 +475,7 @@ export function SettingsPanel({
                                                     placeholder="Found automatically"
                                                     onChange={(e) => patch({ agyExecutablePath: e.target.value })}
                                                 />
-                                                <AgentState status={agentState('agy')} checking={checkingAgents}/>
+                                                <AgentState status={agentStates.agy} checking={checking.agy === true}/>
                                             </>
                                         }
                                     />

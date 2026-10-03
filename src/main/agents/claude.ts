@@ -142,7 +142,11 @@ function planUsage(usage: SDKControlGetUsageResponse | null): UsageWindow[] {
         ...(limits.model_scoped ?? []).map((m): [string, Limit] => [`${m.display_name} · week`, m]),
     ];
     return named.flatMap(([label, limit]) =>
-        limit && limit.utilization !== null ? [{ label, percentUsed: limit.utilization, resetsAt: limit.resets_at }] : [],
+        limit && limit.utilization !== null ? [{
+            label,
+            percentUsed: limit.utilization,
+            resetsAt: limit.resets_at
+        }] : [],
     );
 }
 
@@ -414,6 +418,7 @@ function settle(request: AgentRunRequest, { structured, error }: Attempt): Agent
 /** Claude takes any model another backend does not claim: its aliases carry no prefix. */
 export function claudeBackend(host: AgentHost): AgentBackend {
     return {
+        id: 'claude',
         owns: () => true,
         listModels: () => listModels(resolveClaudePath(host.claudeExecutable())),
         status: () => claudeStatus(resolveClaudePath(host.claudeExecutable())),

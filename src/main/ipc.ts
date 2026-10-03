@@ -245,7 +245,8 @@ export function registerIpc(): void {
 
     // Claude's first; agy's Gemini models after, or none when agy is not installed.
     handle(IPC.agentsModels, () => agents.listModels());
-    handle(IPC.agentsStatus, () => agents.status());
+    handle(IPC.agentsStatus, (id: string) => agents.status(id));
+    handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));
 
     // Skills are edited in other apps, so main watches their folders and every
     // window re-reads its list on a change, whoever made it.

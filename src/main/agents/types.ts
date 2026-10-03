@@ -59,12 +59,18 @@ export interface AgentRunResult {
 
 /** One agent a step can run on. */
 export interface AgentBackend {
+    /** What Settings and its status call it: `claude` or `agy`. */
+    id: string;
+
     /** Whether a node's stored model runs on this agent. */
     owns(model: string): boolean;
+
     /** The models it offers now. */
     listModels(): Promise<ModelOption[]>;
+
     /** Its version and whether it is signed in, asked of it now. Never a failure: what went wrong is the detail. */
     status(): Promise<AgentStatus>;
+
     run(request: AgentRunRequest): Promise<AgentRunResult>;
 }
 
@@ -72,8 +78,10 @@ export interface AgentBackend {
 export interface AgentHost {
     /** The `claude` binary the app names, if it names one. Otherwise an installed one is looked for. */
     claudeExecutable(): string | undefined;
+
     /** The `agy` binary the app names, if it names one. Otherwise it is looked for where agy installs itself. */
     agyExecutable(): string | undefined;
+
     /** Something the app's own log should hear, beyond the run's trace. */
     warn(message: string, detail?: string): void;
 }

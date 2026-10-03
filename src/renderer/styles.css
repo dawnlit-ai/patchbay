@@ -901,6 +901,11 @@ button.wide {
     font-weight: 600;
 }
 
+/* A check under way, beside the last one's answer. */
+.agent-checking {
+    color: var(--dim);
+}
+
 /* A plan's limits, one row each: what it covers, a bar, how much is used, when it resets. */
 .usage {
     display: grid;

@@ -186,8 +186,10 @@ export interface Api {
          * then the Gemini models agy offers.
          */
         models(): Promise<ModelOption[]>;
-        /** Each agent's version and whether it is signed in, asked of it now. */
-        status(): Promise<AgentStatus[]>;
+        /** One agent's version, sign-in and usage, asked of it now: `claude` or `agy`. */
+        status(id: string): Promise<AgentStatus>;
+        /** What the last check of that agent found this session, shown while the next runs. */
+        lastStatus(id: string): Promise<AgentStatus | null>;
     };
     /**
      * Two libraries: one global to the install, one belonging to the flow. Every
@@ -337,6 +339,7 @@ export const IPC = {
 
     agentsModels: 'agents:models',
     agentsStatus: 'agents:status',
+    agentsLastStatus: 'agents:lastStatus',
 
     skillsList: 'skills:list',
     skillsCreate: 'skills:create',
