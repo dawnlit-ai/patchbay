@@ -72,6 +72,18 @@ export interface TraceEvent {
     detail?: string;
 }
 
+/**
+ * What an agent is writing at this moment — its reply, its thinking, or a tool's
+ * input — before the block is whole. Shown as it grows; the whole block then
+ * lands in the trace as an event of the same type, and this goes.
+ */
+export interface LiveText {
+    type: Extract<TraceEventType, 'assistant' | 'thinking' | 'tool-call'>;
+    /** The tool being called, for a tool's input. */
+    label: string;
+    text: string;
+}
+
 export type PassStatus = 'ok' | 'error';
 
 export interface Pass {
@@ -92,6 +104,11 @@ export interface Pass {
     error?: string;
 }
 
+/** The pass a run is in the middle of: the node it is at, and what it has done there so far. */
+export type PassUnderWay = Pick<Pass, 'seq' | 'nodeId' | 'nodeKind' | 'nodeName' | 'startedAt' | 'events'> & {
+    live?: LiveText;
+};
+
 export type RunStatus = 'running' | 'completed' | 'failed';
 
 export interface Run {
@@ -109,6 +126,8 @@ export interface Run {
     /** Edge ids traversed, so the canvas can light the exact connections used. */
     edgePath: string[];
     passes: Pass[];
+    /** Set while a node is working, and moved into `passes` once it leaves by a port. */
+    current?: PassUnderWay;
     /**
      * Every slot filled so far besides the email, which is `email` above. Absent on
      * runs recorded before nodes could fill slots.
@@ -132,6 +151,8 @@ export interface RunSummary {
     senderEmail: string;
     disposition?: string;
     passCount: number;
+    /** The node a run under way is at. */
+    at?: string;
 }
 
 export function toSummary(run: Run): RunSummary {
@@ -147,5 +168,6 @@ export function toSummary(run: Run): RunSummary {
         senderEmail: run.email.senderEmail,
         disposition: run.disposition,
         passCount: run.passes.length,
+        at: run.current?.nodeName,
     };
 }

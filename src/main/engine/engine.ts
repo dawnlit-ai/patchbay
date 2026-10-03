@@ -1,5 +1,5 @@
 import { EMAIL_SLOT, type Flow, type FlowNode, outputPorts, requires } from '@shared/flow';
-import { type EmailEnvelope, now, type Pass, type Run, type TraceEvent } from '@shared/trace';
+import { type EmailEnvelope, now, type Pass, type PassUnderWay, type Run, type TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
 import { indexRun, saveRun } from '../store/traceStore';
@@ -8,6 +8,27 @@ import { indexRun, saveRun } from '../store/traceStore';
 
 /** A run that visits more nodes than this is looping; stop and say so. */
 const MAX_PASSES = 64;
+
+/** How often a node at work is sent to the window, and written to disk, as its events and text come in. */
+const SEND_MS = 200;
+const SAVE_MS = 1_000;
+
+/** Calls `fn` once, `ms` after the first ask since it last ran, however often it is asked meanwhile. */
+function throttled(ms: number, fn: () => void): { ask(): void; cancel(): void } {
+    let timer: NodeJS.Timeout | null = null;
+    return {
+        ask: () => {
+            timer ??= setTimeout(() => {
+                timer = null;
+                fn();
+            }, ms);
+        },
+        cancel: () => {
+            if (timer) clearTimeout(timer);
+            timer = null;
+        },
+    };
+}
 
 export interface RunRequest {
     /** Minted by the caller, so a run is cancellable before its first pass lands. */
@@ -19,7 +40,7 @@ export interface RunRequest {
     trigger: 'poll' | 'manual';
     signal: AbortSignal;
 
-    /** Called after every pass, and once at the start, so the UI can follow live. */
+    /** Called at the start and end of every pass, and a few times a second while a node works, so the UI can follow live. */
     onUpdate(run: Run): void;
 }
 
@@ -40,12 +61,22 @@ export async function executeRun(request: RunRequest): Promise<Run> {
     };
     const data: Record<string, unknown> = run.data!;
 
+    // Per event would be hundreds of redraws and writes for one agent streaming its
+    // reply; these catch up a few times a second, and the pass boundary at once.
+    const send = throttled(SEND_MS, () => request.onUpdate(run));
+    const save = throttled(SAVE_MS, () => saveRun(run));
+
     const publish = (): void => {
+        send.cancel();
+        save.cancel();
         saveRun(run);
         request.onUpdate(run);
     };
 
     const finish = (status: Run['status'], error?: string): Run => {
+        send.cancel();
+        save.cancel();
+        delete run.current;
         run.status = status;
         run.endedAt = now();
         if (error) run.error = error;
@@ -97,6 +128,16 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             run.path.push(node.id);
             return finish('failed', message);
         }
+        const underWay: PassUnderWay = {
+            seq,
+            nodeId: node.id,
+            nodeKind: node.kind,
+            nodeName: node.name,
+            startedAt,
+            events,
+        };
+        run.current = underWay;
+        publish();
         try {
             const outcome = await executeNode({
                 flowId: flow.id,
@@ -105,9 +146,16 @@ export async function executeRun(request: RunRequest): Promise<Run> {
                 data,
                 scratchDir,
                 signal,
-                // Collected, not published: publishing per event would redraw the UI
-                // hundreds of times for one agent run. The pass boundary is enough.
-                onEvent: (event) => events.push(event),
+                onEvent: (event) => {
+                    events.push(event);
+                    save.ask();
+                    send.ask();
+                },
+                // Asks for no write: the whole block lands in `events` a moment later.
+                onLive: (text) => {
+                    underWay.live = text ?? undefined;
+                    send.ask();
+                },
             });
 
             pass = record({
@@ -131,6 +179,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             });
         }
 
+        delete run.current;
         run.passes.push(pass);
         run.path.push(node.id);
         publish();

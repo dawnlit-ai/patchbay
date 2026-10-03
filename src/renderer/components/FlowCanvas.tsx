@@ -35,9 +35,11 @@ import {
     type SlotCheck,
     slotTypeLabel,
 } from '@shared/flow';
-import type { Pass } from '@shared/trace';
+import type { Pass, PassUnderWay } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
+import { activity } from '../activity';
 import { ContextMenu } from './ContextMenu';
+import { Elapsed } from './Elapsed';
 
 /**
  * The canvas. The Flow is the only source of truth: React Flow's nodes are derived
@@ -48,11 +50,15 @@ export interface CanvasHighlight {
     /** Pass by node id, for the run currently being inspected. */
     passes: Map<string, Pass>;
     takenEdges: Set<string>;
+    /** The pass the run is in the middle of, while it is under way. */
+    current?: PassUnderWay;
 }
 
 interface NodeData extends Record<string, unknown> {
     flowNode: FlowNode;
     pass?: Pass;
+    /** Set on the node the run is at now. A node visited before keeps its `pass` too. */
+    working?: PassUnderWay;
     /**
      * While an email is being dragged: `ready` on every trigger it could start a
      * run at, `over` on the one it would land on if let go now.
@@ -69,14 +75,15 @@ interface EdgeData extends Record<string, unknown> {
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass, drop, issues, available } = data as NodeData;
+    const { flowNode, pass, working, drop, issues, available } = data as NodeData;
     const reads = requires(flowNode);
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
 
     const classes = ['node', `kind-${meta.token}`];
     if (selected) classes.push('selected');
-    if (pass) classes.push(pass.status === 'error' ? 'failed' : 'visited');
+    if (working) classes.push('working');
+    else if (pass) classes.push(pass.status === 'error' ? 'failed' : 'visited');
     if (drop) classes.push(`drop-${drop}`);
 
     return (
@@ -86,7 +93,13 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
             <div className="node-head">
                 <span className="dot"/>
                 <span className="kind">{meta.label}</span>
-                {pass && <span className="seq">#{pass.seq}</span>}
+                {working ? (
+                    <span className="seq">
+                        #{working.seq} · <Elapsed from={working.startedAt}/>
+                    </span>
+                ) : (
+                    pass && <span className="seq">#{pass.seq}</span>
+                )}
             </div>
 
             <div className="node-title">{flowNode.name}</div>
@@ -142,7 +155,11 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                 </div>
             ))}
 
-            {pass && <div className="node-note">{pass.summary}</div>}
+            {working ? (
+                <div className="node-note working">{activity(working)}</div>
+            ) : (
+                pass && <div className="node-note">{pass.summary}</div>
+            )}
         </div>
     );
 }
@@ -292,6 +309,7 @@ export function FlowCanvas({
                     data: {
                         flowNode: n,
                         pass: highlight?.passes.get(n.id),
+                        working: highlight?.current?.nodeId === n.id ? highlight.current : undefined,
                         drop,
                         issues: slots?.issues.filter((issue) => issue.nodeId === n.id) ?? [],
                         available: slots?.available.get(n.id),

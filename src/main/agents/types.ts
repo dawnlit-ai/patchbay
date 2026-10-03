@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
-import type { TraceEvent } from '@shared/trace';
+import type { LiveText, TraceEvent } from '@shared/trace';
 
 /** An MCP server a run is handed: a command to start, or one this process serves itself. */
 export type AgentMcpServer =
@@ -49,6 +49,9 @@ export interface AgentRunRequest {
     signal?: AbortSignal;
 
     onEvent(event: TraceEvent): void;
+
+    /** The block being written, each time it grows, and null once it is whole and on its way to `onEvent`. */
+    onLive?(text: LiveText | null): void;
 }
 
 export interface AgentRunResult {

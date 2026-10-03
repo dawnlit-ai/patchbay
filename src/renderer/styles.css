@@ -1654,6 +1654,22 @@ button.wide {
     box-shadow: 0 0 0 1px var(--err), 0 0 18px var(--err-soft);
 }
 
+/* The node the run on screen is at now, in the amber its runs-panel badge wears. */
+.node.working {
+    --glow: color-mix(in srgb, var(--warn) 35%, transparent);
+    border-color: var(--warn);
+    animation: working 1.6s ease-in-out infinite;
+}
+
+@keyframes working {
+    0%, 100% {
+        box-shadow: 0 0 0 1px var(--warn), 0 0 8px var(--glow);
+    }
+    50% {
+        box-shadow: 0 0 0 2px var(--warn), 0 0 24px var(--glow);
+    }
+}
+
 /* An email in the air. The triggers it could start a run at stand out, the one
    under the pointer most, and every other node steps back. */
 .canvas-wrap.email-drag .node:not(.drop-ready, .drop-over) {
@@ -1753,6 +1769,12 @@ button.wide {
     color: var(--muted);
     border-top: 1px solid var(--line-soft);
     background: var(--accent-soft);
+}
+
+.node-note.working {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+    overflow-wrap: anywhere;
 }
 
 /* The slots a node reads, under its title; the ones a port adds sit on the port. */
@@ -1985,6 +2007,13 @@ button.wide {
     margin-top: 4px;
 }
 
+.run-row .at {
+    color: var(--warn);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .badge {
     font-size: 10px;
     padding: 1px 7px;
@@ -2167,6 +2196,25 @@ button.wide {
     font-size: 11px;
 }
 
+.pass-head .took {
+    color: var(--dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pass.under-way {
+    border-color: var(--warn-line);
+}
+
+.pass.under-way .idx {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+
+.pass.under-way .pass-summary {
+    color: var(--warn);
+}
+
 .pass-summary {
     padding: 0 10px 8px 38px;
     color: var(--muted);
@@ -2245,6 +2293,38 @@ button.wide {
 .event.thinking .label {
     color: var(--dim);
     font-style: italic;
+}
+
+/* A block still being written; its pre is kept scrolled to the newest line. */
+.event.live .label {
+    color: var(--warn);
+}
+
+.caret {
+    display: inline-block;
+    width: 6px;
+    height: 1.1em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: var(--warn);
+    animation: caret 1s steps(1) infinite;
+}
+
+@keyframes caret {
+    50% {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .node.working,
+    .caret {
+        animation: none;
+    }
+
+    .node.working {
+        box-shadow: 0 0 0 2px var(--warn), 0 0 18px var(--glow);
+    }
 }
 
 .event pre,

@@ -13,7 +13,7 @@ import {
     type TriggerConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
-import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
+import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
 import type { AgentMcpServer } from '../agents';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
@@ -35,6 +35,9 @@ export interface NodeContext {
     signal: AbortSignal;
 
     onEvent(event: TraceEvent): void;
+
+    /** What the agent is writing now, before it is whole. */
+    onLive(text: LiveText | null): void;
 }
 
 export interface NodeOutcome {
@@ -183,6 +186,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         allowedTools: [],
         signal: ctx.signal,
         onEvent: ctx.onEvent,
+        onLive: ctx.onLive,
         jsonSchema: {
             type: 'object',
             properties: {
@@ -329,6 +333,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
+        onLive: ctx.onLive,
         jsonSchema: {
             type: 'object',
             properties: {
@@ -468,6 +473,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
+        onLive: ctx.onLive,
         jsonSchema: {
             type: 'object',
             properties: {

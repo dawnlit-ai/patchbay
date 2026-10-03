@@ -1,8 +1,10 @@
 import type { JSX } from 'react';
-import { useState } from 'react';
-import type { Pass, Run, RunSummary, TraceEvent } from '@shared/trace';
-import { time } from '../format';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { LiveText, Pass, PassUnderWay, Run, RunSummary, TraceEvent } from '@shared/trace';
+import { activity, liveLabel } from '../activity';
+import { duration, time } from '../format';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { Elapsed } from './Elapsed';
 
 /**
  * The run log. The list is the audit trail; the detail is the "why" — each pass
@@ -31,32 +33,75 @@ function EventRow({ event }: { event: TraceEvent }): JSX.Element {
     );
 }
 
-function PassCard({ pass }: { pass: Pass }): JSX.Element {
-    const [open, setOpen] = useState(false);
+/** What the agent is writing now, kept scrolled to its newest line. */
+function LiveRow({ live }: { live: LiveText }): JSX.Element {
+    const box = useRef<HTMLPreElement>(null);
+    useLayoutEffect(() => {
+        if (box.current) box.current.scrollTop = box.current.scrollHeight;
+    }, [live.text]);
     return (
-        <div className="pass">
+        <div className={`event ${live.type} live`}>
+            <div className="head">
+                <span className="type">{live.type}</span>
+                <span className="label">{liveLabel(live)}</span>
+            </div>
+            {/* A thinking block can arrive with its text left out. */}
+            {live.text && (
+                <pre ref={box}>
+                    {live.text}
+                    <span className="caret"/>
+                </pre>
+            )}
+        </div>
+    );
+}
+
+/**
+ * One node's pass, finished or under way. The one under way starts open, and
+ * keeps its card when it finishes, so what was being watched stays in view.
+ */
+function PassCard({ pass }: { pass: Pass | PassUnderWay }): JSX.Element {
+    const done = 'status' in pass;
+    const live = done ? undefined : pass.live;
+    const [open, setOpen] = useState(!done);
+    return (
+        <div className={`pass${done ? '' : ' under-way'}`}>
             <div className="pass-head" onClick={() => setOpen(!open)}>
                 <span className="idx">{pass.seq}</span>
                 <span className="name">{pass.nodeName}</span>
-                {pass.outPort && (
+                {done && pass.outPort && (
                     <>
                         <span className="arrow">→</span>
                         <span className="port">{pass.outPort.replace(/^cat:/, '')}</span>
                     </>
                 )}
                 <span className="spacer"/>
-                <span className={`badge ${pass.status === 'ok' ? 'ok' : 'err'}`}>{pass.status}</span>
+                {done ? (
+                    <>
+                        <span className="took">
+                            {duration(new Date(pass.endedAt).getTime() - new Date(pass.startedAt).getTime())}
+                        </span>
+                        <span className={`badge ${pass.status === 'ok' ? 'ok' : 'err'}`}>{pass.status}</span>
+                    </>
+                ) : (
+                    <span className="badge run">
+                        working · <Elapsed from={pass.startedAt}/>
+                    </span>
+                )}
                 <span className="count">
                     {open ? '▾' : '▸'} {pass.events.length}
                 </span>
             </div>
-            <div className="pass-summary">{pass.summary}</div>
+            <div className="pass-summary">{done ? pass.summary : activity(pass)}</div>
             {open && (
                 <div className="pass-events">
-                    {pass.events.length === 0 && <div className="empty">No events recorded for this pass.</div>}
+                    {pass.events.length === 0 && !live && (
+                        <div className="empty">{done ? 'No events recorded for this pass.' : 'Nothing yet.'}</div>
+                    )}
                     {pass.events.map((event, i) => (
                         <EventRow key={i} event={event}/>
                     ))}
+                    {live && <LiveRow live={live}/>}
                 </div>
             )}
         </div>
@@ -91,6 +136,18 @@ export function RunsPanel({
                               onRerun
                           }: Props): JSX.Element {
     const [menu, setMenu] = useState<{ run: RunSummary; x: number; y: number } | null>(null);
+
+    /** Whether the detail is scrolled to its end, and so stays there as a run under way grows. */
+    const detail = useRef<HTMLDivElement>(null);
+    const following = useRef(true);
+    // Before the effect below, which it is for: a run just picked starts at its newest pass.
+    useLayoutEffect(() => {
+        following.current = true;
+    }, [selected?.id]);
+    useLayoutEffect(() => {
+        const el = detail.current;
+        if (el && following.current && selected?.status === 'running') el.scrollTop = el.scrollHeight;
+    }, [selected]);
 
     /** A run under way can only be stopped; one that has ended can run again, or go. */
     const actions = (run: RunSummary): MenuItem[] =>
@@ -139,12 +196,20 @@ export function RunsPanel({
                             {run.disposition && <span className="badge">{run.disposition}</span>}
                             {run.trigger === 'manual' && <span className="badge">test</span>}
                             <span className="badge">{run.passCount} passes</span>
+                            {run.status === 'running' && run.at && <span className="at">at {run.at}</span>}
                         </div>
                     </div>
                 ))}
             </div>
 
-            <div className="runs-detail">
+            <div
+                className="runs-detail"
+                ref={detail}
+                onScroll={(e) => {
+                    const el = e.currentTarget;
+                    following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+                }}
+            >
                 {!selected && <div className="empty">Select a run to see the path it took.</div>}
                 {selected && (
                     <>
@@ -186,7 +251,8 @@ export function RunsPanel({
                         {selected.error && <div className="err-banner">{selected.error}</div>}
 
                         <div className="section-title">Path</div>
-                        {selected.passes.map((pass) => (
+                        {/* Keyed by seq, so the pass under way keeps its card once it finishes. */}
+                        {[...selected.passes, ...(selected.current ? [selected.current] : [])].map((pass) => (
                             <PassCard key={pass.seq} pass={pass}/>
                         ))}
                     </>

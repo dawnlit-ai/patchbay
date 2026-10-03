@@ -145,9 +145,16 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     // Live updates. An open run stays open and keeps filling in; otherwise the
     // newest becomes the one on screen, so a flow shows its work without a click.
+    // A run already listed keeps its row: two under way at once would otherwise
+    // swap places with every update.
     useEffect(() => {
         const offRun = window.api.on.runUpdated((run) => {
-            setRuns((prev) => [toSummary(run), ...prev.filter((r) => r.id !== run.id)]);
+            const summary = toSummary(run);
+            setRuns((prev) =>
+                prev.some((r) => r.id === run.id)
+                    ? prev.map((r) => (r.id === run.id ? summary : r))
+                    : [summary, ...prev],
+            );
             setSelectedRun((current) => (!current || current.id === run.id ? run : current));
         });
         const offStatus = window.api.on.engineStatus((next) => setStatus(next));
@@ -301,6 +308,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
         return {
             passes: new Map(selectedRun.passes.map((p) => [p.nodeId, p])),
             takenEdges: new Set(selectedRun.edgePath),
+            current: selectedRun.current,
         };
     }, [selectedRun, flow]);
 

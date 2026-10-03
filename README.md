@@ -110,6 +110,15 @@ Every email produces a `Run`, and every node it touches produces a `Pass`:
 Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email traveled, with each node
 showing its pass number and outcome.
 
+A run under way shows where it is as it goes. The node it is at pulses amber on the canvas, counting how long it has
+been there and saying what it is doing — waiting for the model, running a tool, writing — and the run's row in the list
+names it. In the panel, that node's pass sits open below the ones already finished: its tool calls and results arrive
+as they happen, and what the agent is writing — its reply, its thinking, the result it hands in — appears as it is
+written, followed to the newest line unless you scroll up to read back. When the node leaves by a port, the card
+becomes its finished pass where it stands, with how long it took. Text still being written is shown and never kept;
+the trace records each block once it is whole, as it always has. The run's file is written as it goes, too, so a run
+cut off by a crash still shows the node it was at and what it had done there.
+
 Right-click a run to put its email through the flow again (once whatever stopped it has been fixed, say) or to
 delete it. The new run starts at the trigger the email came in by and reads the flow as it is now. An email filed
 since is found again by its subject, sender and received time.

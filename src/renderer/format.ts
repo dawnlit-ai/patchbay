@@ -1,4 +1,4 @@
-/** Date formatting shared by every list, in the machine's locale. */
+/** Date and time formatting shared by every list, in the machine's locale. */
 
 /** Just the time of day: these lists are read the day they are written. */
 export const time = (iso: string): string => new Date(iso).toLocaleTimeString();
@@ -25,4 +25,15 @@ export function ago(iso: string): string {
     const days = Math.floor(hours / 24);
     if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
     return new Date(iso).toLocaleDateString();
+}
+
+/** A span of time as a clock reads it: 42s, 3:07, 1:02:09. */
+export function duration(ms: number): string {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const clock = `${pad(minutes)}:${pad(seconds % 60)}`;
+    return hours > 0 ? `${hours}:${clock}` : clock.replace(/^0/, '');
 }

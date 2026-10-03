@@ -11,7 +11,7 @@ import type {
     SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
-import { now, truncate } from '@shared/trace';
+import { type LiveText, now, truncate } from '@shared/trace';
 import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult } from './types';
 import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
@@ -203,6 +203,27 @@ function blocksOf(message: unknown): LooseBlock[] {
     return Array.isArray(content) ? (content as LooseBlock[]) : [];
 }
 
+/** One Messages API streaming event, read structurally like the blocks above. */
+interface LooseStreamEvent {
+    type: string;
+    content_block?: LooseBlock;
+    delta?: { type: string; text?: string; thinking?: string; partial_json?: string };
+}
+
+/** The block a `content_block_start` opens, as it will be traced once whole. Null for one with nothing to show. */
+function liveBlock(block: LooseBlock | undefined): LiveText | null {
+    switch (block?.type) {
+        case 'text':
+            return { type: 'assistant', label: '', text: '' };
+        case 'thinking':
+            return { type: 'thinking', label: 'thinking', text: '' };
+        case 'tool_use':
+            return { type: 'tool-call', label: block.name ?? 'tool', text: '' };
+        default:
+            return null;
+    }
+}
+
 function renderToolResult(block: LooseBlock): string {
     const { content } = block;
     if (typeof content === 'string') return content;
@@ -255,7 +276,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         permissionMode: 'dontAsk',
         settingSources: request.settingSources ?? [],
         persistSession: false,
-        includePartialMessages: false,
+        includePartialMessages: request.onLive !== undefined,
         pathToClaudeCodeExecutable: resolveClaudePath(host.claudeExecutable()),
         stderr: (data) => {
             const line = data.trim();
@@ -293,8 +314,30 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         let structured: unknown;
         let error: string | undefined;
         let acted = false;
+        let live = null as LiveText | null;
         try {
             for await (const message of query({ prompt: request.prompt, options })) {
+                if (message.type === 'stream_event') {
+                    // A subagent's blocks would interleave with this run's own.
+                    if (message.parent_tool_use_id) continue;
+                    const event = message.event as LooseStreamEvent;
+                    if (event.type === 'content_block_start') {
+                        live = liveBlock(event.content_block);
+                    } else if (event.type === 'content_block_delta' && live) {
+                        const { delta } = event;
+                        // A thinking block's signature arrives as a delta too, with none of these.
+                        const more = delta?.text ?? delta?.thinking ?? delta?.partial_json;
+                        if (!more) continue;
+                        live = { ...live, text: live.text + more };
+                        request.onLive?.(live);
+                    } else if (event.type === 'content_block_stop' && live) {
+                        // The whole block follows as an assistant message.
+                        live = null;
+                        request.onLive?.(null);
+                    }
+                    continue;
+                }
+
                 if (message.type === 'system' && message.subtype === 'init') {
                     request.onEvent({
                         at: now(),
@@ -365,6 +408,8 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
             // above stay — this only fills in the message.
             error = e instanceof Error ? e.message : String(e);
         }
+        // A block cut off mid-way never arrives whole.
+        if (live) request.onLive?.(null);
         return { structured, error, acted };
     };
 

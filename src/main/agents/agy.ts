@@ -514,7 +514,12 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
                 if (step.step_type === 'agent_response') {
                     const text = (texts.get(step.step_index) ?? '') + (step.text_delta ?? '');
                     texts.set(step.step_index, text);
-                    if (step.state === 'DONE' && text.trim()) {
+                    if (step.state !== 'DONE') {
+                        if (step.text_delta) request.onLive?.({ type: 'assistant', label: '', text });
+                        return;
+                    }
+                    request.onLive?.(null);
+                    if (text.trim()) {
                         request.onEvent({
                             at: now(),
                             type: 'assistant',
@@ -566,6 +571,8 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             } catch (e) {
                 attempt.spawnError = e as NodeJS.ErrnoException;
             }
+            // A reply cut off mid-way never arrives whole.
+            request.onLive?.(null);
             return attempt;
         };
 

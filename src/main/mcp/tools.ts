@@ -22,7 +22,7 @@ import {
 import { LOG_LEVELS, LOG_SOURCES } from '@shared/log';
 import { SKILL_SCOPES, skillRef, type SkillScope } from '@shared/settings';
 import type { WorkspaceChange } from '@shared/ipc';
-import { type EmailEnvelope, type Run, toSummary, truncate } from '@shared/trace';
+import { type EmailEnvelope, type Pass, type Run, toSummary, truncate } from '@shared/trace';
 import type { QueuedRun, Watcher } from '../engine/watcher';
 import { logEntries, logEntriesOn } from '../log';
 import * as outlook from '../outlook/bridge';
@@ -158,18 +158,20 @@ const describeEmail = (email: EmailEnvelope) => ({
 });
 
 function describeRun(run: Run, includeEvents: boolean) {
+    const describePass = <P extends Pick<Pass, 'events'>>(pass: P) => ({
+        ...pass,
+        eventCount: pass.events.length,
+        events: includeEvents
+            ? pass.events.map((event) => ({
+                ...event,
+                detail: event.detail === undefined ? undefined : truncate(event.detail, MAX_DETAIL_CHARS),
+            }))
+            : [],
+    });
     return {
         ...run,
-        passes: run.passes.map((pass) => ({
-            ...pass,
-            eventCount: pass.events.length,
-            events: includeEvents
-                ? pass.events.map((event) => ({
-                    ...event,
-                    detail: event.detail === undefined ? undefined : truncate(event.detail, MAX_DETAIL_CHARS),
-                }))
-                : [],
-        })),
+        passes: run.passes.map(describePass),
+        current: run.current && describePass(run.current),
     };
 }
 
@@ -844,7 +846,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read a run',
             description:
-                'One run in full: the path it took and, per node, the port it left by, the one-line reason, and every prompt and tool call. This is where you find out why an email went where it did — and, since a prompt carries the email it was about, where a handled message can be read back.',
+                'One run in full: the path it took and, per node, the port it left by, the one-line reason, and every prompt and tool call. This is where you find out why an email went where it did — and, since a prompt carries the email it was about, where a handled message can be read back. A run under way has `current`: the node it is at now and what it has done there so far.',
             inputSchema: {
                 runId: z.string(),
                 includeEvents: z
