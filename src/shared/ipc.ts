@@ -73,7 +73,7 @@ export interface ModelOption {
     description: string;
     /** The effort levels this model takes, as Claude Code lists them. Empty when it takes none. */
     effortLevels: string[];
-    /** The model has no default level, as agy's Gemini models have none: a node on it names one. */
+    /** The model has no default level, as agy's models have none: a node on it names one. */
     effortRequired?: boolean;
 }
 
@@ -183,7 +183,7 @@ export interface Api {
     agents: {
         /**
          * The models the Claude login offers now, asked of Claude Code rather than written into the app,
-         * then the Gemini models agy offers.
+         * then the models agy offers.
          */
         models(): Promise<ModelOption[]>;
         /** One agent's version, sign-in and usage, asked of it now: `claude` or `agy`. */

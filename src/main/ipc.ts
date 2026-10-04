@@ -243,7 +243,7 @@ export function registerIpc(): void {
     handle(IPC.outlookDragged, (account: string, drag: OutlookDrag) => outlook.readDragged(account, drag));
     handle(IPC.outlookSelected, (account: string) => outlook.readSelected(account));
 
-    // Claude's first; agy's Gemini models after, or none when agy is not installed.
+    // Claude's first; agy's after, or none when agy is not installed.
     handle(IPC.agentsModels, () => agents.listModels());
     handle(IPC.agentsStatus, (id: string) => agents.status(id));
     handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));

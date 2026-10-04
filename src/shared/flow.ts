@@ -44,11 +44,24 @@ export interface TriggerConfig {
 /** Where a trigger reads its mail: one folder, or that folder and every folder below it. */
 export type MailScope = Pick<TriggerConfig, 'account' | 'folder' | 'includeSubfolders' | 'excludeFolders'>;
 
+/**
+ * A model and its level, as a node names one. A step goes to a node's fallbacks
+ * in turn when the model before is at its usage limit, or its agent cannot be
+ * reached, and nothing that changes things has run yet.
+ */
+export interface ModelChoice {
+    model: string;
+    /** One of the levels the model takes. Empty uses the model's default. */
+    effort: string;
+}
+
 export interface CategorizerConfig {
     categories: Category[];
     model: string;
     /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
+    /** Models the step goes to in turn when the one before cannot take it. */
+    fallbacks: ModelChoice[];
     /** Fetch the full body before classifying. Off = subject and preview only. */
     includeBody: boolean;
     bodyMaxChars: number;
@@ -68,6 +81,8 @@ export interface ExtractorConfig {
     model: string;
     /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
+    /** Models the step goes to in turn when the one before cannot take it. */
+    fallbacks: ModelChoice[];
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
     /** Tools from the MCP servers in Settings, spelled as a Processor's are. Meant for lookups only. */
@@ -97,6 +112,8 @@ export interface ProcessorConfig {
     model: string;
     /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
+    /** Models the step goes to in turn when the one before cannot take it. */
+    fallbacks: ModelChoice[];
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
     allowMoveEmail: boolean;
@@ -405,7 +422,7 @@ export function checkSlots(flow: Flow): SlotCheck {
 /** The alias rather than a dated id, so new nodes get the newest Opus the account offers. */
 export const DEFAULT_MODEL = 'opus';
 
-/** A model stored as `agy:<id>` runs on Gemini through the Antigravity CLI rather than on Claude. */
+/** A model stored as `agy:<id>` runs through the Antigravity CLI rather than on Claude. */
 export const AGY_MODEL_PREFIX = 'agy:';
 export const isAgyModel = (model: string): boolean => model.startsWith(AGY_MODEL_PREFIX);
 
@@ -437,6 +454,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 ],
                 model: DEFAULT_MODEL,
                 effort: '',
+                fallbacks: [],
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -459,6 +477,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 inputs: [],
                 model: DEFAULT_MODEL,
                 effort: '',
+                fallbacks: [],
                 includeAttachments: false,
                 mcpTools: [],
             };
@@ -473,6 +492,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 schema: { type: 'object', properties: {} },
                 model: DEFAULT_MODEL,
                 effort: 'high',
+                fallbacks: [],
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
@@ -629,12 +649,19 @@ const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =
  * A node's model and level. An agy model saved with its level in the id, as
  * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
  */
-function modelAndEffort(from: Json, base: { model: string; effort: string }): { model: string; effort: string } {
+function modelAndEffort(from: Json, base: ModelChoice): ModelChoice {
     const model = str(from.model, base.model);
     const level = isAgyModel(model) ? AGY_LEVEL_SUFFIX.exec(model)?.[1] : undefined;
     if (level) return { model: model.slice(0, -level.length - 1), effort: level };
     return { model, effort: str(from.effort, base.effort) };
 }
+
+/** A node's fallbacks, keeping only the entries that name a model. */
+const fallbacksOf = (value: unknown): ModelChoice[] =>
+    (Array.isArray(value) ? value : [])
+        .filter(isObject)
+        .map((choice) => modelAndEffort(choice, { model: '', effort: '' }))
+        .filter((choice) => choice.model !== '');
 
 /** Every field replaced by its default unless the file supplies the right type. */
 function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
@@ -669,6 +696,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 categories: categories.length > 0 ? categories : base.categories,
                 ...modelAndEffort(from, base),
+                fallbacks: fallbacksOf(from.fallbacks),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
             };
@@ -683,6 +711,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 skills: strings(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
                 ...modelAndEffort(from, base),
+                fallbacks: fallbacksOf(from.fallbacks),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 // Never null, unlike a Processor's: no Extractor predates the list.
                 mcpTools: strings(from.mcpTools, base.mcpTools),
@@ -699,6 +728,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
                 schema: isObject(from.schema) ? from.schema : base.schema,
                 ...modelAndEffort(from, base),
+                fallbacks: fallbacksOf(from.fallbacks),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),

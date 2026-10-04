@@ -40,6 +40,9 @@ export function holdUsage(limit: UsageLimit): boolean {
     return true;
 }
 
+/** A moment as the trace and the log say it. */
+export const clock = (at: number): string => new Date(at).toLocaleString();
+
 /** When the hold lifts, or 0 when calls are free to go. */
 export function usageHeldUntil(): number {
     return heldUntil > Date.now() ? heldUntil : 0;

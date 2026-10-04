@@ -13,7 +13,7 @@ import type {
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { type LiveText, now, truncate } from '@shared/trace';
 import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult } from './types';
-import { holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
+import { clock, holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
  * Claude through the Claude Agent SDK, and so the one mapping from the SDK's
@@ -252,8 +252,6 @@ interface Attempt {
     acted: boolean;
 }
 
-const clock = (at: number): string => new Date(at).toLocaleString();
-
 async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
@@ -415,6 +413,10 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
 
     for (; ;) {
         const held = usageHeldUntil();
+        if (held && request.waitOutLimit === false) {
+            const unavailable = `Claude is at its usage limit until ${clock(held)}`;
+            return { ...settle(request, { error: unavailable, acted: false }), unavailable };
+        }
         if (held) {
             request.onEvent({
                 at: now(),
@@ -444,6 +446,12 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
                 error: `${result.error} — it came mid-step, after tools that change things had run, so the step is not repeated: run this email again once the limit resets.`,
             });
         }
+        if (request.waitOutLimit === false) {
+            return {
+                ...settle(request, result),
+                unavailable: `Claude hit its usage limit, which lifts at ${clock(limit.until)}`
+            };
+        }
         request.onEvent({ at: now(), type: 'error', label: result.error ?? 'usage limit' });
     }
 }
@@ -466,6 +474,8 @@ export function claudeBackend(host: AgentHost): AgentBackend {
         id: 'claude',
         owns: () => true,
         listModels: () => listModels(resolveClaudePath(host.claudeExecutable())),
+        // The limit belongs to the login, so it holds every model alike.
+        heldUntil: usageHeldUntil,
         status: () => claudeStatus(resolveClaudePath(host.claudeExecutable())),
         run: (request) => runClaude(host, request),
     };

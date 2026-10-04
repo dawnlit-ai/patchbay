@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
+    DEFAULT_MODEL,
     type Disposition,
     DISPOSITIONS,
     EMAIL_SLOT,
@@ -11,6 +12,7 @@ import {
     type FlowNode,
     hasInput,
     type JsonSchema,
+    type ModelChoice,
     NODE_KIND_META,
     type NodeConfig,
     outputPorts,
@@ -99,11 +101,12 @@ function findModel(models: ModelOption[] | null, value: string): ModelOption | u
 
 /** A node keeps a model the list does not name, and says so, rather than showing another in its place. */
 function ModelField({
+                        label = 'Model',
                         value,
                         models,
                         error,
                         onChange,
-                    }: Models & { value: string; onChange(model: string): void }): JSX.Element {
+                    }: Models & { label?: string; value: string; onChange(model: string): void }): JSX.Element {
     const listed = models?.find((m) => m.value === value);
     const sameToday = models?.find((m) => m.resolvedModel === value);
     let hint: string;
@@ -114,7 +117,7 @@ function ModelField({
     else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
 
     return (
-        <Field label="Model" hint={hint}>
+        <Field label={label} hint={hint}>
             <select value={value} onChange={(e) => onChange(e.target.value)}>
                 {!listed && <option value={value}>{value}</option>}
                 {models?.map((m) => (
@@ -183,6 +186,51 @@ function EffortField({
                 ))}
             </select>
         </Field>
+    );
+}
+
+/** The models a step goes to in turn when the one before cannot take it, each with its own level. */
+function FallbacksField({
+                            value,
+                            listing,
+                            onChange,
+                        }: {
+    value: ModelChoice[];
+    listing: Models;
+    onChange(fallbacks: ModelChoice[]): void;
+}): JSX.Element {
+    const replace = (index: number, choice: ModelChoice): void =>
+        onChange(value.map((c, j) => (j === index ? choice : c)));
+
+    return (
+        <>
+            <Legend
+                label="Fallbacks"
+                hint="Tried in turn when the model before is at its usage limit, or its agent is not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing."
+            />
+            {value.map((choice, i) => (
+                <div key={i} className="card">
+                    <ModelField
+                        {...listing}
+                        label={`Fallback ${i + 1}`}
+                        value={choice.model}
+                        onChange={(model) =>
+                            replace(i, { model, effort: effortAfter(listing.models, model, choice.effort) })
+                        }
+                    />
+                    <EffortField
+                        value={choice.effort}
+                        model={findModel(listing.models, choice.model)}
+                        loading={!listing.models && !listing.error}
+                        onChange={(effort) => replace(i, { ...choice, effort })}
+                    />
+                    <button className="danger" onClick={() => onChange(value.filter((_, j) => j !== i))}>
+                        Remove
+                    </button>
+                </div>
+            ))}
+            <button onClick={() => onChange([...value, { model: DEFAULT_MODEL, effort: '' }])}>+ Add a fallback</button>
+        </>
     );
 }
 
@@ -390,7 +438,13 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                 loading={!listing.models && !listing.error}
                 onChange={(effort) => patch({ effort })}
             />
+            <FallbacksField
+                value={config.fallbacks}
+                listing={listing}
+                onChange={(fallbacks) => patch({ fallbacks })}
+            />
 
+            <div className="gap"/>
             <label className="check">
                 <input
                     type="checkbox"
@@ -538,6 +592,11 @@ function ExtractorFields({
                 loading={!listing.models && !listing.error}
                 onChange={(effort) => patch({ effort })}
             />
+            <FallbacksField
+                value={config.fallbacks}
+                listing={listing}
+                onChange={(fallbacks) => patch({ fallbacks })}
+            />
 
             <div className="gap"/>
             <McpToolsField
@@ -609,6 +668,11 @@ function ProcessorFields({
                 model={findModel(listing.models, config.model)}
                 loading={!listing.models && !listing.error}
                 onChange={(effort) => patch({ effort })}
+            />
+            <FallbacksField
+                value={config.fallbacks}
+                listing={listing}
+                onChange={(fallbacks) => patch({ fallbacks })}
             />
 
             <div className="section-title">What this node may do</div>

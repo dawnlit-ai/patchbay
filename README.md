@@ -42,6 +42,15 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
 
+A Categorizer, Extractor or Processor can name **Fallbacks** under its model: more models to go to in turn — agy's
+Sonnet, say, then agy's Gemini Pro, then Claude's own Sonnet. A step moves on only when the model before is at its usage
+limit, or its agent is not installed or cannot be reached, and never once the step has changed something: a Processor
+that drafted a reply before its quota ran out is not run again. agy keeps one quota for its Gemini models and another
+for its Claude and GPT ones, so Gemini still answers once agy's Claude models are used up. A model known to be at its
+limit is passed over without being asked until the reset its agent named, and the run's trace says each time a step
+moved on and why. The last model waits for Claude's limit to reset rather than failing, as a node without fallbacks
+does.
+
 ### Data on the wire
 
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
@@ -157,9 +166,10 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
   inspector's model lists come from it too, marked *· claude*: they show what that login offers now, so a new model
   appears without a new build of the app. So do the effort levels, which differ from model to model — a node offers the
   ones its model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
-- **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on Gemini — found where it installs itself, in
-  `~/.local/bin`, or at the path set under **Settings → Agents**. Its Gemini models join the model lists, marked
-  *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a node on one
+- **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on the models it offers — Gemini, and the
+  Claude and GPT models beside it, which spend agy's own Google quota rather than your Claude plan. It is found where it
+  installs itself, in `~/.local/bin`, or at the path set under **Settings → Agents**. Its models join the model lists,
+  marked *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a node on one
   always names its level. Each run gets a workspace of its own holding the node's skills and servers, with a hook that
   refuses every tool the node was not given — agy's shell, browser and web search included. The hook can refuse but not
   grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses needs an
@@ -414,7 +424,7 @@ src/
 ├─ shared/      flow graph, run/trace records, IPC contract   (both processes)
 ├─ main/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
-│  ├─ agents/   runs a step on Claude (Agent SDK) or Gemini (agy); takes nothing from the app but its host
+│  ├─ agents/   runs a step on Claude (Agent SDK) or agy, then on its fallbacks; takes nothing from the app but its host
 │  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge

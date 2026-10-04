@@ -10,14 +10,17 @@ import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import { serveOnLoopback } from './loopback';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
+import { clock } from './usageGate';
 
 /**
- * Gemini through the Antigravity CLI (`agy`), for a node whose model is stored as
- * `agy:<id>`. Each run gets a workspace of its own, and a plugin in it that hands
- * agy the run's MCP servers and its ticked skills, with a hook that refuses every
- * tool the node was not given: agy has no switch to leave its own shell, browser
- * or web search out. The hook can refuse but not grant. Headless, agy calls an MCP
- * tool only when the user's own agy settings allow it, so each needs a rule there.
+ * The models the Antigravity CLI (`agy`) offers — Gemini, and the Claude and GPT
+ * models beside it, each group on a quota of its own — for a node whose model is
+ * stored as `agy:<id>`. Each run gets a workspace of its own, and a plugin in it
+ * that hands agy the run's MCP servers and its ticked skills, with a hook that
+ * refuses every tool the node was not given: agy has no switch to leave its own
+ * shell, browser or web search out. The hook can refuse but not grant. Headless,
+ * agy calls an MCP tool only when the user's own agy settings allow it, so each
+ * needs a rule there.
  */
 
 /**
@@ -39,6 +42,9 @@ const RETRY_DELAYS_MS = [5_000, 30_000];
 /** What a failure caused by the network or Google's side, rather than by the step, says. */
 const OUTAGE = /dial tcp|no such host|connection (?:refused|reset)|i\/o timeout|deadline exceeded|unexpected EOF|\b50[234]\b|UNAVAILABLE/i;
 
+/** What a failure because the model's quota is used up says, beyond what `/usage` shows. */
+const QUOTA = /RESOURCE_EXHAUSTED|\b429\b|quota|rate.?limit|usage limit/i;
+
 interface Attempt {
     result?: StreamLine['result'];
     exited?: Exited;
@@ -51,10 +57,11 @@ interface Attempt {
 
 /** Why an attempt failed for reasons outside the step, if it did: worth asking again. */
 function outageIn({ result, exited, spawnError }: Attempt): string | null {
-    if (spawnError) return null;
+    if (spawnError || result?.status === 'SUCCESS') return null;
+    const message = `${result?.error ?? ''} ${exited?.stderr ?? ''}`;
+    // A used-up quota lasts hours, so asking again in seconds is no use.
+    if (QUOTA.test(message)) return null;
     if (!result) return `no result, exit ${exited?.code}`;
-    if (result.status === 'SUCCESS') return null;
-    const message = `${result.error ?? ''} ${exited?.stderr ?? ''}`;
     return OUTAGE.exec(message)?.[0] ?? null;
 }
 
@@ -141,7 +148,7 @@ function complaint({ code, stderr }: Exited): string {
     return stderr.trim().split('\n').at(-1)?.replace(/^Error:\s*/, '').trim() || `agy exited with ${code}.`;
 }
 
-/** The Gemini models agy offers, or what agy says is in the way — not signed in, say. */
+/** The models agy offers, or what agy says is in the way — not signed in, say. */
 async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOption[]> {
     const lines: string[] = [];
     const exited = await runAgyCommand(exe, ['models'], { signal, onLine: (line) => lines.push(line) });
@@ -150,11 +157,11 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
     const models = new Map<string, { name: string; levels: string[] }>();
     for (const line of lines) {
         const [id = '', name] = line.split('\t');
-        // Gemini only: the Claude models agy also offers are better run directly.
-        if (!id.startsWith('gemini-') || !name) continue;
+        // A line with no name is agy talking, as "Fetching available models..." is.
+        if (!id || !name) continue;
         const level = AGY_LEVEL_SUFFIX.exec(id)?.[1];
         const model = level ? id.slice(0, -level.length - 1) : id;
-        // "Gemini 3.1 Pro (High)" names the level too.
+        // "Gemini 3.1 Pro (High)" and "Claude Sonnet 5.5 (High)" name the level too.
         const entry = models.get(model) ?? {
             name: (level ? name.replace(/\s*\([^)]*\)\s*$/, '') : name).trim(),
             levels: [],
@@ -166,14 +173,14 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
         value: `${AGY_MODEL_PREFIX}${id}`,
         displayName: `${name} · agy`,
         description:
-            `Gemini through the Antigravity CLI (agy), on its own Google login. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a Processor with file-system access cannot run on it.`,
+            `${name} through the Antigravity CLI (agy), on its own Google login and quota. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a Processor with file-system access cannot run on it.`,
         effortLevels: levels.sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b)),
         // agy refuses a model listed by level unless the run names one.
         effortRequired: levels.length > 0,
     }));
 }
 
-/** The Gemini models agy offers. Empty when agy is not installed or not signed in, never a failure. */
+/** The models agy offers. Empty when agy is not installed or not signed in, never a failure. */
 function listAgyModels(exe: string): Promise<ModelOption[]> {
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
     const asked = { exe, at: Date.now(), list: askForModels(exe).catch(() => []) };
@@ -193,16 +200,71 @@ function unreachable(e: unknown, exe: string): string {
     return exe === 'agy' ? 'Not installed: not in ~/.local/bin, nor on the PATH.' : `Not found at ${exe}.`;
 }
 
-/** What `agy -p /usage --output-format json` answers, read structurally. */
+/** One group of models sharing a quota, as `agy -p /usage --output-format json` answers it. */
+interface QuotaGroup {
+    /** "Gemini Models", "Claude and GPT models". */
+    name?: string;
+    /** "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS". */
+    description?: string;
+    buckets?: { window?: string; remaining_fraction?: number; reset_time?: string }[];
+}
+
 interface UsageAnswer {
-    command?: {
-        data?: {
-            groups?: {
-                name?: string;
-                buckets?: { window?: string; remaining_fraction?: number; reset_time?: string }[];
-            }[];
-        };
-    };
+    command?: { data?: { groups?: QuotaGroup[] } };
+}
+
+/** "Gemini Models" is "Gemini", as what is said of it says it is about models. */
+const groupName = (group: QuotaGroup): string => (group.name ?? 'Models').replace(/\s+models$/i, '');
+
+/** Under this much of a window left, as Settings shows it, the quota is used up. */
+const USED_UP = 0.005;
+
+/** Long enough for `/usage` to answer once agy is signed in; a signed-out agy waits a minute instead. */
+const QUOTA_TIMEOUT_MS = 15_000;
+
+/** The groups `/usage` last answered with, to tell which one a model draws on. */
+let quotaGroups: QuotaGroup[] = [];
+
+/** When each group's quota comes back, by its name, while it is used up. */
+const quotaHeld = new Map<string, number>();
+
+/** The group whose name or models name the model's family: `gemini`, `claude`, `gpt`. */
+function groupOf(groups: QuotaGroup[], model: string): QuotaGroup | undefined {
+    const family = model.slice(AGY_MODEL_PREFIX.length).split('-')[0]?.toLowerCase();
+    if (!family) return undefined;
+    return groups.find((g) => `${g.name ?? ''} ${g.description ?? ''}`.toLowerCase().includes(family));
+}
+
+/** When the quota the model draws on comes back, or 0 when it has some left, as far as agy last said. */
+function heldUntil(model: string): number {
+    const group = groupOf(quotaGroups, model)?.name;
+    const until = (group && quotaHeld.get(group)) || 0;
+    return until > Date.now() ? until : 0;
+}
+
+/** agy's quota as it stands, which also tells `heldUntil` which groups are used up and until when. */
+async function askForQuota(exe: string, signal: AbortSignal): Promise<QuotaGroup[]> {
+    const lines: string[] = [];
+    // Out of any folder of the user's, which agy would otherwise take for a project.
+    const exited = await runAgyCommand(exe, ['-p', '/usage', '--output-format', 'json'], {
+        cwd: tmpdir(),
+        signal,
+        onLine: (line) => lines.push(line),
+    });
+    if (exited.code !== 0) return [];
+    const groups = (JSON.parse(lines.join('\n')) as UsageAnswer).command?.data?.groups ?? [];
+    quotaGroups = groups;
+    for (const group of groups) {
+        if (!group.name) continue;
+        // The latest reset among the windows used up: the quota is back only once each is.
+        const back = (group.buckets ?? [])
+            .filter((b) => typeof b.remaining_fraction === 'number' && b.remaining_fraction < USED_UP)
+            .map((b) => Date.parse(b.reset_time ?? ''))
+            .filter((at) => !Number.isNaN(at));
+        if (back.length > 0) quotaHeld.set(group.name, Math.max(...back));
+        else quotaHeld.delete(group.name);
+    }
+    return groups;
 }
 
 /** agy's windows, the shorter first. */
@@ -214,22 +276,12 @@ const USAGE_WINDOWS: [string, string][] = [['5h', '5 hours'], ['weekly', 'week']
  * a minute for a browser sign-in instead of answering.
  */
 async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindow[]> {
-    const lines: string[] = [];
-    // Out of any folder of the user's, which agy would otherwise take for a project.
-    const exited = await runAgyCommand(exe, ['-p', '/usage', '--output-format', 'json'], {
-        cwd: tmpdir(),
-        signal,
-        onLine: (line) => lines.push(line),
-    });
-    if (exited.code !== 0) return [];
-    const answer = JSON.parse(lines.join('\n')) as UsageAnswer;
-    return (answer.command?.data?.groups ?? []).flatMap((group) =>
+    return (await askForQuota(exe, signal)).flatMap((group) =>
         USAGE_WINDOWS.flatMap(([window, named]) =>
             (group.buckets ?? [])
                 .filter((b) => b.window === window && typeof b.remaining_fraction === 'number')
                 .map((b) => ({
-                    // "Gemini Models" is "Gemini" here, as the label says it is about models.
-                    label: `${(group.name ?? 'Models').replace(/\s+models$/i, '')} · ${named}`,
+                    label: `${groupName(group)} · ${named}`,
                     percentUsed: Math.round((1 - (b.remaining_fraction ?? 1)) * 100),
                     resetsAt: b.reset_time ?? null,
                 })),
@@ -257,7 +309,7 @@ async function agyStatus(exe: string): Promise<AgentStatus> {
     const usage = askForUsage(exe, AbortSignal.any([timeout, signedOut.signal])).catch((): UsageWindow[] => []);
     try {
         const [said, offered] = await Promise.all([version, models]);
-        const count = `${offered.length} Gemini model${offered.length === 1 ? '' : 's'} on offer`;
+        const count = `${offered.length} model${offered.length === 1 ? '' : 's'} on offer`;
         return { ...base, version: said, ready: true, detail: `Signed in · ${count}`, usage: await usage };
     } catch (e) {
         signedOut.abort();
@@ -581,13 +633,36 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             const outage = outageIn(attempt);
             const wait = RETRY_DELAYS_MS[tries];
             // Asking again after a tool that changes something could do it twice.
-            if (!outage || attempt.acted || wait === undefined) return settle(attempt);
+            if (!outage || attempt.acted || wait === undefined) return finish(attempt, outage);
             request.onEvent({
                 at: now(),
                 type: 'error',
                 label: `agy failed (${outage}), so it is asked again in ${wait / 1000}s`
             });
             await sleep(wait, undefined, { signal: request.signal });
+        }
+
+        /** The run's result, and why another model should take the step if agy could not. */
+        async function finish(attempt: Attempt, outage: string | null): Promise<AgentRunResult> {
+            const result = settle(attempt);
+            if (result.ok || attempt.acted) return result;
+            let unavailable: string | null = null;
+            if (attempt.spawnError?.code === 'ENOENT') unavailable = `agy is not installed, or not at ${exe}`;
+            else if (outage) unavailable = `agy could not be reached (${outage})`;
+            // A run agy finished failed on the step's own account.
+            else if (!attempt.spawnError && attempt.result?.status !== 'SUCCESS') unavailable = await usedUp(attempt);
+            return unavailable ? { ...result, unavailable } : result;
+        }
+
+        /** Whether the run failed because the model's quota is used up, asked of `/usage` whatever agy said. */
+        async function usedUp({ result, exited }: Attempt): Promise<string | null> {
+            const asking = [AbortSignal.timeout(QUOTA_TIMEOUT_MS), ...(request.signal ? [request.signal] : [])];
+            await askForQuota(exe, AbortSignal.any(asking)).catch(() => []);
+            const group = groupOf(quotaGroups, request.model);
+            const named = group ? `agy's ${groupName(group)} quota` : `agy's quota for ${model}`;
+            const until = heldUntil(request.model);
+            if (until) return `${named} is used up until ${clock(until)}`;
+            return QUOTA.test(`${result?.error ?? ''} ${exited?.stderr ?? ''}`) ? `${named} is used up` : null;
         }
 
         function settle({ result, exited, spawnError, grants }: Attempt): AgentRunResult {
@@ -630,13 +705,14 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
     }
 }
 
-/** Gemini through agy, for a model stored as `agy:<id>`. */
+/** The models agy offers, for a model stored as `agy:<id>`. */
 export function agyBackend(host: AgentHost): AgentBackend {
     const exe = (): string => resolveAgyPath(host.agyExecutable());
     return {
         id: 'agy',
         owns: isAgyModel,
         listModels: () => listAgyModels(exe()),
+        heldUntil,
         status: () => agyStatus(exe()),
         run: (request) => runAgy(exe(), request),
     };

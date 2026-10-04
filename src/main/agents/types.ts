@@ -17,6 +17,16 @@ export interface AgentRunRequest {
     model: string;
     /** One of the levels the backend lists for the model. Empty or absent leaves it to the model's default. */
     effort?: string;
+    /**
+     * Models the step goes to in turn when the one before is `unavailable`. Only
+     * the last waits out a usage limit; the others hand it on at once.
+     */
+    fallbacks?: { model: string; effort?: string }[];
+    /**
+     * Whether a usage limit is waited out, as by default, rather than handed back
+     * at once as `unavailable` for the next model to take.
+     */
+    waitOutLimit?: boolean;
     /** The run's working directory. Must be the flow's directory, so its `.claude/skills` is discoverable. */
     cwd: string;
     /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
@@ -58,6 +68,12 @@ export interface AgentRunResult {
     ok: boolean;
     structured?: unknown;
     error?: string;
+    /**
+     * Why the agent could not take the step at all — at its usage limit, not
+     * installed, or out of reach — when nothing that changes things ran. Another
+     * model may take the step as it stands.
+     */
+    unavailable?: string;
 }
 
 /** One agent a step can run on. */
@@ -70,6 +86,9 @@ export interface AgentBackend {
 
     /** The models it offers now. */
     listModels(): Promise<ModelOption[]>;
+
+    /** When the model's usage limit is known to lift, or 0 when it is free to go. */
+    heldUntil(model: string): number;
 
     /** Its version and whether it is signed in, asked of it now. Never a failure: what went wrong is the detail. */
     status(): Promise<AgentStatus>;

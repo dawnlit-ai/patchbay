@@ -442,8 +442,8 @@ export function SettingsPanel({
                         {page === 'agents' && (
                             <>
                                 <PageHead title="Agents">
-                                    What your Categorizer, Extractor and Processor nodes run on: Claude, or Gemini
-                                    through the Antigravity CLI where a node picks a model marked · agy.
+                                    What your Categorizer, Extractor and Processor nodes run on: Claude, or the
+                                    Antigravity CLI where a node picks a model marked · agy.
                                 </PageHead>
                                 <div className="set-group">
                                     <Row
@@ -465,7 +465,7 @@ export function SettingsPanel({
                                     />
                                     <Row
                                         label="agy executable"
-                                        description="Leave it blank to use agy where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Gemini models join the model lists once agy is found and signed in."
+                                        description="Leave it blank to use agy where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Its models join the model lists once agy is found and signed in."
                                         below={
                                             <>
                                                 <input

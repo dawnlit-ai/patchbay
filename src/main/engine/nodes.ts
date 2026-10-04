@@ -179,6 +179,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         prompt,
         model: config.model,
         effort: config.effort,
+        fallbacks: config.fallbacks,
         cwd: flowDir(ctx.flowId),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.
@@ -319,6 +320,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         prompt,
         model: config.model,
         effort: config.effort,
+        fallbacks: config.fallbacks,
         cwd: flowDir(ctx.flowId),
         // 'project' makes the flow's own `.claude/skills` discoverable, as for a Processor.
         settingSources: ticked ? ['project'] : undefined,
@@ -454,6 +456,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         prompt,
         model: config.model,
         effort: config.effort,
+        fallbacks: config.fallbacks,
         // The flow's own directory: 'project' is what makes the `.claude/skills`
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),
