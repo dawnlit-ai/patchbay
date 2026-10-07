@@ -9,6 +9,8 @@ import {
     type JsonSchema,
     needsField,
     type ProcessorConfig,
+    type TerminalAction,
+    type TerminalActionType,
     type TerminalConfig,
     type TriggerConfig,
     UNMATCHED_PORT,
@@ -597,37 +599,40 @@ async function saveAttachments(ctx: NodeContext, folder: string): Promise<string
     return ` · saved ${copied} attachment(s) to ${folder}${already > 0 ? `, ${already} already there` : ''}`;
 }
 
+/** What the run says of an action that did not happen, ahead of the reason. */
+const ACTION_FAILED: Record<TerminalActionType, string> = {
+    'save-attachments': 'could not save attachments',
+    move: 'could not file',
+};
+
+/** One action's note on the run, e.g. " · filed in Inbox\Done". */
+async function runAction(ctx: NodeContext, action: TerminalAction): Promise<string> {
+    const folder = action.folder.trim();
+    if (!folder) return ` · ${ACTION_FAILED[action.type]} (no folder set)`;
+    switch (action.type) {
+        case 'save-attachments':
+            return saveAttachments(ctx, folder);
+        case 'move': {
+            const result = await outlook.moveEmail(ctx.email.ref, folder);
+            ctx.onEvent({ at: now(), type: 'outlook', label: `move → ${folder}` });
+            return result.moved > 0
+                ? ` · filed in ${result.folderPath}`
+                : ` · ${ACTION_FAILED.move} (${result.failed.map((f) => f.error).join('; ')})`;
+        }
+    }
+}
+
 async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<NodeOutcome> {
-    // Before the move: filing the email rewrites the id its attachments are read by.
-    let saved = '';
-    const folder = config.saveAttachmentsTo.trim();
-    if (folder) {
+    // In list order, which keeps a move last: filing the email rewrites the id the others read it by.
+    let notes = '';
+    for (const action of config.actions) {
         try {
-            saved = await saveAttachments(ctx, folder);
+            notes += await runAction(ctx, action);
         } catch (e) {
-            saved = ` · could not save attachments (${e instanceof Error ? e.message : String(e)})`;
+            notes += ` · ${ACTION_FAILED[action.type]} (${e instanceof Error ? e.message : String(e)})`;
         }
     }
-
-    let moved = '';
-    if (config.moveToFolder.trim()) {
-        try {
-            const result = await outlook.moveEmail(ctx.email.ref, config.moveToFolder.trim());
-            moved =
-                result.moved > 0
-                    ? ` · filed in ${result.folderPath}`
-                    : ` · could not file (${result.failed.map((f) => f.error).join('; ')})`;
-            ctx.onEvent({ at: now(), type: 'outlook', label: `move → ${config.moveToFolder}` });
-        } catch (e) {
-            moved = ` · could not file (${e instanceof Error ? e.message : String(e)})`;
-        }
-    }
-
-    return {
-        outPort: null,
-        disposition: config.disposition,
-        summary: `${config.disposition}${saved}${moved}`,
-    };
+    return { outPort: null, disposition: config.disposition, summary: `${config.disposition}${notes}` };
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {

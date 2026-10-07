@@ -133,15 +133,30 @@ export interface ProcessorConfig {
     mcpTools: string[] | null;
 }
 
+/** Something a terminal does to the email on arrival, before its path ends. */
+export type TerminalAction =
+/** Save the attachments, less the images embedded in the body, into a folder on disk. */
+    | { type: 'save-attachments'; folder: string }
+    /** File the email into an Inbox subfolder. */
+    | { type: 'move'; folder: string };
+
+export type TerminalActionType = TerminalAction['type'];
+
+export const TERMINAL_ACTION_TYPES: TerminalActionType[] = ['save-attachments', 'move'];
+
 export interface TerminalConfig {
     disposition: Disposition;
-    /** Inbox subfolder to file the email into on arrival. Empty means leave it. */
-    moveToFolder: string;
-    /**
-     * Folder on disk to save the email's attachments into on arrival, less the
-     * images embedded in its body. Empty saves nothing.
-     */
-    saveAttachmentsTo: string;
+    /** Done in turn on arrival. A failed one is noted on the run and leaves the disposition alone. */
+    actions: TerminalAction[];
+}
+
+/**
+ * The list a terminal can keep: at most one move, and that one last, since filing
+ * the email rewrites the id everything else reads it by.
+ */
+export function orderActions(actions: TerminalAction[]): TerminalAction[] {
+    const move = actions.find((a) => a.type === 'move');
+    return [...actions.filter((a) => a.type !== 'move'), ...(move ? [move] : [])];
 }
 
 export type NodeConfig =
@@ -500,7 +515,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 mcpTools: [],
             };
         case 'terminal':
-            return { kind, disposition: 'done', moveToFolder: '', saveAttachmentsTo: '' };
+            return { kind, disposition: 'done', actions: [] };
     }
 }
 
@@ -663,6 +678,28 @@ const fallbacksOf = (value: unknown): ModelChoice[] =>
         .map((choice) => modelAndEffort(choice, { model: '', effort: '' }))
         .filter((choice) => choice.model !== '');
 
+/** One terminal action, or undefined for a type this build does not know. */
+function actionOf(raw: Json): TerminalAction | undefined {
+    switch (raw.type) {
+        case 'save-attachments':
+        case 'move':
+            return { type: raw.type, folder: str(raw.folder, '') };
+    }
+}
+
+/** A terminal's actions. One saved before the list kept its two as fields of their own. */
+function actionsOf(from: Json): TerminalAction[] {
+    if (Array.isArray(from.actions)) {
+        return orderActions(from.actions.filter(isObject).flatMap((raw) => actionOf(raw) ?? []));
+    }
+    const save = str(from.saveAttachmentsTo, '').trim();
+    const move = str(from.moveToFolder, '').trim();
+    return [
+        ...(save ? [{ type: 'save-attachments', folder: save } as const] : []),
+        ...(move ? [{ type: 'move', folder: move } as const] : []),
+    ];
+}
+
 /** Every field replaced by its default unless the file supplies the right type. */
 function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
     const base = defaultConfig(kind);
@@ -741,8 +778,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 disposition: oneOf(from.disposition, DISPOSITIONS, base.disposition),
-                moveToFolder: str(from.moveToFolder, base.moveToFolder),
-                saveAttachmentsTo: str(from.saveAttachmentsTo, base.saveAttachmentsTo),
+                actions: actionsOf(from),
             };
     }
 }

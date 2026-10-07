@@ -182,8 +182,11 @@ function describe(node: FlowNode): string {
             return c.skills.length > 0
                 ? `skills: ${c.skills.join(', ')}`
                 : 'No skill assigned — instruction only';
-        case 'terminal':
-            return c.moveToFolder ? `${c.disposition} · file in ${c.moveToFolder}` : c.disposition;
+        case 'terminal': {
+            // A Set, so two folders saved to read as one "save attachments".
+            const actions = c.actions.map((a) => (a.type === 'move' ? `file in ${a.folder}` : 'save attachments'));
+            return [c.disposition, ...new Set(actions)].join(' · ');
+        }
     }
 }
 

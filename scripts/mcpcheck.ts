@@ -126,8 +126,29 @@ async function main(): Promise<void> {
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
-    const saving = await call('update_node', { flowId, nodeId: done, config: { saveAttachmentsTo: 'C:/Shipments' } });
-    check('a terminal keeps the folder it saves attachments to', saving.includes('"saveAttachmentsTo": "C:/Shipments"'));
+    // A move listed first, a second move and an unknown type: the move goes last, alone.
+    const acting = await call('update_node', {
+        flowId,
+        nodeId: done,
+        config: {
+            actions: [
+                { type: 'move', folder: 'Processed' },
+                { type: 'save-attachments', folder: 'C:/Shipments' },
+                { type: 'move', folder: 'Elsewhere' },
+                { type: 'print' },
+            ],
+        },
+    });
+    const kept = (JSON.parse(acting) as { node: { config: { actions: unknown } } }).node.config.actions;
+    check(
+        'a terminal keeps its actions, with one move and that one last',
+        JSON.stringify(kept) ===
+        JSON.stringify([
+            { type: 'save-attachments', folder: 'C:/Shipments' },
+            { type: 'move', folder: 'Processed' },
+        ]),
+        JSON.stringify(kept),
+    );
 
     const step = await call('add_node', { flowId, kind: 'processor' });
     check(

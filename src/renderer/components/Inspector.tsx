@@ -15,6 +15,7 @@ import {
     type ModelChoice,
     NODE_KIND_META,
     type NodeConfig,
+    orderActions,
     outputPorts,
     type ProcessorConfig,
     provides,
@@ -23,6 +24,9 @@ import {
     type Slot,
     SLOT_NAME,
     slotTypeLabel,
+    TERMINAL_ACTION_TYPES,
+    type TerminalAction,
+    type TerminalActionType,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -922,7 +926,28 @@ function InputsField({
     );
 }
 
+/** How each terminal action is offered, and the folder field it shows once added. */
+const ACTION_META: Record<TerminalActionType, { add: string; label: string; hint: string; placeholder: string }> = {
+    'save-attachments': {
+        add: 'Save attachments',
+        label: 'Save attachments to',
+        hint: 'A folder on this computer. Every attachment goes in but the images in the body; one already there is not saved twice, and a different file with its name gets a numbered copy.',
+        placeholder: 'C:\\Shipments',
+    },
+    move: {
+        add: 'File into folder',
+        label: 'File into folder',
+        hint: 'Inbox subfolder. Always done last, since filing the email changes the id the other actions find it by.',
+        placeholder: 'Processed/Pre-Alerts',
+    },
+};
+
 function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element {
+    const { actions } = config;
+    const set = (next: TerminalAction[]): void => patch({ actions: orderActions(next) });
+    // An email can be filed only once.
+    const offered = TERMINAL_ACTION_TYPES.filter((type) => type !== 'move' || !actions.some((a) => a.type === type));
+
     return (
         <>
             <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
@@ -935,26 +960,41 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
                     ))}
                 </select>
             </Field>
-            <Field
-                label="File into folder"
-                hint="Inbox subfolder, e.g. Processed/Pre-Alerts. Leave blank to leave the email where it is."
-            >
-                <input
-                    value={config.moveToFolder}
-                    placeholder="(leave in place)"
-                    onChange={(e) => patch({ moveToFolder: e.target.value })}
-                />
-            </Field>
-            <Field
-                label="Save attachments to"
-                hint="A folder on this computer. Every attachment goes in but the images in the body; one already there is not saved twice, and a different file with its name gets a numbered copy."
-            >
-                <input
-                    value={config.saveAttachmentsTo}
-                    placeholder="(save nothing)"
-                    onChange={(e) => patch({ saveAttachmentsTo: e.target.value })}
-                />
-            </Field>
+
+            <Legend
+                label="On arrival"
+                hint={
+                    actions.length === 0
+                        ? 'Nothing is done to the email, and it stays where it is.'
+                        : 'Done in turn before the path ends. One that fails is noted on the run and leaves the disposition as it is.'
+                }
+            />
+            {actions.map((action, i) => {
+                const meta = ACTION_META[action.type];
+                return (
+                    <div key={i} className="card">
+                        <Field label={meta.label} hint={meta.hint}>
+                            <input
+                                value={action.folder}
+                                placeholder={meta.placeholder}
+                                onChange={(e) =>
+                                    set(actions.map((a, j) => (j === i ? { ...a, folder: e.target.value } : a)))
+                                }
+                            />
+                        </Field>
+                        <button className="danger" onClick={() => set(actions.filter((_, j) => j !== i))}>
+                            Remove
+                        </button>
+                    </div>
+                );
+            })}
+            <div className="row">
+                {offered.map((type) => (
+                    <button key={type} onClick={() => set([...actions, { type, folder: '' }])}>
+                        + {ACTION_META[type].add}
+                    </button>
+                ))}
+            </div>
         </>
     );
 }
