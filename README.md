@@ -182,22 +182,20 @@ per day, kept for 14 days — **Folder** opens it, and **Clear** empties the win
 
 ```bash
 npm install
-node node_modules/electron/install.js   # see note below
 npm start
 ```
 
-> **npm 12 blocks dependency lifecycle scripts by default.** Electron's postinstall
-> is what downloads the actual Electron binary, so it must be run once by hand
-> after `npm install` (the second line above). The packages this project needs to
-> unblock are declared in `allowScripts` in `package.json`; run
-> `npm install-scripts ls` to review what is still blocked. `.npmrc` sets
-> `allow-git=all`, which is required because `@dawnlit/outlook-bridge` installs
-> straight from GitHub.
+> **npm 12 blocks dependency lifecycle scripts by default.** The ones this project
+> allows or refuses are declared in `allowScripts` in `package.json`; run
+> `npm install-scripts ls` to review what is still blocked. The project's own
+> `postinstall` downloads the Electron binary. `@dawnlit/outlook-bridge` links in
+> from the sibling `../outlook-bridge` checkout with its `prepare` build refused,
+> so after changing it, run `npm run build` there.
 
 To build a distributable:
 
 ```bash
-npm run make      # needs: npm install-scripts approve electron-winstaller
+npm run make
 ```
 
 ### Check the whole chain works

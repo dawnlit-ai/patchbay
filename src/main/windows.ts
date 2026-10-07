@@ -51,7 +51,7 @@ function make(frame: Frame): BrowserWindow {
         // The top bar draws the title and window buttons itself.
         frame: false,
         webPreferences: {
-            preload: join(__dirname, 'preload.js'),
+            preload: join(__dirname, 'preload.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: false,
