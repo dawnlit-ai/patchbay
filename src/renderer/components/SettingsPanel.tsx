@@ -38,8 +38,8 @@ const PAGES: { id: Page; label: string }[] = [
 ];
 
 /**
- * What each page edits, for marking unsaved pages. The token and the skills link
- * are left out: main ignores both on save, so a stale copy here is not a change.
+ * What each page edits, for marking unsaved pages. The token and the linked skill
+ * folders are left out: main keeps its own on save, so a stale copy here is not a change.
  */
 const EDITS: Record<Page, (s: Settings) => unknown> = {
     agents: (s) => [s.claudeExecutablePath, s.agyExecutablePath],
@@ -720,13 +720,14 @@ export function SettingsPanel({
                         {page === 'servers' && (
                             <>
                                 <PageHead title="MCP servers">
-                                    Tool servers handed to every Processor node — another app's MCP server whose
-                                    tools your skills call, for example.
+                                    Tool servers your Processor and Extractor nodes can call — another app's MCP
+                                    server whose tools your skills use, for example. Each node gets only the tools
+                                    it ticks.
                                 </PageHead>
                                 <div className="set-group">
                                     {draft.mcpServers.length === 0 && (
                                         <div className="set-empty">
-                                            No servers yet. Add one and every Processor node can call its tools.
+                                            No servers yet. Add one, then tick its tools on the nodes that need them.
                                         </div>
                                     )}
                                     {draft.mcpServers.map((server, i) => (

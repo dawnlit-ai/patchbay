@@ -21,7 +21,7 @@ function Glyph({ d }: { d: string }): JSX.Element {
 }
 
 interface Props {
-    /** False where the window has a size of its own to keep — the welcome window. */
+    /** False where the window has a size of its own to keep — the welcome and settings windows. */
     maximize?: boolean;
 }
 

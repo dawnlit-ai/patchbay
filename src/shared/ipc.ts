@@ -63,7 +63,7 @@ export interface InboxFolderOption {
     itemCount: number;
 }
 
-/** A model the Claude account offers, as Claude Code's own model picker lists it. */
+/** A model Claude Code or agy offers, as its own model list names it. */
 export interface ModelOption {
     /** What a node stores and the run is started with — often an alias, such as `opus`. */
     value: string;

@@ -22,7 +22,7 @@ export interface AgentControlSettings {
     token: string;
 }
 
-export const DEFAULT_AGENT_CONTROL_PORT = 8787;
+const DEFAULT_AGENT_CONTROL_PORT = 8787;
 
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
 export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;

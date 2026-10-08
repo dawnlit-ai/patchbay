@@ -67,14 +67,14 @@ function Legend({ label, hint }: { label: string; hint?: string }): JSX.Element 
 }
 
 interface Models {
-    /** Null until Claude Code has answered. */
+    /** Null until the agents have answered. */
     models: ModelOption[] | null;
     error: string | null;
 }
 
 /**
- * The models the Claude login offers, and the effort levels each takes — asked of
- * Claude Code, so a model released after this build is offered without a new one.
+ * The models Claude Code and agy offer, and the effort levels each takes — asked
+ * of them, so a model released after this build is offered without a new one.
  */
 function useModels(): Models {
     const [models, setModels] = useState<ModelOption[] | null>(null);

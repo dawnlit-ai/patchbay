@@ -26,7 +26,6 @@ import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { useTheme } from './theme';
 
-
 /** Matches what main keeps, so the window never holds lines main has let go. */
 const LOG_LIMIT = 2_000;
 

@@ -202,10 +202,10 @@ export function createFlow(name: string, location?: string): Flow {
 
 /**
  * Copy the graph handed over (what is on screen, unsaved edits included) into a
- * new flow, in `location` or else the workspace, along with its own skill library.
- * Node ids are kept, as they only need to be unique within a flow; watermarks are not.
+ * new flow in `location`, along with its own skill library. Node ids are kept, as
+ * they only need to be unique within a flow; watermarks are not.
  */
-export function duplicateFlow(source: Flow, name: string, location?: string): Flow {
+export function duplicateFlow(source: Flow, name: string, location: string): Flow {
     const copy = createIn({ ...source, id: randomUUID(), name }, location);
     // Read where it is: making it would leave an empty library in a folder opened in place.
     const library = flowSkillsDirAt(source.id);

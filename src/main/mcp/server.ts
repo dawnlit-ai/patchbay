@@ -16,10 +16,10 @@ import { log } from '../log';
  * fresh server and transport.
  */
 
-export const MCP_PATH = '/mcp';
+const MCP_PATH = '/mcp';
 
 /** The name the tools arrive under in a client: `mcp__patchbay__list_flows`. */
-export const SERVER_NAME = 'patchbay';
+const SERVER_NAME = 'patchbay';
 
 const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
 

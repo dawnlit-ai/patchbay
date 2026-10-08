@@ -90,7 +90,7 @@ export interface ExtractorConfig {
 }
 
 export interface ProcessorConfig {
-    /** Skill names from the app's own library, passed to the Agent SDK. */
+    /** Ticked skills: `global:<name>` from the global library, a bare name from the flow's own. */
     skills: string[];
     /** Free-text instruction prepended to the email context. */
     instruction: string;
@@ -519,7 +519,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
     }
 }
 
-export function defaultNodeName(kind: NodeKind): string {
+function defaultNodeName(kind: NodeKind): string {
     switch (kind) {
         case 'trigger.outlook':
             return 'Outlook Inbox';
@@ -590,7 +590,7 @@ export function mintNodeId(flow: Flow, kind: NodeKind): string {
 }
 
 /** What an edge is called: derived from its ends, so one wire is never two. */
-export const edgeId = (source: string, sourceHandle: string, target: string): string =>
+const edgeId = (source: string, sourceHandle: string, target: string): string =>
     `${source}:${sourceHandle}->${target}`;
 
 /**

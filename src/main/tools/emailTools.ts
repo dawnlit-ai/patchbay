@@ -9,7 +9,7 @@ import * as outlook from '../outlook/bridge';
 import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
 
 /**
- * A Processor's mailbox tools, bound to this run's one email: none takes an
+ * A step's mailbox tools, bound to this run's one email: none takes an
  * entryId, so a skill cannot reach another message. Anything beyond reading is
  * opt-in per node, and nothing sends mail.
  */

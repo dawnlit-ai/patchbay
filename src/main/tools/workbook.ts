@@ -332,7 +332,7 @@ function cellText(attrs: string, inner: string, strings: string[], formats: stri
  * 24-hour HH:MM, which read one way in every locale, and zero takes the
  * positive section, since an accounting format's lone dash reads as no value.
  */
-export function formatNumber(n: number, format: string, date1904 = false): string {
+function formatNumber(n: number, format: string, date1904 = false): string {
     const sections = splitSections(format);
     const signed = n < 0 && sections.length > 1;
     // The negative section shows the sign itself, as a minus or parentheses.

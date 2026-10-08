@@ -2,7 +2,7 @@ import type { HTMLAttributes, JSX, ReactNode } from 'react';
 import { useState } from 'react';
 
 /** Past this many, a group starts folded, scrolls inside itself when open, and the list gets a filter. */
-export const LONG_LIST = 8;
+const LONG_LIST = 8;
 
 interface Props<T> extends Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'children'> {
     title: string;
