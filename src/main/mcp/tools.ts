@@ -80,9 +80,7 @@ rather than a fan-out. The five node kinds:
                     \`actions\` list is done on arrival, each one
                     { "type": "save-attachments", "folder": <path on disk> }
                     or { "type": "move", "folder": <Inbox subfolder> };
-                    a move always runs last. A folder can name a slot
-                    field, as "{shipment.settings.output_dir}", filled
-                    from the run on arrival. update_node replaces the
+                    a move always runs last. update_node replaces the
                     whole list.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an

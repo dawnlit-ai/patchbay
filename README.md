@@ -38,9 +38,7 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   hand their work to the next — and a run that stops shows which step it stopped at.
 - **Terminal** — ends a path and records a disposition. It can also do a list of actions to the email on arrival:
   save its attachments into a folder on disk, and file it into an Inbox subfolder. The engine does these itself, so no
-  agent needs the file-system access to do them. Either folder can name a field of a slot an earlier node filled, as
-  `{shipment.settings.output_dir}`, so a folder another app keeps comes from that app instead of being typed twice; a
-  run that left the field empty skips the action and says so.
+  agent needs the file-system access to do them.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.

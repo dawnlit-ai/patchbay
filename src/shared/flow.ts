@@ -133,10 +133,7 @@ export interface ProcessorConfig {
     mcpTools: string[] | null;
 }
 
-/**
- * Something a terminal does to the email on arrival, before its path ends. Its
- * folder may name slot fields, as `{shipment.settings.output_dir}`: see `fillSlotRefs`.
- */
+/** Something a terminal does to the email on arrival, before its path ends. */
 export type TerminalAction =
 /** Save the attachments, less the images embedded in the body, into a folder on disk. */
     | { type: 'save-attachments'; folder: string }
@@ -160,29 +157,6 @@ export interface TerminalConfig {
 export function orderActions(actions: TerminalAction[]): TerminalAction[] {
     const move = actions.find((a) => a.type === 'move');
     return [...actions.filter((a) => a.type !== 'move'), ...(move ? [move] : [])];
-}
-
-const SLOT_REF = /\{([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_-]+)*)\}/g;
-
-/**
- * `folder` with each `{slot.path}` in it replaced by that field of the run's
- * slots, or the first one the run holds no text for. Lets a folder another app
- * keeps come from what a step read out of that app, rather than be typed twice.
- */
-export function fillSlotRefs(
-    folder: string,
-    data: Readonly<Record<string, unknown>>,
-): { folder: string } | { missing: string } {
-    let missing: string | undefined;
-    const filled = folder.replace(SLOT_REF, (ref, path: string) => {
-        const value = path
-            .split('.')
-            .reduce<unknown>((at, step) => (typeof at === 'object' && at !== null ? (at as Json)[step] : undefined), data);
-        const text = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
-        if (!text) missing ??= ref;
-        return text;
-    });
-    return missing === undefined ? { folder: filled.trim() } : { missing };
 }
 
 export type NodeConfig =
