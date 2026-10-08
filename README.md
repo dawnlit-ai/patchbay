@@ -36,9 +36,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
   by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
   slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each
   hand their work to the next — and a run that stops shows which step it stopped at.
-- **Terminal** — ends a path and records a disposition. It can also do a list of actions to the email on arrival:
-  save its attachments into a folder on disk, and file it into an Inbox subfolder. The engine does these itself, so no
-  agent needs the file-system access to do them.
+- **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
+  saves, one of its steps does, with its own tools.
 
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
@@ -57,8 +56,8 @@ does.
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
 a Processor with an output slot fills it only on *Done*, and one that says *Done* with a result that doesn't match its
 schema leaves by *Error* instead.
-A node adds slots and never takes one away, so the email is still there for the reply or the move at the end of the
-path. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
+A node adds slots and never takes one away, so the email is still there for whichever step replies to it or files
+it. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
 or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
 on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor
 always reads the email, and any slots it ticks besides: the lanes an earlier step found, say, to price each of them.

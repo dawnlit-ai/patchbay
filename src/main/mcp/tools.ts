@@ -76,12 +76,10 @@ rather than a fan-out. The five node kinds:
                     slot on "done" — how one step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
                     list_server_tools gives a server's.
-- terminal        — ends the path and records how the email came out. Its
-                    \`actions\` list is done on arrival, each one
-                    { "type": "save-attachments", "folder": <path on disk> }
-                    or { "type": "move", "folder": <Inbox subfolder> };
-                    a move always runs last. update_node replaces the
-                    whole list.
+- terminal        — ends the path and records how the email came out, as
+                    its \`disposition\`. It does nothing to the email: a
+                    step that files it or saves its attachments does so
+                    with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.

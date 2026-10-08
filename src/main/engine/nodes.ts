@@ -1,6 +1,3 @@
-import { existsSync, statSync } from 'node:fs';
-import { constants, copyFile, readFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import {
     type CategorizerConfig,
@@ -9,8 +6,6 @@ import {
     type JsonSchema,
     needsField,
     type ProcessorConfig,
-    type TerminalAction,
-    type TerminalActionType,
     type TerminalConfig,
     type TriggerConfig,
     UNMATCHED_PORT,
@@ -547,92 +542,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
 // ── Terminal ─────────────────────────────────────────────────────────────
 
-/** Images a body shows rather than files sent with it: Outlook names those image001.png, and signatures use .gif. */
-const EMBEDDED_IMAGE = /^image\d+\.(png|jpe?g|gif|bmp)$|\.gif$/i;
-
-async function sameBytes(a: string, b: string): Promise<boolean> {
-    const [x, y] = await Promise.all([readFile(a), readFile(b)]);
-    return x.equals(y);
-}
-
-/**
- * Copies a file into `folder` under its own name, and never over a different
- * file: a name another file already has gets a numbered copy. False when the
- * same file is already there, as it is when an email is run a second time.
- */
-async function copyInto(source: string, folder: string): Promise<boolean> {
-    const ext = extname(source);
-    const stem = basename(source, ext);
-    for (let n = 1; ; n++) {
-        const target = join(folder, n === 1 ? `${stem}${ext}` : `${stem} (${n})${ext}`);
-        try {
-            await copyFile(source, target, constants.COPYFILE_EXCL);
-            return true;
-        } catch (e) {
-            if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-            if (await sameBytes(source, target)) return false;
-        }
-    }
-}
-
-async function saveAttachments(ctx: NodeContext, folder: string): Promise<string> {
-    const names = ctx.email.attachmentNames.filter((name) => !EMBEDDED_IMAGE.test(name.trim()));
-    if (names.length === 0) return ' · no attachments to save';
-    // Checked rather than created, so a mistyped path does not become a folder.
-    if (!isAbsolute(folder) || !existsSync(folder) || !statSync(folder).isDirectory()) {
-        return ` · could not save attachments (there is no folder ${folder})`;
-    }
-    // Saved into the run folder first: the bridge numbers a name already taken,
-    // so saving straight into the folder would add copies on every re-run.
-    const staged = await outlook.saveAttachments(ctx.email.ref, names, join(ctx.scratchDir, `saved-by-${ctx.node.id}`));
-    let copied = 0;
-    for (const file of staged) {
-        if (await copyInto(file.path, folder)) copied++;
-    }
-    ctx.onEvent({
-        at: now(),
-        type: 'outlook',
-        label: `save attachments → ${folder}`,
-        detail: staged.map((file) => file.fileName).join('\n'),
-    });
-    const already = staged.length - copied;
-    return ` · saved ${copied} attachment(s) to ${folder}${already > 0 ? `, ${already} already there` : ''}`;
-}
-
-/** What the run says of an action that did not happen, ahead of the reason. */
-const ACTION_FAILED: Record<TerminalActionType, string> = {
-    'save-attachments': 'could not save attachments',
-    move: 'could not file',
-};
-
-/** One action's note on the run, e.g. " · filed in Inbox\Done". */
-async function runAction(ctx: NodeContext, action: TerminalAction): Promise<string> {
-    const folder = action.folder.trim();
-    if (!folder) return ` · ${ACTION_FAILED[action.type]} (no folder set)`;
-    switch (action.type) {
-        case 'save-attachments':
-            return saveAttachments(ctx, folder);
-        case 'move': {
-            const result = await outlook.moveEmail(ctx.email.ref, folder);
-            ctx.onEvent({ at: now(), type: 'outlook', label: `move → ${folder}` });
-            return result.moved > 0
-                ? ` · filed in ${result.folderPath}`
-                : ` · ${ACTION_FAILED.move} (${result.failed.map((f) => f.error).join('; ')})`;
-        }
-    }
-}
-
-async function runTerminal(ctx: NodeContext, config: TerminalConfig): Promise<NodeOutcome> {
-    // In list order, which keeps a move last: filing the email rewrites the id the others read it by.
-    let notes = '';
-    for (const action of config.actions) {
-        try {
-            notes += await runAction(ctx, action);
-        } catch (e) {
-            notes += ` · ${ACTION_FAILED[action.type]} (${e instanceof Error ? e.message : String(e)})`;
-        }
-    }
-    return { outPort: null, disposition: config.disposition, summary: `${config.disposition}${notes}` };
+function runTerminal(config: TerminalConfig): NodeOutcome {
+    return { outPort: null, disposition: config.disposition, summary: config.disposition };
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
@@ -647,6 +558,6 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
         case 'processor':
             return runProcessor(ctx, config);
         case 'terminal':
-            return runTerminal(ctx, config);
+            return runTerminal(config);
     }
 }

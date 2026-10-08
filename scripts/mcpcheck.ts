@@ -126,28 +126,17 @@ async function main(): Promise<void> {
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
-    // A move listed first, a second move and an unknown type: the move goes last, alone.
-    const acting = await call('update_node', {
+    // Terminals do nothing to the email, so actions written the way an older file kept them are dropped.
+    const ending = await call('update_node', {
         flowId,
         nodeId: done,
-        config: {
-            actions: [
-                { type: 'move', folder: 'Processed' },
-                { type: 'save-attachments', folder: 'C:/Shipments' },
-                { type: 'move', folder: 'Elsewhere' },
-                { type: 'print' },
-            ],
-        },
+        config: { disposition: 'needs-review', actions: [{ type: 'move', folder: 'Processed' }] },
     });
-    const kept = (JSON.parse(acting) as { node: { config: { actions: unknown } } }).node.config.actions;
+    const ended = (JSON.parse(ending) as { node: { config: Record<string, unknown> } }).node.config;
     check(
-        'a terminal keeps its actions, with one move and that one last',
-        JSON.stringify(kept) ===
-        JSON.stringify([
-            { type: 'save-attachments', folder: 'C:/Shipments' },
-            { type: 'move', folder: 'Processed' },
-        ]),
-        JSON.stringify(kept),
+        'a terminal keeps its disposition and drops any actions',
+        ended.disposition === 'needs-review' && !('actions' in ended),
+        JSON.stringify(ended),
     );
 
     const step = await call('add_node', { flowId, kind: 'processor' });
