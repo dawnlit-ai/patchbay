@@ -37,7 +37,6 @@ interface Frame {
     minHeight: number;
     x?: number;
     y?: number;
-    resizable?: boolean;
     maximizable?: boolean;
 }
 

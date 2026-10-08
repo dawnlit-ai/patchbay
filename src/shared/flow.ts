@@ -216,7 +216,7 @@ export function hasInput(kind: NodeKind): boolean {
 
 // ── Data on the wire ─────────────────────────────────────────────────────
 // A run carries named slots. A node adds slots and never takes one away, so the
-// email is still there for the reply or the move at the end of the path.
+// email is still there for any later step that replies to it or files it.
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -309,8 +309,10 @@ export function requires(node: FlowNode): string[] {
             return [EMAIL_SLOT.name, ...node.config.inputs];
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
-        default:
+        case 'categorizer':
             return [EMAIL_SLOT.name];
+        case 'terminal':
+            return [];
     }
 }
 
@@ -380,7 +382,7 @@ export function checkSlots(flow: Flow): SlotCheck {
     for (const node of flow.nodes) {
         const held = arriving.get(node.id);
         if (!held) continue;
-        if (requires(node).length === 0 && hasInput(node.kind)) {
+        if (node.kind === 'processor' && requires(node).length === 0) {
             issues.push({
                 nodeId: node.id,
                 severity: 'error',

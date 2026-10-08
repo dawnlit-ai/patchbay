@@ -279,7 +279,7 @@ code {
     letter-spacing: 0.2px;
 }
 
-/* Full height and hard into the corner, where the frame's buttons used to be. */
+/* Full height and hard into the corner, where a native frame puts its buttons. */
 .window-controls {
     display: flex;
     align-self: stretch;

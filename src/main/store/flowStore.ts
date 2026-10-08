@@ -29,7 +29,7 @@ import type { SkillScope } from '@shared/settings';
 
 /**
  * A flow is a file in a directory, beside the flow's own `.claude/skills`, and
- * that directory is the cwd its Processors run in. One made here lives at
+ * that directory is the cwd its steps run in. One made here lives at
  * `flows/<folder>/flow.json`, and its folder can be renamed; one opened from
  * elsewhere stays where it is. Either way the id inside the file cannot change,
  * since runs and watermarks are keyed by it.

@@ -188,7 +188,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             return finish('failed', pass.error);
         }
         if (pass.outPort === null) {
-            // A terminal node, or a node that deliberately ended the path.
+            // A terminal node.
             return finish('completed');
         }
 

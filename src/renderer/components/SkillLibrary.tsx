@@ -273,7 +273,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                 ? `Shared by every flow, including ${linkedCount} linked folder${linkedCount === 1 ? '' : 's'} read in place: editing or deleting a skill from one changes it there.`
                                 : scope === 'global'
                                     ? 'Shared by every flow: editing one changes it everywhere.'
-                                    : `Only “${flowName}” sees these, and they travel with it when you export.`
+                                    : `Only “${flowName}” sees these. They live in its folder and go wherever it does.`
                         }
                         empty={
                             scope === 'global'

@@ -961,7 +961,7 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
 
             {hasInput(node.kind) && (
                 <>
-                    <Legend label="Reads"/>
+                    {reads.length > 0 && <Legend label="Reads"/>}
                     {reads.map((name) => {
                         const type = available?.get(name);
                         let problem: string | undefined;

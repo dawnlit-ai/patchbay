@@ -219,7 +219,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
 /**
  * A missing field's path from inside `data`, as the prompt asks. Some models write
  * it from the top of their answer instead ("data.entries.0.split"), a path the
- * schema cannot be followed down, so every field listed counted as required.
+ * schema cannot be followed down, which would count every field listed as required.
  */
 function fromData(schema: JsonSchema, path: string): string {
     const properties = schema.properties;
