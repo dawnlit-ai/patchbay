@@ -294,9 +294,12 @@ export function FlowCanvas({
     const [menu, setMenu] = useState<{ node: FlowNode; x: number; y: number } | null>(null);
     /**
      * Each card's last measured size, handed back on every rebuilt node. React Flow
-     * hides a node without one, which blanked the canvas on every frame of a drag.
+     * hides a node without one, which blanked the canvas on every frame of a drag,
+     * and the minimap leaves it out. State, so a new size rebuilds the nodes.
      */
-    const measured = useRef(new Map<string, { width: number; height: number }>());
+    const [measured, setMeasured] = useState<ReadonlyMap<string, { width: number; height: number }>>(
+        () => new Map(),
+    );
 
     const rfNodes: Node[] = useMemo(
         () =>
@@ -307,7 +310,7 @@ export function FlowCanvas({
                     id: n.id,
                     type: 'card',
                     position: n.position,
-                    measured: measured.current.get(n.id),
+                    measured: measured.get(n.id),
                     selected: n.id === selectedNodeId,
                     data: {
                         flowNode: n,
@@ -319,7 +322,7 @@ export function FlowCanvas({
                     } satisfies NodeData,
                 };
             }),
-        [flow.nodes, selectedNodeId, highlight, mailDrag, dropTarget, slots],
+        [flow.nodes, measured, selectedNodeId, highlight, mailDrag, dropTarget, slots],
     );
 
     const removeEdge = useCallback(
@@ -347,21 +350,29 @@ export function FlowCanvas({
             let nodes = flow.nodes;
             let edges = flow.edges;
             let touched = false;
+            const sized = new Map<string, { width: number; height: number }>();
 
             for (const change of changes) {
                 if (change.type === 'dimensions' && change.dimensions) {
-                    measured.current.set(change.id, change.dimensions);
+                    sized.set(change.id, change.dimensions);
                 } else if (change.type === 'position' && change.position) {
                     const { position } = change;
                     nodes = nodes.map((n) => (n.id === change.id ? { ...n, position } : n));
                     touched = true;
                 } else if (change.type === 'remove') {
-                    measured.current.delete(change.id);
                     nodes = nodes.filter((n) => n.id !== change.id);
                     edges = edges.filter((e) => e.source !== change.id && e.target !== change.id);
                     touched = true;
                     if (selectedNodeId === change.id) onSelect(null);
                 }
+            }
+            if (sized.size > 0) {
+                // Unchanged sizes keep the same map, so a re-report rebuilds nothing.
+                setMeasured((prev) =>
+                    [...sized].every(([id, size]) => prev.get(id)?.width === size.width && prev.get(id)?.height === size.height)
+                        ? prev
+                        : new Map([...prev, ...sized]),
+                );
             }
             if (touched) onChange({ ...flow, nodes, edges });
         },
