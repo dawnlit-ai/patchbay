@@ -931,13 +931,13 @@ const ACTION_META: Record<TerminalActionType, { add: string; label: string; hint
     'save-attachments': {
         add: 'Save attachments',
         label: 'Save attachments to',
-        hint: 'A folder on this computer. Every attachment goes in but the images in the body; one already there is not saved twice, and a different file with its name gets a numbered copy.',
+        hint: 'A folder on this computer, or {slot.field} for one an earlier node found, e.g. {shipment.settings.output_dir}. Every attachment goes in but the images in the body; one already there is not saved twice, and a different file with its name gets a numbered copy.',
         placeholder: 'C:\\Shipments',
     },
     move: {
         add: 'File into folder',
         label: 'File into folder',
-        hint: 'Inbox subfolder. Always done last, since filing the email changes the id the other actions find it by.',
+        hint: 'Inbox subfolder, which can name a {slot.field} too. Always done last, since filing the email changes the id the other actions find it by.',
         placeholder: 'Processed/Pre-Alerts',
     },
 };

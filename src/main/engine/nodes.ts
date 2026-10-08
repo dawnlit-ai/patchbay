@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
     type CategorizerConfig,
     type ExtractorConfig,
+    fillSlotRefs,
     type FlowNode,
     type JsonSchema,
     needsField,
@@ -607,8 +608,10 @@ const ACTION_FAILED: Record<TerminalActionType, string> = {
 
 /** One action's note on the run, e.g. " · filed in Inbox\Done". */
 async function runAction(ctx: NodeContext, action: TerminalAction): Promise<string> {
-    const folder = action.folder.trim();
-    if (!folder) return ` · ${ACTION_FAILED[action.type]} (no folder set)`;
+    if (!action.folder.trim()) return ` · ${ACTION_FAILED[action.type]} (no folder set)`;
+    const filled = fillSlotRefs(action.folder, ctx.data);
+    if ('missing' in filled) return ` · ${ACTION_FAILED[action.type]} (${filled.missing} is empty on this run)`;
+    const { folder } = filled;
     switch (action.type) {
         case 'save-attachments':
             return saveAttachments(ctx, folder);
