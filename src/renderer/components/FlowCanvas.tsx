@@ -27,6 +27,7 @@ import {
     hasInput,
     makeNode,
     mintNodeId,
+    modelsInTurn,
     NODE_KIND_META,
     type NodeKind,
     outputPorts,
@@ -173,7 +174,7 @@ function describe(node: FlowNode): string {
                 ? `${c.account}${c.folder ? ` \\ ${c.folder}` : ''} · every ${c.pollSeconds}s`
                 : 'No mailbox selected yet';
         case 'categorizer':
-            return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${c.model}`;
+            return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;
         case 'extractor': {
             const fields = Object.keys((c.schema.properties as Record<string, unknown> | undefined) ?? {}).length;
             return `→ ${c.output} · ${fields} field${fields === 1 ? '' : 's'}${c.includeAttachments ? ' · reads attachments' : ''}`;

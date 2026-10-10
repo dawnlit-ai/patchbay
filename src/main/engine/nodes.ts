@@ -4,6 +4,8 @@ import {
     type ExtractorConfig,
     type FlowNode,
     type JsonSchema,
+    type ModelChoice,
+    modelsInTurn,
     needsField,
     type ProcessorConfig,
     type TerminalConfig,
@@ -11,7 +13,7 @@ import {
     UNMATCHED_PORT,
 } from '@shared/flow';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
-import type { AgentMcpServer } from '../agents';
+import type { AgentMcpServer, AgentRunRequest } from '../agents';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { getSettings } from '../store/settingsStore';
@@ -63,6 +65,14 @@ function slotContext(ctx: NodeContext, names: string[]): string[] {
         `--- ${name} (filled by an earlier node in this flow) ---`,
         JSON.stringify(ctx.data[name] ?? null, null, 2),
     ]);
+}
+
+/** A step's models as the agents take them: the first one on, and the others on to go to in turn. */
+function modelsFor({ models }: { models: ModelChoice[] }): Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks'> {
+    const [first, ...fallbacks] = modelsInTurn(models).map(({ model, effort }) => ({ model, effort }));
+    // parseFlow keeps one on, so only a node built by hand gets here without one.
+    if (!first) throw new Error('The node has no model turned on.');
+    return { ...first, fallbacks };
 }
 
 /**
@@ -174,9 +184,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
 
     const result = await agents.run({
         prompt,
-        model: config.model,
-        effort: config.effort,
-        fallbacks: config.fallbacks,
+        ...modelsFor(config),
         cwd: flowDir(ctx.flowId),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.
@@ -315,9 +323,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 
     const result = await agents.run({
         prompt,
-        model: config.model,
-        effort: config.effort,
-        fallbacks: config.fallbacks,
+        ...modelsFor(config),
         cwd: flowDir(ctx.flowId),
         // 'project' makes the flow's own `.claude/skills` discoverable, as for a Processor.
         settingSources: ticked ? ['project'] : undefined,
@@ -451,9 +457,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
     const result = await agents.run({
         prompt,
-        model: config.model,
-        effort: config.effort,
-        fallbacks: config.fallbacks,
+        ...modelsFor(config),
         // The flow's own directory: 'project' is what makes the `.claude/skills`
         // beneath it discoverable, and no other flow's library sits under it.
         cwd: flowDir(ctx.flowId),

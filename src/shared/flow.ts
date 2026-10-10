@@ -45,23 +45,25 @@ export interface TriggerConfig {
 export type MailScope = Pick<TriggerConfig, 'account' | 'folder' | 'includeSubfolders' | 'excludeFolders'>;
 
 /**
- * A model and its level, as a node names one. A step goes to a node's fallbacks
- * in turn when the model before is at its usage limit, or its agent cannot be
- * reached, and nothing that changes things has run yet.
+ * A model and its level, as a node lists one. A step runs on the first one that
+ * is on, and goes to the next one on in turn when the one before is at its usage
+ * limit, or its agent cannot be reached, and nothing that changes things has run yet.
  */
 export interface ModelChoice {
     model: string;
-    /** One of the levels the model takes. Empty uses the model's default. */
+    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
     effort: string;
+    /** Off, the step passes it over, and it keeps its place for when it is turned back on. */
+    enabled: boolean;
 }
+
+/** The models a step tries, in the order it tries them. A node always has at least one. */
+export const modelsInTurn = (models: ModelChoice[]): ModelChoice[] => models.filter((m) => m.enabled);
 
 export interface CategorizerConfig {
     categories: Category[];
-    model: string;
-    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
-    effort: string;
-    /** Models the step goes to in turn when the one before cannot take it. */
-    fallbacks: ModelChoice[];
+    /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
+    models: ModelChoice[];
     /** Fetch the full body before classifying. Off = subject and preview only. */
     includeBody: boolean;
     bodyMaxChars: number;
@@ -78,11 +80,8 @@ export interface ExtractorConfig {
     skills: string[];
     /** Slots an earlier node filled, put into the prompt as JSON after the email. */
     inputs: string[];
-    model: string;
-    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
-    effort: string;
-    /** Models the step goes to in turn when the one before cannot take it. */
-    fallbacks: ModelChoice[];
+    /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
+    models: ModelChoice[];
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
     /** Tools from the MCP servers in Settings, spelled as a Processor's are. Meant for lookups only. */
@@ -109,11 +108,8 @@ export interface ProcessorConfig {
     output: string;
     /** JSON Schema that result has to match. Unused while `output` is empty. */
     schema: JsonSchema;
-    model: string;
-    /** One of the levels the model takes, as Claude Code or agy lists them. Empty uses the model's default. */
-    effort: string;
-    /** Models the step goes to in turn when the one before cannot take it. */
-    fallbacks: ModelChoice[];
+    /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
+    models: ModelChoice[];
     /** Each capability adds one tool to the run-scoped MCP server. */
     allowDraftReply: boolean;
     allowMoveEmail: boolean;
@@ -448,9 +444,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     { id: 'a', label: 'Category A', description: 'Describe the emails that belong here.' },
                     { id: 'b', label: 'Category B', description: 'Describe the emails that belong here.' },
                 ],
-                model: DEFAULT_MODEL,
-                effort: '',
-                fallbacks: [],
+                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -471,9 +465,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
                 skills: [],
                 inputs: [],
-                model: DEFAULT_MODEL,
-                effort: '',
-                fallbacks: [],
+                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
                 includeAttachments: false,
                 mcpTools: [],
             };
@@ -486,9 +478,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 inputs: [],
                 output: '',
                 schema: { type: 'object', properties: {} },
-                model: DEFAULT_MODEL,
-                effort: 'high',
-                fallbacks: [],
+                models: [{ model: DEFAULT_MODEL, effort: 'high', enabled: true }],
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
@@ -642,22 +632,31 @@ const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =
     allowed.includes(value as T) ? (value as T) : fallback;
 
 /**
- * A node's model and level. An agy model saved with its level in the id, as
+ * One of a node's models. An agy model saved with its level in the id, as
  * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
  */
-function modelAndEffort(from: Json, base: ModelChoice): ModelChoice {
-    const model = str(from.model, base.model);
+function modelChoice(from: Json): ModelChoice {
+    const model = str(from.model, '');
+    const enabled = bool(from.enabled, true);
     const level = isAgyModel(model) ? AGY_LEVEL_SUFFIX.exec(model)?.[1] : undefined;
-    if (level) return { model: model.slice(0, -level.length - 1), effort: level };
-    return { model, effort: str(from.effort, base.effort) };
+    if (level) return { model: model.slice(0, -level.length - 1), effort: level, enabled };
+    return { model, effort: str(from.effort, ''), enabled };
 }
 
-/** A node's fallbacks, keeping only the entries that name a model. */
-const fallbacksOf = (value: unknown): ModelChoice[] =>
-    (Array.isArray(value) ? value : [])
+/**
+ * A node's models, keeping only the entries that name one. A list with none on
+ * gets its first turned back on: a step needs one to run on.
+ */
+function modelsOf(value: unknown, base: ModelChoice[]): ModelChoice[] {
+    const models = (Array.isArray(value) ? value : [])
         .filter(isObject)
-        .map((choice) => modelAndEffort(choice, { model: '', effort: '' }))
+        .map(modelChoice)
         .filter((choice) => choice.model !== '');
+    if (models.length === 0) return base;
+    return models.some((choice) => choice.enabled)
+        ? models
+        : models.map((choice, i) => (i === 0 ? { ...choice, enabled: true } : choice));
+}
 
 /** Every field replaced by its default unless the file supplies the right type. */
 function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
@@ -691,8 +690,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 categories: categories.length > 0 ? categories : base.categories,
-                ...modelAndEffort(from, base),
-                fallbacks: fallbacksOf(from.fallbacks),
+                models: modelsOf(from.models, base.models),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
             };
@@ -706,8 +704,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 instruction: str(from.instruction, base.instruction),
                 skills: strings(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
-                ...modelAndEffort(from, base),
-                fallbacks: fallbacksOf(from.fallbacks),
+                models: modelsOf(from.models, base.models),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 // Never null, unlike a Processor's: no Extractor predates the list.
                 mcpTools: strings(from.mcpTools, base.mcpTools),
@@ -723,8 +720,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 inputs: strings(from.inputs, base.inputs),
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
                 schema: isObject(from.schema) ? from.schema : base.schema,
-                ...modelAndEffort(from, base),
-                fallbacks: fallbacksOf(from.fallbacks),
+                models: modelsOf(from.models, base.models),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),

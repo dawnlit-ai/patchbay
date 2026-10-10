@@ -42,13 +42,15 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
 Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
 That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
 
-A Categorizer, Extractor or Processor can name **Fallbacks** under its model: more models to go to in turn — agy's
-Sonnet, say, then agy's Gemini Pro, then Claude's own Sonnet. A step moves on only when the model before is at its usage
+A Categorizer, Extractor or Processor lists its **Models**, each with its own effort level, in the order its step
+tries them: it runs on the first one that is on, and the others are its fallbacks — agy's Sonnet, say, then agy's
+Gemini Pro, then Claude's own Sonnet. Drag a model up or down the list to change its turn, or switch one off to pass it
+over without losing it; one is always on. A step moves on only when the model before is at its usage
 limit, or its agent is not installed or cannot be reached, and never once the step has changed something: a Processor
 that drafted a reply before its quota ran out is not run again. agy keeps one quota for its Gemini models and another
 for its Claude and GPT ones, so Gemini still answers once agy's Claude models are used up. A model known to be at its
 limit is passed over without being asked until the reset its agent named, and the run's trace says each time a step
-moved on and why. The last model waits for Claude's limit to reset rather than failing, as a node without fallbacks
+moved on and why. The last model waits for Claude's limit to reset rather than failing, as a node with one model
 does.
 
 ### Data on the wire

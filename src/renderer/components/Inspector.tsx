@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
@@ -189,47 +189,184 @@ function EffortField({
     );
 }
 
-/** The models a step goes to in turn when the one before cannot take it, each with its own level. */
-function FallbacksField({
-                            value,
-                            listing,
-                            onChange,
-                        }: {
+/** What a model card carries while it is dragged into order. */
+const MODEL_DRAG_TYPE = 'application/patchbay-model';
+
+/** The list with the entry at `from` moved into the gap before `gap`, counted as the list stands. */
+function moveTo<T>(list: T[], from: number, gap: number): T[] {
+    const to = gap > from ? gap - 1 : gap;
+    if (to === from) return list;
+    const moved = [...list];
+    const [item] = moved.splice(from, 1);
+    moved.splice(to, 0, item as T);
+    return moved;
+}
+
+/**
+ * The models a step runs on, in the order it tries them, each with its own level:
+ * dragged into order, switched off to be passed over, removed or added. One is
+ * always on, since the step needs a model to run on.
+ */
+function ModelsField({
+                         value,
+                         onChange,
+                     }: {
     value: ModelChoice[];
-    listing: Models;
-    onChange(fallbacks: ModelChoice[]): void;
+    onChange(models: ModelChoice[]): void;
 }): JSX.Element {
-    const replace = (index: number, choice: ModelChoice): void =>
-        onChange(value.map((c, j) => (j === index ? choice : c)));
+    const listing = useModels();
+    // The entry being dragged, and the gap it would drop into: 0 is above the first, `value.length` below the last.
+    const [dragging, setDragging] = useState<number | null>(null);
+    const [dropAt, setDropAt] = useState<number | null>(null);
+    // Where an entry moved by the keyboard went, for its grip to keep the focus.
+    const [movedTo, setMovedTo] = useState<number | null>(null);
+    const list = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (movedTo === null) return;
+        list.current?.querySelectorAll<HTMLElement>(':scope > .model-card .grip')[movedTo]?.focus();
+        setMovedTo(null);
+    }, [movedTo]);
+
+    const replace = (index: number, choice: Partial<ModelChoice>): void =>
+        onChange(value.map((c, j) => (j === index ? { ...c, ...choice } : c)));
+    const move = (from: number, gap: number): void => onChange(moveTo(value, from, gap));
+    const on = value.filter((c) => c.enabled).length;
+    let turn = 0;
+    const roles = value.map((c) => (!c.enabled ? 'Off' : turn++ === 0 ? 'Main' : `Fallback ${turn - 1}`));
+    // A drop that would leave the entry where it is shows no line.
+    const shownAt = dragging !== null && dropAt !== dragging && dropAt !== dragging + 1 ? dropAt : null;
 
     return (
         <>
             <Legend
-                label="Fallbacks"
-                hint="Tried in turn when the model before is at its usage limit, or its agent is not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing."
+                label="Models"
+                hint="The step runs on the first one that is on, and goes to the next in turn when the one before is at its usage limit, or its agent is not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing. Drag to reorder."
             />
-            {value.map((choice, i) => (
-                <div key={i} className="card">
-                    <ModelField
-                        {...listing}
-                        label={`Fallback ${i + 1}`}
-                        value={choice.model}
-                        onChange={(model) =>
-                            replace(i, { model, effort: effortAfter(listing.models, model, choice.effort) })
-                        }
-                    />
-                    <EffortField
-                        value={choice.effort}
-                        model={findModel(listing.models, choice.model)}
-                        loading={!listing.models && !listing.error}
-                        onChange={(effort) => replace(i, { ...choice, effort })}
-                    />
-                    <button className="danger" onClick={() => onChange(value.filter((_, j) => j !== i))}>
-                        Remove
-                    </button>
-                </div>
-            ))}
-            <button onClick={() => onChange([...value, { model: DEFAULT_MODEL, effort: '' }])}>+ Add a fallback</button>
+            <div
+                ref={list}
+                className="model-list"
+                onDragOver={(e) => {
+                    if (dragging === null || !e.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    const cards = [...e.currentTarget.querySelectorAll(':scope > .model-card')];
+                    const below = cards.findIndex((card) => {
+                        const box = card.getBoundingClientRect();
+                        return e.clientY < box.top + box.height / 2;
+                    });
+                    setDropAt(below === -1 ? cards.length : below);
+                }}
+                onDragLeave={(e) => {
+                    // Leaving for one of its own cards is still over it.
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+                }}
+                onDrop={(e) => {
+                    if (dragging === null || dropAt === null) return;
+                    e.preventDefault();
+                    if (shownAt !== null) move(dragging, shownAt);
+                }}
+            >
+                {value.map((choice, i) => {
+                    const role = roles[i] ?? '';
+                    const last = choice.enabled && on === 1;
+                    return (
+                        <div
+                            key={i}
+                            className={[
+                                'card model-card',
+                                choice.enabled ? '' : 'off',
+                                dragging === i ? 'dragging' : '',
+                                shownAt === i ? 'drop-before' : '',
+                                shownAt === value.length && i === value.length - 1 ? 'drop-after' : '',
+                            ].filter(Boolean).join(' ')}
+                        >
+                            <div className="model-head">
+                                <span
+                                    className="grip"
+                                    role="button"
+                                    tabIndex={0}
+                                    draggable
+                                    title="Drag to reorder, or use the arrow keys"
+                                    aria-label={`Move ${choice.model}`}
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData(MODEL_DRAG_TYPE, choice.model);
+                                        e.dataTransfer.effectAllowed = 'move';
+                                        // The whole card goes with the pointer, not just the grip.
+                                        const card = e.currentTarget.closest('.model-card');
+                                        if (card) e.dataTransfer.setDragImage(card, 16, 16);
+                                        setDragging(i);
+                                    }}
+                                    onDragEnd={() => {
+                                        setDragging(null);
+                                        setDropAt(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        const to = e.key === 'ArrowUp' ? i - 1 : e.key === 'ArrowDown' ? i + 1 : null;
+                                        if (to === null) return;
+                                        e.preventDefault();
+                                        if (to < 0 || to >= value.length) return;
+                                        move(i, to > i ? to + 1 : to);
+                                        setMovedTo(to);
+                                    }}
+                                >
+                                    <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true">
+                                        {[2, 7, 12].flatMap((y) => [
+                                            <circle key={`l${y}`} cx="2.5" cy={y} r="1.3"/>,
+                                            <circle key={`r${y}`} cx="7.5" cy={y} r="1.3"/>,
+                                        ])}
+                                    </svg>
+                                </span>
+                                <label
+                                    className="check"
+                                    title={
+                                        last
+                                            ? 'A step needs one model on.'
+                                            : choice.enabled
+                                                ? 'Turn it off to pass it over, keeping its place'
+                                                : 'Turn it back on'
+                                    }
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={choice.enabled}
+                                        disabled={last}
+                                        onChange={(e) => replace(i, { enabled: e.target.checked })}
+                                    />
+                                    {role}
+                                </label>
+                                <button
+                                    className="danger compact"
+                                    disabled={last}
+                                    title={last ? 'A step needs one model on.' : undefined}
+                                    onClick={() => onChange(value.filter((_, j) => j !== i))}
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                            {/* Not side by side: the model's hint says which version it is, and wants the width. */}
+                            <div className="model-body">
+                                <ModelField
+                                    {...listing}
+                                    value={choice.model}
+                                    onChange={(model) =>
+                                        replace(i, { model, effort: effortAfter(listing.models, model, choice.effort) })
+                                    }
+                                />
+                                <EffortField
+                                    value={choice.effort}
+                                    model={findModel(listing.models, choice.model)}
+                                    loading={!listing.models && !listing.error}
+                                    onChange={(effort) => replace(i, { effort })}
+                                />
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <button onClick={() => onChange([...value, { model: DEFAULT_MODEL, effort: '', enabled: true }])}>
+                + Add a model
+            </button>
         </>
     );
 }
@@ -378,10 +515,6 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
 
 function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.Element {
     const { categories } = config;
-    const listing = useModels();
-    const pickModel = (model: string): void =>
-        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
-
     const replace = (index: number, category: Partial<CategorizerConfig['categories'][number]>): void =>
         patch({ categories: categories.map((c, j) => (j === index ? { ...c, ...category } : c)) });
 
@@ -431,18 +564,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
 
             <div className="gap"/>
 
-            <ModelField {...listing} value={config.model} onChange={pickModel}/>
-            <EffortField
-                value={config.effort}
-                model={findModel(listing.models, config.model)}
-                loading={!listing.models && !listing.error}
-                onChange={(effort) => patch({ effort })}
-            />
-            <FallbacksField
-                value={config.fallbacks}
-                listing={listing}
-                onChange={(fallbacks) => patch({ fallbacks })}
-            />
+            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
 
             <div className="gap"/>
             <label className="check">
@@ -552,10 +674,6 @@ function ExtractorFields({
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
-    const listing = useModels();
-    const pickModel = (model: string): void =>
-        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
-
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
@@ -585,18 +703,7 @@ function ExtractorFields({
                 Read the attachments too, not just the body
             </label>
 
-            <ModelField {...listing} value={config.model} onChange={pickModel}/>
-            <EffortField
-                value={config.effort}
-                model={findModel(listing.models, config.model)}
-                loading={!listing.models && !listing.error}
-                onChange={(effort) => patch({ effort })}
-            />
-            <FallbacksField
-                value={config.fallbacks}
-                listing={listing}
-                onChange={(fallbacks) => patch({ fallbacks })}
-            />
+            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
 
             <div className="gap"/>
             <McpToolsField
@@ -637,10 +744,6 @@ function ProcessorFields({
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
-    const listing = useModels();
-    const pickModel = (model: string): void =>
-        patch({ model, effort: effortAfter(listing.models, model, config.effort) });
-
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
@@ -661,19 +764,7 @@ function ProcessorFields({
                 hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
             />
 
-            {/* Not side by side: the model's hint says which version it is, and wants the width. */}
-            <ModelField {...listing} value={config.model} onChange={pickModel}/>
-            <EffortField
-                value={config.effort}
-                model={findModel(listing.models, config.model)}
-                loading={!listing.models && !listing.error}
-                onChange={(effort) => patch({ effort })}
-            />
-            <FallbacksField
-                value={config.fallbacks}
-                listing={listing}
-                onChange={(fallbacks) => patch({ fallbacks })}
-            />
+            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
 
             <div className="section-title">What this node may do</div>
             <label className="check" title={config.readEmail ? undefined : 'Needs the email ticked under Reads.'}>

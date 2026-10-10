@@ -1493,6 +1493,86 @@ button.wide {
     margin-bottom: 0;
 }
 
+/* A node's models, in the order its step tries them. */
+.model-card {
+    position: relative;
+}
+
+.model-card.dragging {
+    opacity: 0.5;
+}
+
+/* Off, it keeps its place and its settings, shown as passed over. */
+.model-card.off .model-body {
+    opacity: 0.5;
+}
+
+.model-body .field:last-child {
+    margin-bottom: 0;
+}
+
+/* Where a dragged model would land: a line in the gap above or below a card. */
+.model-card.drop-before::before,
+.model-card.drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+}
+
+.model-card.drop-before::before {
+    top: -5px;
+}
+
+.model-card.drop-after::after {
+    bottom: -5px;
+}
+
+.model-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.model-head > .check {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+}
+
+.model-head button {
+    padding: 2px 7px;
+    font-size: 11.5px;
+}
+
+.grip {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    color: var(--dim);
+    cursor: grab;
+}
+
+.grip svg {
+    fill: currentColor;
+}
+
+.grip:hover {
+    color: var(--text);
+    background: var(--panel-3);
+}
+
+.grip:focus-visible {
+    outline: none;
+    color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .empty {
     color: var(--dim);
     text-align: center;
