@@ -110,11 +110,25 @@ const reason = refusal();
 process.stdout.write(JSON.stringify(reason ? { decision: "deny", reason } : { decision: "allow" }));
 `;
 
+/**
+ * Where agy finds this app's binary to run the hook with: agy and everything it
+ * starts inherit it.
+ */
+const HOOK_EXE_ENV = 'PATCHBAY_HOOK_EXE';
+
+/**
+ * The hook's launcher on Windows. agy runs a hook through `cmd /c`, having escaped
+ * the command's quotes as `\"`, which cmd keeps — so a quoted path in the command
+ * never reaches cmd whole. A batch file's quotes reach it as written, and the path
+ * comes from the environment rather than the file, which cmd reads in the console's
+ * code page.
+ */
+const HOOK_LAUNCHER = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%${HOOK_EXE_ENV}%" "%~dp0hook.cjs"\r\n`;
+
 function hookCommand(): string {
-    const exe = process.execPath;
     return process.platform === 'win32'
-        ? `set ELECTRON_RUN_AS_NODE=1&& "${exe}" hook.cjs`
-        : `ELECTRON_RUN_AS_NODE=1 '${exe.replace(/'/g, `'\\''`)}' hook.cjs`;
+        ? '.\\hook.cmd'
+        : `ELECTRON_RUN_AS_NODE=1 '${process.execPath.replace(/'/g, `'\\''`)}' hook.cjs`;
 }
 
 interface Exited {
@@ -128,7 +142,11 @@ function runAgyCommand(
     options: { cwd?: string; input?: string; signal?: AbortSignal; onLine?(line: string): void } = {},
 ): Promise<Exited> {
     return new Promise((resolve, reject) => {
-        const child = spawn(exe, args, { cwd: options.cwd, signal: options.signal });
+        const child = spawn(exe, args, {
+            cwd: options.cwd,
+            signal: options.signal,
+            env: { ...process.env, [HOOK_EXE_ENV]: process.execPath },
+        });
         let stderr = '';
         createInterface({ input: child.stdout }).on('line', (line) => options.onLine?.(line));
         child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
@@ -490,6 +508,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         await writeFile(join(plugin, 'plugin.json'), JSON.stringify({ name: PLUGIN }));
         await writeFile(join(plugin, 'mcp_config.json'), JSON.stringify({ mcpServers: servers.config }));
         await writeFile(join(plugin, 'hook.cjs'), HOOK);
+        if (process.platform === 'win32') await writeFile(join(plugin, 'hook.cmd'), HOOK_LAUNCHER);
         await writeFile(
             join(plugin, 'policy.json'),
             JSON.stringify({
