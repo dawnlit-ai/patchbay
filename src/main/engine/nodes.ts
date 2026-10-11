@@ -423,8 +423,19 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 
     const acting = config.allowDraftReply || config.allowMoveEmail;
+    const one = config.skills.length === 1;
     const prompt = [
         config.instruction.trim(),
+        // A flow opened in place can sit below a project whose own skills share these
+        // names, and the session lists those too, though only the ticked ones load.
+        ...(config.skills.length > 0
+            ? [
+                '',
+                `This step's skill${one ? ' is' : 's are'} ${config.skills.map((s) => `\`${s}\``).join(', ')}: ` +
+                `load ${one ? 'it' : 'them'} with the Skill tool, by ${one ? 'that name' : 'those names'} exactly, before anything else. ` +
+                `A skill the instruction names is one of these, whatever other skill shares its name.`,
+            ]
+            : []),
         '',
         ...(config.readEmail
             ? [
