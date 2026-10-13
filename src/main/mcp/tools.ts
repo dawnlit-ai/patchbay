@@ -63,10 +63,8 @@ rather than a fan-out. The five node kinds:
 - trigger.outlook — watches the mailbox folders it ticks and starts a run per
                     new email. \`folders\` holds each one's path under the
                     Inbox (list_folders' relativePath, "" for the Inbox
-                    itself), read on its own. With \`watchNewFolders\`, a
-                    folder in neither \`folders\` nor \`skipFolders\` goes
-                    as the folder it sits in does, folders made later
-                    included.
+                    itself), read on its own and not the folders in it.
+                    A folder made later is read only once it is listed.
 - categorizer     — an if/else written in prose: each category is an output port
                     and Claude picks exactly one, with an "unmatched" port for
                     the rest.
@@ -675,7 +673,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List mailbox folders',
             description:
-                'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders` and `skipFolders`, and the Inbox itself is the empty string.',
+                'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders`, and the Inbox itself is the empty string.',
             inputSchema: { account: z.string() },
             annotations: { readOnlyHint: true },
         },
@@ -693,23 +691,15 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 folders: z
                     .array(z.string())
                     .optional()
-                    .describe('Paths relative to the Inbox, each read on its own; "" is the Inbox. Default: the Inbox.'),
-                includeSubfolders: z
-                    .boolean()
-                    .optional()
-                    .describe('Read every folder inside those too. No previews when more than one folder is read.'),
+                    .describe(
+                        'Paths relative to the Inbox, each read on its own; "" is the Inbox. Default: the Inbox. No previews when more than one folder is read.',
+                    ),
                 limit: z.number().int().min(1).max(50).optional(),
             },
             annotations: { readOnlyHint: true },
         },
-        async ({ account, folders, includeSubfolders, limit }) => {
-            const scope = {
-                account,
-                folders: folders ?? [''],
-                skipFolders: [],
-                watchNewFolders: includeSubfolders === true,
-            };
-            const emails = await outlook.readScope(scope, LOOKBACK_DAYS, limit ?? 20);
+        async ({ account, folders, limit }) => {
+            const emails = await outlook.readScope({ account, folders: folders ?? [''] }, LOOKBACK_DAYS, limit ?? 20);
             return json(emails.map(describeEmail));
         },
     );

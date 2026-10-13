@@ -2,7 +2,6 @@ import type {
     EmailBodyResult,
     InboxEmail,
     InboxFolderInfo,
-    InboxSearchFilter,
     MoveEmailsResult,
     ReplyEmailParams,
     ReplyEmailResult,
@@ -143,9 +142,9 @@ export async function readInbox(
 }
 
 /**
- * A trigger's mail, newest first. One folder is read on its own; more than one,
- * or folders added since, is a search of the Inbox tree kept to the folders the
- * trigger reads, and those envelopes carry no preview.
+ * A trigger's mail, newest first. One folder is read on its own; more than one
+ * is a search of the Inbox tree kept to those folders, and those envelopes carry
+ * no preview.
  */
 export async function readScope(scope: MailScope, lookbackDays: number, limit: number): Promise<EmailEnvelope[]> {
     const { account } = scope;
@@ -154,22 +153,11 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
     if (scope.folders.length === 0) throw new Error(`No folder of ${account} is ticked, so there is nothing to read.`);
 
     // The bridge knows a folder by its name or its full path, not its path under
-    // the Inbox, so the search is only narrowed here and made exact below. Ticked
-    // folders narrow it by name. With folders added since, nothing can be named
-    // in advance; a skipped folder with nothing ticked inside it is cut instead,
-    // by the full path it has when the mailbox is named after the account.
-    const within = (path: string, top: string): boolean =>
-        path.toLowerCase() === top.toLowerCase() || path.toLowerCase().startsWith(`${top.toLowerCase()}\\`);
-    const narrowed: InboxSearchFilter = scope.watchNewFolders
-        ? {
-            excludeFolders: scope.skipFolders
-                .filter((skip) => skip !== '' && !scope.folders.some((f) => within(f, skip)))
-                .map((skip) => `\\\\${account}\\Inbox\\${skip}`),
-        }
-        : { includeFolders: [...new Set(scope.folders.map((f) => f.slice(f.lastIndexOf('\\') + 1) || 'Inbox'))] };
+    // the Inbox, so the search is narrowed by name and made exact below.
+    const names = [...new Set(scope.folders.map((f) => f.slice(f.lastIndexOf('\\') + 1) || 'Inbox'))];
     const b = await bridge();
     const matches = await serialize(`Read ${account} ${folderLabel(scope)}`, () =>
-        b.searchInboxByFilter(account, { daysBack: lookbackDays, includeBody: false, ...narrowed }),
+        b.searchInboxByFilter(account, { daysBack: lookbackDays, includeBody: false, includeFolders: names }),
     );
     return matches
         .filter((m) => {

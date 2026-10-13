@@ -5,7 +5,7 @@ import type { InboxFolderOption } from '@shared/ipc';
 import { PickFilter, PickGroup } from './PickGroup';
 
 /** What the tree edits on a trigger. */
-type Choice = Pick<TriggerConfig, 'folders' | 'skipFolders' | 'watchNewFolders'>;
+type Choice = Pick<TriggerConfig, 'folders'>;
 
 interface Row {
     /** Under the Inbox, as a trigger stores it: '' is the Inbox itself. */
@@ -26,7 +26,8 @@ const within = (path: string, top: string): boolean =>
 /**
  * The Inbox's folders as a list of ticks, one folder each. A tick reads that
  * folder alone; "+ below" ticks a folder and everything inside it at once, and
- * unticking a folder unticks everything inside it.
+ * unticking a folder unticks everything inside it. A folder made later is not
+ * read until it is ticked.
  */
 export function FolderTree({
                                choice,
@@ -59,27 +60,7 @@ export function FolderTree({
     ];
 
     const ticked = (path: string): boolean => readsFolder(choice, path);
-    /**
-     * The tree's ticks, written down. Watching new folders, a folder is named only
-     * where its tick differs from the folder it sits in, as one added later would
-     * have it; otherwise every ticked folder is named.
-     */
-    const write = (tick: (path: string) => boolean, more: Partial<Choice> = {}): void => {
-        const all = [...paths, ...missing];
-        if (!(more.watchNewFolders ?? choice.watchNewFolders)) {
-            onChange({ folders: all.filter(tick), skipFolders: [], ...more });
-            return;
-        }
-        const parentTicked = (path: string): boolean => {
-            const cut = path.lastIndexOf('\\');
-            return path !== '' && tick(cut < 0 ? '' : path.slice(0, cut));
-        };
-        onChange({
-            folders: all.filter((p) => tick(p) && !parentTicked(p)),
-            skipFolders: paths.filter((p) => !tick(p) && parentTicked(p)),
-            ...more,
-        });
-    };
+    const write = (tick: (path: string) => boolean): void => onChange({ folders: [...paths, ...missing].filter(tick) });
 
     /** Ticking takes the folder alone; unticking takes the folders inside it too — for the Inbox, every one. */
     const toggle = (path: string): void => {
@@ -141,23 +122,10 @@ export function FolderTree({
                     );
                 }}
             />
-            {listed && choice.folders.length === 0 && (
-                <div className="hint block">Nothing ticked — this trigger reads no mail.</div>
-            )}
-
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={choice.watchNewFolders}
-                    disabled={!listed}
-                    // Written down as shown first, so turning it on or off changes no tick already there.
-                    onChange={(e) => write(ticked, { watchNewFolders: e.target.checked })}
-                />
-                Also watch new folders automatically
-            </label>
             <div className="hint block">
-                When a rule creates a new folder inside a ticked folder, watch it too. Off, a new folder is read
-                only once you tick it.
+                {listed && choice.folders.length === 0
+                    ? 'Nothing ticked — this trigger reads no mail.'
+                    : 'A folder made later, by you or a rule, is read only once you tick it here.'}
             </div>
         </>
     );

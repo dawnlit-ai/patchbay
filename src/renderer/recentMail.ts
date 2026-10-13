@@ -28,8 +28,6 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
     const scope: MailScope = {
         account: config?.account ?? '',
         folders: config?.folders ?? [''],
-        skipFolders: config?.skipFolders ?? [],
-        watchNewFolders: config?.watchNewFolders ?? false,
     };
     const { account } = scope;
     const mailbox = JSON.stringify(scope);
