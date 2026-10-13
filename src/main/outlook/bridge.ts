@@ -2,13 +2,14 @@ import type {
     EmailBodyResult,
     InboxEmail,
     InboxFolderInfo,
+    InboxSearchFilter,
     MoveEmailsResult,
     ReplyEmailParams,
     ReplyEmailResult,
     SavedAttachment,
     SelectedEmail,
 } from '@dawnlit/outlook-bridge';
-import type { MailScope } from '@shared/flow';
+import { folderLabel, type MailScope, readsFolder, soleFolder } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
 import { log } from '../log';
@@ -63,19 +64,21 @@ export async function getAccounts(): Promise<string[]> {
     return serialize('List accounts', async () => (await bridge()).getOutlookAccounts());
 }
 
+/**
+ * The Inbox and every folder below it, depth-first. As deep as the bridge goes,
+ * since a trigger can watch a folder at any depth.
+ */
 export async function listFolders(account: string): Promise<InboxFolderOption[]> {
     const b = await bridge();
     const folders: InboxFolderInfo[] = await serialize(`List folders in ${account}`, () =>
-        b.listInboxFolders(account),
+        b.listInboxFolders(account, { maxDepth: 10 }),
     );
-    const options: InboxFolderOption[] = [
-        { folderPath: '', relativePath: '', name: 'Inbox (all)', depth: 0, itemCount: 0 },
-    ];
+    const options: InboxFolderOption[] = [{ folderPath: '', relativePath: '', name: 'Inbox', depth: 0, itemCount: 0 }];
     for (const f of folders) {
         options.push({
             folderPath: f.folderPath,
             relativePath: underInbox(f.folderPath) ?? f.name,
-            name: `${'— '.repeat(Math.max(0, f.depth - 1))}${f.name}`,
+            name: f.name,
             depth: f.depth,
             itemCount: f.itemCount,
         });
@@ -140,25 +143,38 @@ export async function readInbox(
 }
 
 /**
- * A trigger's mail, newest first. With subfolders it searches the whole Inbox
- * tree and keeps what is under `folder`; those envelopes carry no preview.
+ * A trigger's mail, newest first. One folder is read on its own; more than one,
+ * or folders added since, is a search of the Inbox tree kept to the folders the
+ * trigger reads, and those envelopes carry no preview.
  */
 export async function readScope(scope: MailScope, lookbackDays: number, limit: number): Promise<EmailEnvelope[]> {
-    const { account, folder } = scope;
-    if (!scope.includeSubfolders) return readInbox(account, folder, lookbackDays, limit);
+    const { account } = scope;
+    const sole = soleFolder(scope);
+    if (sole !== null) return readInbox(account, sole, lookbackDays, limit);
+    if (scope.folders.length === 0) throw new Error(`No folder of ${account} is ticked, so there is nothing to read.`);
+
+    // The bridge knows a folder by its name or its full path, not its path under
+    // the Inbox, so the search is only narrowed here and made exact below. Ticked
+    // folders narrow it by name. With folders added since, nothing can be named
+    // in advance; a skipped folder with nothing ticked inside it is cut instead,
+    // by the full path it has when the mailbox is named after the account.
+    const within = (path: string, top: string): boolean =>
+        path.toLowerCase() === top.toLowerCase() || path.toLowerCase().startsWith(`${top.toLowerCase()}\\`);
+    const narrowed: InboxSearchFilter = scope.watchNewFolders
+        ? {
+            excludeFolders: scope.skipFolders
+                .filter((skip) => skip !== '' && !scope.folders.some((f) => within(f, skip)))
+                .map((skip) => `\\\\${account}\\Inbox\\${skip}`),
+        }
+        : { includeFolders: [...new Set(scope.folders.map((f) => f.slice(f.lastIndexOf('\\') + 1) || 'Inbox'))] };
     const b = await bridge();
-    const matches = await serialize(`Read ${account}${folder ? `\\${folder}` : ' Inbox'} and below`, () =>
-        b.searchInboxByFilter(account, {
-            daysBack: lookbackDays,
-            excludeFolders: scope.excludeFolders.map((f) => f.trim()).filter(Boolean),
-            includeBody: false,
-        }),
+    const matches = await serialize(`Read ${account} ${folderLabel(scope)}`, () =>
+        b.searchInboxByFilter(account, { daysBack: lookbackDays, includeBody: false, ...narrowed }),
     );
-    const root = folder.trim().toLowerCase();
     return matches
         .filter((m) => {
-            const at = underInbox(m.folderPath)?.toLowerCase();
-            return at !== undefined && (root === '' || at === root || at.startsWith(`${root}\\`));
+            const at = underInbox(m.folderPath);
+            return at !== null && readsFolder(scope, at);
         })
         .toSorted((x, y) => y.receivedTime.localeCompare(x.receivedTime))
         .slice(0, limit)

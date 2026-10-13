@@ -21,15 +21,19 @@ export interface Category {
 export interface TriggerConfig {
     /** SMTP address as Outlook reports it. Empty until the user picks one. */
     account: string;
-    /** Inbox subfolder path, e.g. "Pre-Alerts". Empty means the Inbox itself. */
-    folder: string;
-    /** Watch every folder below `folder` too, for a mailbox whose rules file mail away on arrival. */
-    includeSubfolders: boolean;
     /**
-     * With `includeSubfolders`: folders to leave out, by name or by path under
-     * the Inbox. Each takes everything below it along.
+     * The folders read, each by its path under the Inbox ("Mobile, AL\Carrier"),
+     * with '' for the Inbox itself. Each is read on its own, unless `watchNewFolders`.
      */
-    excludeFolders: string[];
+    folders: string[];
+    /** With `watchNewFolders`: folders not read, though the folder each sits in is. */
+    skipFolders: string[];
+    /**
+     * A folder in neither list goes as the folder it sits in does — so a folder
+     * made later, as a mailbox's rules file mail away, is read inside a read one.
+     * Off, only `folders` are read.
+     */
+    watchNewFolders: boolean;
     pollSeconds: number;
     /** How far back each poll looks. Keeps the COM walk cheap. */
     lookbackDays: number;
@@ -41,8 +45,32 @@ export interface TriggerConfig {
     processBacklogOnStart: boolean;
 }
 
-/** Where a trigger reads its mail: one folder, or that folder and every folder below it. */
-export type MailScope = Pick<TriggerConfig, 'account' | 'folder' | 'includeSubfolders' | 'excludeFolders'>;
+/** Where a trigger reads its mail: the folders it ticks, and maybe the ones added inside them since. */
+export type MailScope = Pick<TriggerConfig, 'account' | 'folders' | 'skipFolders' | 'watchNewFolders'>;
+
+type FolderChoice = Omit<MailScope, 'account'>;
+
+const samePath = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** Whether a trigger reads a folder, given by its path under the Inbox. */
+export function readsFolder(choice: FolderChoice, path: string): boolean {
+    if (choice.folders.some((f) => samePath(f, path))) return true;
+    if (!choice.watchNewFolders || path === '' || choice.skipFolders.some((f) => samePath(f, path))) return false;
+    const cut = path.lastIndexOf('\\');
+    return readsFolder(choice, cut < 0 ? '' : path.slice(0, cut));
+}
+
+/** The one folder a trigger reads, when it reads just one and none added since; null otherwise. */
+export const soleFolder = (choice: FolderChoice): string | null =>
+    choice.folders.length === 1 && !choice.watchNewFolders ? (choice.folders[0] ?? null) : null;
+
+/** The folders a trigger reads, in a few words: `Inbox`, `3 folders`, or `Inbox and below, 2 skipped`. */
+export function folderLabel(choice: FolderChoice): string {
+    const { folders, skipFolders } = choice;
+    const named = folders.length === 0 ? 'no folder' : folders.length === 1 ? folders[0] || 'Inbox' : `${folders.length} folders`;
+    if (!choice.watchNewFolders || folders.length === 0) return named;
+    return `${named} and below${skipFolders.length > 0 ? `, ${skipFolders.length} skipped` : ''}`;
+}
 
 /**
  * A model and its level, as a node lists one. A step runs on the first one that
@@ -429,9 +457,9 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
             return {
                 kind,
                 account: '',
-                folder: '',
-                includeSubfolders: false,
-                excludeFolders: [],
+                folders: [''],
+                skipFolders: [],
+                watchNewFolders: false,
                 pollSeconds: 60,
                 lookbackDays: 1,
                 maxPerPoll: 10,
@@ -632,6 +660,29 @@ const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =
     allowed.includes(value as T) ? (value as T) : fallback;
 
 /**
+ * A trigger's folders. One saved before folders were ticked named a single
+ * `folder`, with `includeSubfolders` for the tree below it less `excludeFolders`.
+ * That folder is ticked, the ones below it go as folders added since, and the
+ * ones left out are skipped, each still taking the folders in it along.
+ */
+function folderChoice(from: Json, base: FolderChoice): FolderChoice {
+    if (Array.isArray(from.folders)) {
+        return {
+            folders: strings(from.folders, base.folders),
+            skipFolders: strings(from.skipFolders, base.skipFolders),
+            watchNewFolders: bool(from.watchNewFolders, base.watchNewFolders),
+        };
+    }
+    if (typeof from.folder !== 'string') return base;
+    const below = bool(from.includeSubfolders, false);
+    return {
+        folders: [from.folder.trim()],
+        skipFolders: below ? strings(from.excludeFolders, []).map((f) => f.trim()).filter(Boolean) : [],
+        watchNewFolders: below,
+    };
+}
+
+/**
  * One of a node's models. An agy model saved with its level in the id, as
  * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
  */
@@ -667,9 +718,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 account: str(from.account, base.account),
-                folder: str(from.folder, base.folder),
-                includeSubfolders: bool(from.includeSubfolders, base.includeSubfolders),
-                excludeFolders: strings(from.excludeFolders, base.excludeFolders),
+                ...folderChoice(from, base),
                 pollSeconds: num(from.pollSeconds, base.pollSeconds),
                 lookbackDays: num(from.lookbackDays, base.lookbackDays),
                 maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),

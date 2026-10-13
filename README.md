@@ -21,10 +21,14 @@ Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (s
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
 
-- **Outlook Trigger** — polls a mailbox folder through the real Outlook client and starts one run per new email. Tick
-  *Watch every folder below it too* for a mailbox whose rules file mail away as it arrives: the trigger then walks the
-  whole tree under its folder, less any folders you leave out, and knows an email by sender, time and subject rather
-  than by entry id — Outlook rewrites the id whenever an email moves, so filing one away doesn't make it new again.
+- **Outlook Trigger** — polls a mailbox through the real Outlook client and starts one run per new email. Tick the
+  folders it reads in the Inbox's folder tree: each tick is that folder alone, so ticking just the Inbox leaves the
+  folders in it out, and *+ below* ticks a folder with everything inside it. Unticking a folder unticks the folders
+  inside it too, so unticking the Inbox unticks them all. For a mailbox whose rules file mail away into folders they
+  make as it arrives, tick *Also watch new folders automatically*: when a rule creates a new folder inside a ticked
+  folder, it is read too. A trigger reading more than one folder knows an email by sender, time and subject rather
+  than by entry id — Outlook rewrites the id whenever an email moves, so filing one from one watched folder into
+  another doesn't make it new again.
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,

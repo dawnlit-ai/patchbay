@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type FlowNode, type MailScope, triggerConfig } from '@shared/flow';
+import { type FlowNode, folderLabel, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 
 /**
@@ -10,8 +10,7 @@ import type { EmailEnvelope } from '@shared/trace';
 /** How a trigger reads in a picker: its name, and the mailbox it watches. */
 export function triggerLabel(node: FlowNode): string {
     const c = triggerConfig(node);
-    const below = c?.includeSubfolders ? ' and below' : '';
-    const where = c?.account ? `${c.account}${c.folder ? ` \\ ${c.folder}` : ''}${below}` : 'no mailbox';
+    const where = c?.account ? `${c.account} \\ ${folderLabel(c)}` : 'no mailbox';
     return `${node.name} — ${where}`;
 }
 
@@ -28,9 +27,9 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
     const config = triggerConfig(trigger);
     const scope: MailScope = {
         account: config?.account ?? '',
-        folder: config?.folder ?? '',
-        includeSubfolders: config?.includeSubfolders ?? false,
-        excludeFolders: config?.excludeFolders ?? [],
+        folders: config?.folders ?? [''],
+        skipFolders: config?.skipFolders ?? [],
+        watchNewFolders: config?.watchNewFolders ?? false,
     };
     const { account } = scope;
     const mailbox = JSON.stringify(scope);

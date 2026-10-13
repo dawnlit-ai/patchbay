@@ -3,7 +3,16 @@ import { watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
 import { getSettings } from '../store/settingsStore';
-import { checkSlots, findTriggers, type Flow, type FlowNode, triggerConfig, type TriggerConfig } from '@shared/flow';
+import {
+    checkSlots,
+    findTriggers,
+    type Flow,
+    type FlowNode,
+    folderLabel,
+    soleFolder,
+    triggerConfig,
+    type TriggerConfig,
+} from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
@@ -27,12 +36,13 @@ interface Watermark {
 
 /**
  * How a trigger recognises an email it has seen. Outlook rewrites the entry id
- * when mail moves, so a trigger watching subfolders keys by sender, time and
+ * when mail moves, and mail filed from one watched folder into another would be
+ * new again, so a trigger reading more than one folder keys by sender, time and
  * subject instead.
  */
 type KeyedBy = 'entryId' | 'message';
 
-const keyedByFor = (config: TriggerConfig): KeyedBy => (config.includeSubfolders ? 'message' : 'entryId');
+const keyedByFor = (config: TriggerConfig): KeyedBy => (soleFolder(config) === null ? 'message' : 'entryId');
 
 function mailKey(email: EmailEnvelope, keyedBy: KeyedBy): string {
     return keyedBy === 'entryId'
@@ -183,7 +193,7 @@ export class Watcher {
             nodeId: node.id,
             nodeName: node.name,
             account: config.account,
-            folder: config.folder,
+            folders: folderLabel(config),
         }));
         return {
             running: this.timer !== null,
@@ -355,8 +365,8 @@ export class Watcher {
                 const keyedBy = keyedByFor(config);
                 const idOf = (email: EmailEnvelope): string => mailKey(email, keyedBy);
                 const seen = new Set(mark.seen);
-                // Switching a trigger between one folder and a whole tree changes what
-                // its marks are keys of, so none of the old ones would match.
+                // Switching a trigger between one folder and several changes what its
+                // marks are keys of, so none of the old ones would match.
                 const rekeyed = mark.primed && mark.keyedBy !== keyedBy;
 
                 // The first poll (or one after re-keying) only records a baseline, so
@@ -370,7 +380,7 @@ export class Watcher {
                     // The one poll that sees mail and starts nothing, on purpose — and
                     // the first place to look when an email already there never ran.
                     const why = rekeyed
-                        ? `now ${config.includeSubfolders ? 'watches the folders below too' : 'watches one folder'}`
+                        ? `now ${keyedBy === 'message' ? 'watches more than one folder' : 'watches one folder'}`
                         : 'first look';
                     log.info(
                         'watcher',

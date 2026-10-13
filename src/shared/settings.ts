@@ -146,7 +146,8 @@ export interface EngineStatus {
         nodeId: string;
         nodeName: string;
         account: string;
-        folder: string;
+        /** The folders it reads, in a few words, as the canvas shows them. */
+        folders: string;
     }[];
     lastPollAt?: string;
     lastError?: string;

@@ -1413,6 +1413,30 @@ button.wide {
     overflow: hidden;
 }
 
+/* A trigger's folders: each row indented to its depth, its name cut short before its count is. */
+.folder-row .check {
+    gap: 6px;
+}
+
+.folder-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-note {
+    flex-shrink: 0;
+    color: var(--dim);
+    font-size: 11px;
+}
+
+.folder-row button.compact {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    font-size: 11px;
+}
+
 .side-body {
     padding: 12px;
     overflow-y: auto;

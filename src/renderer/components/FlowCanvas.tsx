@@ -24,6 +24,7 @@ import {
     type Flow,
     type FlowIssue,
     type FlowNode,
+    folderLabel,
     hasInput,
     makeNode,
     mintNodeId,
@@ -171,7 +172,7 @@ function describe(node: FlowNode): string {
     switch (c.kind) {
         case 'trigger.outlook':
             return c.account
-                ? `${c.account}${c.folder ? ` \\ ${c.folder}` : ''} · every ${c.pollSeconds}s`
+                ? `${c.account} \\ ${folderLabel(c)} · every ${c.pollSeconds}s`
                 : 'No mailbox selected yet';
         case 'categorizer':
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;

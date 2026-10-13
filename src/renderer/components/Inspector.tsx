@@ -28,6 +28,7 @@ import {
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
 import type { McpServerTool } from '@shared/settings';
+import { FolderTree } from './FolderTree';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
 
@@ -379,7 +380,6 @@ interface Section<C> {
 
 function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
     const [accounts, setAccounts] = useState<string[]>([]);
-    const [folders, setFolders] = useState<InboxFolderOption[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -404,24 +404,28 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
     }, []);
 
     const { account } = config;
+    // Tagged with the account they were listed for, so another mailbox's folders are never ticked.
+    const [folders, setFolders] = useState<{ account: string; list: InboxFolderOption[] } | null>(null);
+    const [folderError, setFolderError] = useState<{ account: string; message: string } | null>(null);
+    const [reread, setReread] = useState(0);
     useEffect(() => {
-        if (!account) {
-            setFolders([]);
-            return;
-        }
+        if (!account) return;
         let cancelled = false;
-        window.api.outlook
-            .folders(account)
-            .then((list) => {
-                if (!cancelled) setFolders(list);
-            })
-            .catch((e: Error) => {
-                if (!cancelled) setError(e.message);
-            });
+        setFolderError(null);
+        window.api.outlook.folders(account).then(
+            (list) => {
+                if (!cancelled) setFolders({ account, list });
+            },
+            (e: Error) => {
+                if (!cancelled) setFolderError({ account, message: e.message });
+            },
+        );
         return () => {
             cancelled = true;
         };
-    }, [account]);
+    }, [account, reread]);
+    const listed = folders?.account === account ? folders.list : null;
+    const failed = folderError?.account === account ? folderError.message : null;
 
     return (
         <>
@@ -441,37 +445,22 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                 </select>
             </Field>
 
-            <Field label="Folder" hint="Inbox subfolder to watch.">
-                <select value={config.folder} onChange={(e) => patch({ folder: e.target.value })}>
-                    {folders.length === 0 && <option value="">Inbox</option>}
-                    {folders.map((f) => (
-                        <option key={f.folderPath || 'inbox'} value={f.relativePath}>
-                            {f.name}
-                        </option>
-                    ))}
-                </select>
-            </Field>
-
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.includeSubfolders}
-                    onChange={(e) => patch({ includeSubfolders: e.target.checked })}
-                />
-                Watch every folder below it too — for mail your rules file away as it arrives
-            </label>
-
-            {config.includeSubfolders && (
-                <Field
-                    label="Leave out"
-                    hint="One folder per line, by name or path under the Inbox. Each takes the folders below it along."
-                >
-                    <textarea
-                        rows={3}
-                        value={config.excludeFolders.join('\n')}
-                        onChange={(e) => patch({ excludeFolders: e.target.value.split('\n') })}
-                    />
-                </Field>
+            <FolderTree
+                choice={config}
+                listed={listed}
+                note={
+                    !account
+                        ? 'Choose a mailbox to list its folders.'
+                        : failed
+                            ? `Could not list the folders: ${failed}`
+                            : 'Asking Outlook for the folders…'
+                }
+                onChange={patch}
+            />
+            {failed && (
+                <button className="compact" onClick={() => setReread((n) => n + 1)}>
+                    Try again
+                </button>
             )}
 
             <div className="row">
@@ -507,7 +496,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                     checked={config.processBacklogOnStart}
                     onChange={(e) => patch({ processBacklogOnStart: e.target.checked })}
                 />
-                Process mail already in the folder when watching starts
+                Process mail already in its folders when watching starts
             </label>
         </>
     );
@@ -1148,7 +1137,7 @@ export function Inspector({ node, library, available, issues, onChange, onDelete
                 <input value={node.name} onChange={(e) => onChange({ ...node, name: e.target.value })}/>
             </Field>
 
-            {config.kind === 'trigger.outlook' && <TriggerFields config={config} patch={patch}/>}
+            {config.kind === 'trigger.outlook' && <TriggerFields key={node.id} config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'extractor' && (
                 <ExtractorFields key={node.id} config={config} patch={patch} library={library} available={available}/>

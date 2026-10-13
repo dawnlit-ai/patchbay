@@ -9,7 +9,6 @@ import {
     needsField,
     type ProcessorConfig,
     type TerminalConfig,
-    type TriggerConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
@@ -128,11 +127,8 @@ function lostSkills(ctx: NodeContext, skills: string[]): NodeOutcome | null {
 // ── Trigger ──────────────────────────────────────────────────────────────
 // The email is already in hand; this pass just starts the trace at the trigger.
 
-function runTrigger(config: TriggerConfig): NodeOutcome {
-    return {
-        outPort: 'out',
-        summary: `Received in ${config.account}${config.folder ? `\\${config.folder}` : ' Inbox'}`,
-    };
+function runTrigger(email: EmailEnvelope): NodeOutcome {
+    return { outPort: 'out', summary: `Received in ${email.ref.folderPath.replace(/^\\+/, '')}` };
 }
 
 // ── Categorizer ──────────────────────────────────────────────────────────
@@ -565,7 +561,7 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
     const config = ctx.node.config;
     switch (config.kind) {
         case 'trigger.outlook':
-            return runTrigger(config);
+            return runTrigger(ctx.email);
         case 'categorizer':
             return runCategorizer(ctx, config);
         case 'extractor':

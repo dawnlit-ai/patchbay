@@ -60,7 +60,13 @@ A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
 rather than a fan-out. The five node kinds:
 
-- trigger.outlook — watches one mailbox folder and starts a run per new email.
+- trigger.outlook — watches the mailbox folders it ticks and starts a run per
+                    new email. \`folders\` holds each one's path under the
+                    Inbox (list_folders' relativePath, "" for the Inbox
+                    itself), read on its own. With \`watchNewFolders\`, a
+                    folder in neither \`folders\` nor \`skipFolders\` goes
+                    as the folder it sits in does, folders made later
+                    included.
 - categorizer     — an if/else written in prose: each category is an output port
                     and Claude picks exactly one, with an "unmatched" port for
                     the rest.
@@ -669,7 +675,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List mailbox folders',
             description:
-                'Inbox subfolders for one account. `relativePath` is what a trigger stores in its `folder` field, and the Inbox itself is the empty string.',
+                'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders` and `skipFolders`, and the Inbox itself is the empty string.',
             inputSchema: { account: z.string() },
             annotations: { readOnlyHint: true },
         },
@@ -681,24 +687,27 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List recent emails',
             description:
-                'Recent mail in a folder — subject, sender and a short preview — so a real message can be picked for test_run. Nothing here fetches a body out of Outlook: that is for the scoped tools of the run that handles it.',
+                'Recent mail in some folders — subject, sender and a short preview — so a real message can be picked for test_run. Nothing here fetches a body out of Outlook: that is for the scoped tools of the run that handles it.',
             inputSchema: {
                 account: z.string(),
-                folder: z.string().optional().describe('Path relative to the Inbox. Empty means the Inbox.'),
+                folders: z
+                    .array(z.string())
+                    .optional()
+                    .describe('Paths relative to the Inbox, each read on its own; "" is the Inbox. Default: the Inbox.'),
                 includeSubfolders: z
                     .boolean()
                     .optional()
-                    .describe('Read every folder below `folder` too, as a trigger watching subfolders does. No previews then.'),
+                    .describe('Read every folder inside those too. No previews when more than one folder is read.'),
                 limit: z.number().int().min(1).max(50).optional(),
             },
             annotations: { readOnlyHint: true },
         },
-        async ({ account, folder, includeSubfolders, limit }) => {
+        async ({ account, folders, includeSubfolders, limit }) => {
             const scope = {
                 account,
-                folder: folder ?? '',
-                includeSubfolders: includeSubfolders === true,
-                excludeFolders: []
+                folders: folders ?? [''],
+                skipFolders: [],
+                watchNewFolders: includeSubfolders === true,
             };
             const emails = await outlook.readScope(scope, LOOKBACK_DAYS, limit ?? 20);
             return json(emails.map(describeEmail));
