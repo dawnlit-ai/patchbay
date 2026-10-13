@@ -1,5 +1,5 @@
 import type { HTMLAttributes, JSX, ReactNode } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 /** Past this many, a group starts folded, scrolls inside itself when open, and the list gets a filter. */
 const LONG_LIST = 8;
@@ -54,11 +54,20 @@ export function PickGroup<T>({
     const open = chosen ?? (!isTicked || items.length <= LONG_LIST);
     const needle = query.trim().toLowerCase();
 
+    /**
+     * Folded, the rows ticked since the group was last folded or opened, by text.
+     * One unticked stays in its place, to be ticked again, rather than vanishing.
+     */
+    const kept = useRef(new Set<string>());
+
     const ticked = isTicked ? items.filter(isTicked) : [];
     let shown: T[];
     if (needle) shown = items.filter((item) => text(item).toLowerCase().includes(needle));
     else if (open) shown = items;
-    else shown = ticked;
+    else {
+        for (const item of ticked) kept.current.add(text(item));
+        shown = items.filter((item) => kept.current.has(text(item)));
+    }
 
     return (
         <div className={`pick-group${className ? ` ${className}` : ''}`} {...rest}>
@@ -67,7 +76,10 @@ export function PickGroup<T>({
                     className="pick-group-toggle"
                     title={tip}
                     aria-expanded={open}
-                    onClick={() => setChosen(!open)}
+                    onClick={() => {
+                        kept.current = new Set();
+                        setChosen(!open);
+                    }}
                 >
                     <span className="dim">{open ? '▾' : '▸'}</span>
                     <span className="pick-group-title">{title}</span>
