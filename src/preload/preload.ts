@@ -53,6 +53,11 @@ const api: Api = {
         status: () => call(IPC.agentControlStatus),
         regenerateToken: () => call(IPC.agentControlRegenerateToken),
     },
+    updates: {
+        status: () => call(IPC.updatesStatus),
+        check: () => call(IPC.updatesCheck),
+        restart: () => call(IPC.updatesRestart),
+    },
     outlook: {
         accounts: () => call(IPC.outlookAccounts),
         folders: (account) => call(IPC.outlookFolders, account),
@@ -114,6 +119,7 @@ const api: Api = {
         windowMaximized: (cb) => subscribe(IPC.evtWindowMaximized, cb),
         openFlow: (cb) => subscribe(IPC.evtOpenFlow, cb),
         agentControl: (cb) => subscribe(IPC.evtAgentControl, cb),
+        updateStatus: (cb) => subscribe(IPC.evtUpdateStatus, cb),
         workspaceChanged: (cb) => subscribe(IPC.evtWorkspaceChanged, cb),
         logged: (cb) => subscribe(IPC.evtLogged, cb),
     },

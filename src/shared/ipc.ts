@@ -12,6 +12,7 @@ import type {
     Settings,
     SkillScope,
     SkillSummary,
+    UpdateStatus,
 } from './settings';
 
 /**
@@ -92,7 +93,7 @@ export interface AgentStatus {
     /** `claude` or `agy`. */
     id: string;
     name: string;
-    /** The binary a run starts. Empty for the copy of Claude Code that comes with the Agent SDK. */
+    /** The binary a run starts. Empty when none was found. */
     executable: string;
     /** What it says its version is. Null when it did not say. */
     version: string | null;
@@ -166,6 +167,14 @@ export interface Api {
         status(): Promise<AgentControlStatus>;
         /** A new token, taking the old one out of use. */
         regenerateToken(): Promise<AgentControlStatus>;
+    };
+    /** The channel is an ordinary setting; these are what only the updater knows. */
+    updates: {
+        status(): Promise<UpdateStatus>;
+        /** Look now rather than on the timer, and download what turns up. */
+        check(): Promise<UpdateStatus>;
+        /** Quit and come back on the downloaded version. Refused while a run is under way. */
+        restart(): Promise<void>;
     };
     outlook: {
         accounts(): Promise<string[]>;
@@ -287,6 +296,7 @@ export interface Api {
         /** The welcome window chose a flow, and this window is the one to show it. */
         openFlow(cb: (flowId: string) => void): () => void;
         agentControl(cb: (status: AgentControlStatus) => void): () => void;
+        updateStatus(cb: (status: UpdateStatus) => void): () => void;
         /** An agent wrote to the workspace; what is on screen is now behind it. */
         workspaceChanged(cb: (change: WorkspaceChange) => void): () => void;
         logged(cb: (entry: LogEntry) => void): () => void;
@@ -330,6 +340,10 @@ export const IPC = {
 
     agentControlStatus: 'agentControl:status',
     agentControlRegenerateToken: 'agentControl:regenerateToken',
+
+    updatesStatus: 'updates:status',
+    updatesCheck: 'updates:check',
+    updatesRestart: 'updates:restart',
 
     outlookAccounts: 'outlook:accounts',
     outlookFolders: 'outlook:folders',
@@ -385,6 +399,7 @@ export const IPC = {
     evtWindowMaximized: 'evt:windowMaximized',
     evtOpenFlow: 'evt:openFlow',
     evtAgentControl: 'evt:agentControl',
+    evtUpdateStatus: 'evt:updateStatus',
     evtWorkspaceChanged: 'evt:workspaceChanged',
     evtLogged: 'evt:logged',
 } as const;

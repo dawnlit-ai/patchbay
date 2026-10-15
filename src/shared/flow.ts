@@ -22,7 +22,7 @@ export interface TriggerConfig {
     /** SMTP address as Outlook reports it. Empty until the user picks one. */
     account: string;
     /**
-     * The folders read, each by its path under the Inbox ("Mobile, AL\Carrier"),
+     * The folders read, each by its path under the Inbox ("Clients\Acme"),
      * with '' for the Inbox itself. Each is read on its own, not the folders in
      * it, and a folder made later is read only once it is ticked.
      */
@@ -51,7 +51,7 @@ export const readsFolder = (choice: FolderChoice, path: string): boolean =>
 export const soleFolder = (choice: FolderChoice): string | null =>
     choice.folders.length === 1 ? (choice.folders[0] ?? null) : null;
 
-/** The folders a trigger reads, in a few words: `Inbox`, `Pre-Alerts` or `3 folders`. */
+/** The folders a trigger reads, in a few words: `Inbox`, `Invoices` or `3 folders`. */
 export function folderLabel(choice: FolderChoice): string {
     const { folders } = choice;
     if (folders.length === 0) return 'no folder';
@@ -84,7 +84,7 @@ export interface CategorizerConfig {
 }
 
 export interface ExtractorConfig {
-    /** The slot later nodes read the result by, e.g. "shipment". */
+    /** The slot later nodes read the result by, e.g. "order". */
     output: string;
     /** JSON Schema the result has to match to leave by Valid. */
     schema: JsonSchema;
@@ -137,10 +137,9 @@ export interface ProcessorConfig {
     /**
      * Tools from the MCP servers in Settings, in the SDK's own spelling:
      * `mcp__<server>` for every tool a server has, `mcp__<server>__<tool>` for one.
-     * A server none of them names is not started for the run. Null on a node
-     * saved before the list existed: every tool of every server, as then.
+     * A server none of them names is not started for the run.
      */
-    mcpTools: string[] | null;
+    mcpTools: string[];
 }
 
 /** Ends a path and records how the email came out. It does nothing to the email: the steps before it do. */
@@ -258,7 +257,7 @@ const opaque = (schema: unknown): boolean =>
 
 /**
  * Whether `data` falls short of `schema` without the field at `path`, e.g.
- * "containers.0.number": the object that would hold it is in `data`, and its
+ * "items.0.sku": the object that would hold it is in `data`, and its
  * schema lists the field in `required`. A field under an object `data` left out
  * is not needed, and one the schema cannot be followed to counts as needed.
  */
@@ -437,7 +436,35 @@ export const AGY_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** `agy models` lists a model once per level, as `<id>-<level>`; a run names the two apart. */
 export const AGY_LEVEL_SUFFIX = new RegExp(`-(${AGY_LEVELS.join('|')})$`);
 
-export function defaultConfig(kind: NodeKind): NodeConfig {
+/** Of a model the agents offer, what a new node needs to start on it. */
+export interface OfferedModel {
+    value: string;
+    effortLevels: string[];
+    effortRequired?: boolean;
+}
+
+/**
+ * The model a new node starts on, from the models the agents offer now: the newest
+ * Opus while Claude Code lists any, else the first one offered — on a computer with
+ * only agy, one of agy's. `effort` is the level wanted, kept where the model takes
+ * it; otherwise a model that must have one gets its top level. Opus as well while
+ * the list is on its way, or when nothing is installed to list any.
+ */
+export function startingModel(
+    offered: readonly OfferedModel[] | null | undefined,
+    effort: string,
+): Omit<ModelChoice, 'enabled'> {
+    const first = offered?.[0];
+    // Claude takes every model no other agent claims, so any such model is Claude's.
+    if (!first || offered.some((m) => !isAgyModel(m.value))) return { model: DEFAULT_MODEL, effort };
+    const levels = first.effortLevels;
+    if (levels.includes(effort)) return { model: first.value, effort };
+    return { model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : '' };
+}
+
+/** A node's defaults. `offered` is the agents' model list, which picks the model its steps start on. */
+export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] | null): NodeConfig {
+    const models = (effort: string): ModelChoice[] => [{ ...startingModel(offered, effort), enabled: true }];
     switch (kind) {
         case 'trigger.outlook':
             return {
@@ -456,7 +483,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     { id: 'a', label: 'Category A', description: 'Describe the emails that belong here.' },
                     { id: 'b', label: 'Category B', description: 'Describe the emails that belong here.' },
                 ],
-                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
+                models: models(''),
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -469,7 +496,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     properties: {
                         reference: {
                             type: 'string',
-                            description: 'The shipment, order or booking reference the email is about.',
+                            description: 'The order, invoice or ticket number the email is about.',
                         },
                     },
                     required: ['reference'],
@@ -477,7 +504,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
                 skills: [],
                 inputs: [],
-                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
+                models: models(''),
                 includeAttachments: false,
                 mcpTools: [],
             };
@@ -490,7 +517,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 inputs: [],
                 output: '',
                 schema: { type: 'object', properties: {} },
-                models: [{ model: DEFAULT_MODEL, effort: 'high', enabled: true }],
+                models: models('high'),
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
@@ -557,8 +584,14 @@ export function triggerConfig(node: FlowNode | undefined): TriggerConfig | undef
 }
 
 /** A node of `kind` with its defaults. */
-export function makeNode(kind: NodeKind, id: string, position: { x: number; y: number }): FlowNode {
-    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
+/** A new node with its kind's defaults; `offered`, the agents' model list, picks the model it starts on. */
+export function makeNode(
+    kind: NodeKind,
+    id: string,
+    position: { x: number; y: number },
+    offered?: readonly OfferedModel[] | null,
+): FlowNode {
+    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind, offered) };
 }
 
 /** Enough tail to tell two of a kind apart without becoming the name itself. */
@@ -643,27 +676,9 @@ const strings = (value: unknown, fallback: string[]): string[] =>
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
-/**
- * A trigger's folders. One saved before folders were ticked named a single
- * `folder`, which is ticked. Whatever an older trigger read below its folders —
- * `includeSubfolders`, or folders following `watchNewFolders` — is not kept: what
- * lay there cannot be listed without Outlook, and is ticked again in the panel.
- */
-function folderChoice(from: Json, base: FolderChoice): FolderChoice {
-    if (Array.isArray(from.folders)) return { folders: strings(from.folders, base.folders) };
-    return typeof from.folder === 'string' ? { folders: [from.folder.trim()] } : base;
-}
-
-/**
- * One of a node's models. An agy model saved with its level in the id, as
- * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
- */
+/** One of a node's models. */
 function modelChoice(from: Json): ModelChoice {
-    const model = str(from.model, '');
-    const enabled = bool(from.enabled, true);
-    const level = isAgyModel(model) ? AGY_LEVEL_SUFFIX.exec(model)?.[1] : undefined;
-    if (level) return { model: model.slice(0, -level.length - 1), effort: level, enabled };
-    return { model, effort: str(from.effort, ''), enabled };
+    return { model: str(from.model, ''), effort: str(from.effort, ''), enabled: bool(from.enabled, true) };
 }
 
 /**
@@ -690,7 +705,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 account: str(from.account, base.account),
-                ...folderChoice(from, base),
+                folders: strings(from.folders, base.folders),
                 pollSeconds: num(from.pollSeconds, base.pollSeconds),
                 lookbackDays: num(from.lookbackDays, base.lookbackDays),
                 maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),
@@ -727,7 +742,6 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 inputs: strings(from.inputs, base.inputs),
                 models: modelsOf(from.models, base.models),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
-                // Never null, unlike a Processor's: no Extractor predates the list.
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
         }
@@ -746,14 +760,12 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
-                // Absent only on a node from before the list: it keeps what it had.
-                mcpTools: from.mcpTools === undefined || from.mcpTools === null ? null : strings(from.mcpTools, []),
+                mcpTools: strings(from.mcpTools, base.mcpTools),
             };
         }
         case 'terminal':
             return {
                 ...base,
-                // The actions an older file gives a terminal are dropped here, so its next save leaves them out.
                 disposition: oneOf(from.disposition, DISPOSITIONS, base.disposition),
             };
     }

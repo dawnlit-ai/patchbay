@@ -86,7 +86,7 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
 }
 
 /**
- * A full Outlook path (`\\team@example.com\Inbox\Mobile, AL`) relative to the
+ * A full Outlook path (`\\team@example.com\Inbox\Clients`) relative to the
  * Inbox, as a trigger stores it: '' for the Inbox, null outside it.
  */
 function underInbox(folderPath: string): string | null {

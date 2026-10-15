@@ -1,18 +1,20 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
-import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 
 /**
  * What the main bundle leaves out (vite.main.config.mts), shipped as packages, by
  * the parts of each a run needs; null is all of it. zod is the Agent SDK's one
- * import, and the platform package is its own Claude Code.
+ * import. The SDK's platform package, a copy of Claude Code, is not shipped: a run
+ * starts the Claude Code installed on the machine, which Anthropic publishes and
+ * the user installs (src/main/agents/claude.ts).
  */
 const SHIPPED: Record<string, string[] | null> = {
     '@anthropic-ai/claude-agent-sdk': null,
-    [`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`]: null,
     // A link to the sibling checkout, which holds its sources and .git too.
     '@dawnlit/outlook-bridge': ['package.json', 'dist'],
+    // The updater, and the loader that picks its native add-on for the platform.
+    velopack: null,
+    '@neon-rs/load': null,
     zod: null,
 };
 
@@ -37,8 +39,16 @@ const config: ForgeConfig = {
         // Off: the Agent SDK spawns its Claude Code at the path it resolves, and
         // a path inside app.asar cannot be spawned even when unpacked.
         asar: false,
+        // macOS files the permission to control Outlook under this and the signing
+        // certificate together: changing either asks every Mac user for it again.
+        appBundleId: 'com.dawnlit.patchbay',
+        extendInfo: {
+            NSAppleEventsUsageDescription: 'Patchbay reads, files and drafts your mail by driving Outlook.',
+        },
     },
-    makers: [new MakerSquirrel(), new MakerZIP({}, ['win32', 'darwin'])],
+    // None: `npm run dist` hands the packaged app to Velopack (scripts/dist.mts),
+    // which makes the portable zip and the packages the app updates itself from.
+    makers: [],
     plugins: [
         new VitePlugin({
             build: [

@@ -1,9 +1,15 @@
 import { app, Menu } from 'electron';
-import { getAgentControl, getWatcher, registerIpc } from './ipc';
+import { VelopackApp } from 'velopack';
+import { getAgentControl, getUpdates, getWatcher, registerIpc } from './ipc';
 import { seedGlobalLibrary } from './store/skillStore';
 import { anyWindowOpen, showWelcome } from './windows';
 import { workspaceRoot } from './paths';
 import { log } from './log';
+import { offerApplicationsFolder } from './updates';
+
+// Before anything else: Velopack starts the app with its own arguments around an
+// install or update, and expects it to do its part and exit.
+VelopackApp.build().run();
 
 void app.whenReady().then(() => {
     // Nothing in the default menu applies to this app.
@@ -16,6 +22,8 @@ void app.whenReady().then(() => {
     getAgentControl().apply();
     // The start page, every launch: a canvas needs a flow chosen first.
     showWelcome();
+    getUpdates().start();
+    void offerApplicationsFolder();
 
     app.on('activate', () => {
         if (anyWindowOpen()) return;

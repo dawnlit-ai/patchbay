@@ -5,7 +5,7 @@ const MAX = 48;
 
 /**
  * A directory name from a flow name: lowercase, dashed, ASCII. Lowercase because
- * Windows and macOS treat `Pre-Alerts` and `pre-alerts` as one folder.
+ * Windows and macOS treat `Invoices` and `invoices` as one folder.
  */
 export function toFolderName(name: string): string {
     const slug = name

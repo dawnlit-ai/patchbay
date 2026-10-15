@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     const idOf = async (kind: string, name?: string): Promise<string> =>
         (JSON.parse(await call('add_node', { flowId, kind, ...(name ? { name } : {}) })) as { id: string }).id;
 
-    const trigger = await idOf('trigger.outlook', 'Pre-alerts');
+    const trigger = await idOf('trigger.outlook', 'Invoices');
     const sorter = await idOf('categorizer');
     const done = await idOf('terminal');
 
@@ -118,15 +118,15 @@ async function main(): Promise<void> {
         name: 'Sort',
         config: {
             categories: [
-                { id: 'pre-alert', label: 'Pre-alert', description: 'A shipment pre-alert with an HBL.' },
-                { id: 'rate', label: 'Rate quote', description: 'A trucking company quoting a lane.' },
+                { id: 'invoice', label: 'Invoice', description: 'A supplier invoice asking to be paid.' },
+                { id: 'support', label: 'Support', description: 'A customer asking for help with an order.' },
             ],
             bodyMaxChars: 'not a number',
         },
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
-    // Terminals do nothing to the email, so actions written the way an older file kept them are dropped.
+    // Terminals do nothing to the email, so any actions written onto one are dropped.
     const ending = await call('update_node', {
         flowId,
         nodeId: done,
@@ -160,11 +160,11 @@ async function main(): Promise<void> {
     const reading = await call('update_node', {
         flowId,
         nodeId: puller,
-        config: { inputs: ['placement'], mcpTools: ['mcp__logistics__lookup'] },
+        config: { inputs: ['order'], mcpTools: ['mcp__crm__lookup'] },
     });
     check(
         'an extractor keeps the slots and server tools it names',
-        reading.includes('"placement"') && reading.includes('"mcp__logistics__lookup"'),
+        reading.includes('"order"') && reading.includes('"mcp__crm__lookup"'),
     );
 
     // An Extractor reading a slot no path fills is flagged, as a Processor is.
@@ -173,16 +173,16 @@ async function main(): Promise<void> {
         id: string
     }).id;
     const lonePuller = (JSON.parse(await call('add_node', { flowId: lone, kind: 'extractor' })) as { id: string }).id;
-    await call('update_node', { flowId: lone, nodeId: lonePuller, config: { inputs: ['placement'] } });
+    await call('update_node', { flowId: lone, nodeId: lonePuller, config: { inputs: ['order'] } });
     await call('connect', { flowId: lone, from: loneTrigger, port: 'out', to: lonePuller });
     check(
         'an extractor reading a slot no path fills is flagged',
-        (await call('get_flow', { flowId: lone })).includes('reads \\"placement\\", but not every path here fills it'),
+        (await call('get_flow', { flowId: lone })).includes('reads \\"order\\", but not every path here fills it'),
     );
     await call('delete_flow', { flowId: lone });
 
     await call('connect', { flowId, from: trigger, port: 'out', to: sorter });
-    await call('connect', { flowId, from: sorter, port: 'cat:pre-alert', to: done });
+    await call('connect', { flowId, from: sorter, port: 'cat:invoice', to: done });
 
     const wrongPort = await client.callTool({
         name: 'connect',
@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     const dropped = await call('update_node', {
         flowId,
         nodeId: sorter,
-        config: { categories: [{ id: 'rate', label: 'Rate quote', description: 'A rate reply.' }] },
+        config: { categories: [{ id: 'support', label: 'Support', description: 'A request for help.' }] },
     });
     check('an edge left hanging is dropped and reported', dropped.includes('"droppedEdges": 1'));
 

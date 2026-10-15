@@ -1,0 +1,126 @@
+# Builds Patchbay for every platform at one version and adds each build to the
+# GitHub release `tag`, which the calling workflow has already drafted. Called by
+# nightly.yml and release.yml; not run on its own.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version every build is stamped with.
+        required: true
+        type: string
+      tag:
+        description: The drafted release the builds are added to.
+        required: true
+        type: string
+    secrets:
+      MACOS_SIGNING_CERTIFICATE:
+        required: false
+      MACOS_SIGNING_PASSWORD:
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  # In step with the velopack package in package.json.
+  VPK_VERSION: 1.2.161
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    strategy:
+      # One platform failing still shows how the others fare; the release is discarded either way.
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          # GitHub's last Intel runner, kept until August 2027.
+          - { os: macos-15-intel, rid: osx-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: patchbay
+      # The `file:../outlook-bridge` dependency wants the sibling checkout.
+      - uses: actions/checkout@v7
+        with:
+          repository: dawnlit-ai/outlook-bridge
+          path: outlook-bridge
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Tools
+        run: |
+          # npm 12 is what honours package.json's allowScripts.
+          npm install -g npm@12
+          dotnet tool install vpk --version "$VPK_VERSION" --tool-path "$RUNNER_TEMP/vpk"
+          ext=; [ "$RUNNER_OS" = Windows ] && ext=.exe
+          echo "VPK=$RUNNER_TEMP/vpk/vpk$ext" >> "$GITHUB_ENV"
+
+      - name: Build outlook-bridge
+        working-directory: outlook-bridge
+        run: npm install && npm run build
+
+      - name: Install
+        working-directory: patchbay
+        run: npm install
+
+      - name: Stamp the version
+        working-directory: patchbay
+        run: npm pkg set version="${{ inputs.version }}"
+
+      - name: Typecheck
+        working-directory: patchbay
+        run: npm run typecheck
+
+      - name: Package
+        working-directory: patchbay
+        run: npx electron-forge package
+
+      # One self-signed certificate, kept for good: macOS checks each update's
+      # signature against it, and files the Outlook permission under it.
+      - name: Signing certificate
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CERTIFICATE" ]; then
+            echo "::error::The MACOS_SIGNING_CERTIFICATE secret is not set. Unsigned, a downloaded Mac build is refused as damaged. See Releasing in the README."
+            exit 1
+          fi
+          KC="$RUNNER_TEMP/signing.keychain-db"; KC_PW=$(uuidgen)
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security import "$RUNNER_TEMP/signing.p12" -k "$KC" -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC" > /dev/null
+          rm "$RUNNER_TEMP/signing.p12"
+          # Trusted, codesign takes it by name too; by its SHA-1, as below, it takes it either way.
+          security find-certificate -a -p "$KC" > "$RUNNER_TEMP/signing.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing.pem" \
+            || echo "::warning::Could not mark the certificate trusted; signing by its SHA-1 instead."
+          SHA=$(security find-identity -p codesigning "$KC" | awk '$2 ~ /^[0-9A-F]{40}$/ {print $2; exit}')
+          test -n "$SHA"
+          echo "PATCHBAY_SIGN_IDENTITY=$SHA" >> "$GITHUB_ENV"
+          echo "PATCHBAY_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      - name: Pack and upload
+        working-directory: patchbay
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/dist.mts --publish "${{ inputs.tag }}"

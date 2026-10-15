@@ -1,0 +1,106 @@
+# A build of master as it stands, each day it has changed, published as a
+# prerelease: copies on the Nightly channel update to it. Run it from the Actions
+# tab to get one now, changed or not.
+name: Nightly
+
+on:
+  schedule:
+    # Off the hour, when GitHub's scheduled queue is shortest.
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    # Not in forks: they hold no signing certificate, and their releases update no one.
+    if: github.repository == 'dawnlit-ai/patchbay'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.changes.outputs.skip }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tags, to see what has been released.
+          fetch-depth: 0
+
+      - name: Anything new since the last nightly?
+        id: changes
+        run: |
+          last=$(gh release list --limit 30 --exclude-drafts --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\.")))][0].tagName // ""')
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$GITHUB_SHA" ]; then
+            echo "Nothing on master since $last."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Version
+        id: version
+        if: steps.changes.outputs.skip == 'false'
+        run: |
+          base=$(node -p "require('./package.json').version")
+          # Nightlies lead up to the release package.json names. Once that is out, they
+          # count from the next patch, until package.json is bumped past it.
+          if git rev-parse -q --verify "refs/tags/v$base" > /dev/null; then
+            base=$(node -p "const [a, b, c] = process.argv[1].split('.').map(Number); [a, b, c + 1].join('.')" "$base")
+          fi
+          version="$base-nightly.$(date -u +%Y%m%d%H%M)"
+          echo "Nightly $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Draft the release
+        if: steps.changes.outputs.skip == 'false'
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "Nightly ${{ steps.version.outputs.version }}" \
+            --notes "Master at ${GITHUB_SHA::7}, built $(date -u '+%Y-%m-%d %H:%M UTC'). Untried: copies on the Nightly channel update to each one."
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      tag: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish
+        run: gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
+
+      # An installed copy reads only GitHub's ten newest releases, so nightlies have
+      # to leave room among them for the latest stable one.
+      - name: Keep the five newest nightlies
+        run: |
+          gh release list --limit 100 --exclude-drafts --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\.")))] | .[5:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done
+
+  discard:
+    # A failed build leaves a half-filled draft behind; it goes, so the next one starts clean.
+    needs: [prepare, build]
+    if: failure() && needs.prepare.result == 'success' && needs.prepare.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: gh release delete "${{ needs.prepare.outputs.tag }}" --yes

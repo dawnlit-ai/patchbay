@@ -11,6 +11,8 @@ export default defineConfig({
                 'electron',
                 '@anthropic-ai/claude-agent-sdk',
                 '@dawnlit/outlook-bridge',
+                // Loads its native add-on relative to its own package.
+                'velopack',
                 /^node:/,
             ],
         },

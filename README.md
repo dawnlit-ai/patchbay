@@ -14,10 +14,10 @@ why an email went where it did.
 A **flow** is a graph with one trigger and any number of branches:
 
 ```
-Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (skill) ─┬─ Done         ─▶ Terminal
+Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (skill) ─┬─ Done         ─▶ Terminal
                                │                                     ├─ Needs review ─▶ Terminal (needs-review)
                                │                                     └─ Error        ─▶ Terminal
-                               ├─ "Rate quote"   ─▶ Process (skill) ──▶ …
+                               ├─ "Support"      ─▶ Process (skill) ──▶ …
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
 
@@ -65,12 +65,12 @@ A node adds slots and never takes one away, so the email is still there for whic
 it. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
 or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
 on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor
-always reads the email, and any slots it ticks besides: the lanes an earlier step found, say, to price each of them.
+always reads the email, and any slots it ticks besides: the order an earlier step found, say, to look up each line of it.
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
 for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
 to bring, and what leaves by each port.
 
-A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `shipment`
+A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `order`
 behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,
 and the flow cannot be watched until that is fixed: an email down the skipping branch would reach it with nothing
 there. A test run of such a flow stops at that node and says why.
@@ -160,17 +160,67 @@ lines — a poll that found nothing, an Outlook call that worked — are *debug*
 The window keeps the last 2,000 lines. Every line is also appended to `<userData>/workspace/logs/<date>.jsonl`, one file
 per day, kept for 14 days — **Folder** opens it, and **Clear** empties the window without touching the files.
 
+## Download
+
+Each [release](https://github.com/dawnlit-ai/patchbay/releases) carries a zip for each platform. There is no installer.
+
+| Platform               | Zip                               |
+|------------------------|-----------------------------------|
+| Windows                | `Patchbay-win-x64-Portable.zip`   |
+| Mac with Apple silicon | `Patchbay-osx-arm64-Portable.zip` |
+| Intel Mac              | `Patchbay-osx-x64-Portable.zip`   |
+
+A nightly carries the same zips with `-nightly` in their names. Patchbay runs your nodes on agents you install
+yourself, so install [Claude Code](https://code.claude.com/docs/en/setup) and sign in to it too — see
+[Requirements](#requirements).
+
+**Windows.** Unzip it somewhere you can write to — your Desktop, Documents or a folder of your own, not Program Files —
+and open the `Patchbay.exe` at the top of the folder. The build is not signed, so the first time, SmartScreen says
+Windows *protected your PC*: **More info → Run anyway**. Removing Patchbay is deleting the folder.
+
+**Mac.** Unzip it, move `Patchbay.app` into Applications and open it. It is signed with Dawnlit's own certificate
+rather than one Apple vouches for, so the first time, macOS says it cannot check it for malicious software: open
+**System Settings → Privacy & Security** and click **Open Anyway** beside Patchbay. Opened anywhere but Applications, it
+offers to move itself there: macOS runs an app opened where it was downloaded from a read-only copy, which cannot update
+itself.
+
+Flows, skills, settings, runs and logs live in the workspace — `%APPDATA%\Patchbay\workspace` on Windows,
+`~/Library/Application Support/Patchbay/workspace` on a Mac — never in the app's own folder, so updating, downloading
+again or deleting the app leaves them where they are.
+
+### Updates
+
+A downloaded copy updates itself. A little after it starts, and every few hours while it stays open, it looks for a
+newer version on its channel and downloads it in the background; after the first, an update is usually a patch of a
+megabyte or so rather than the whole app. **Settings → Updates** says what it found, and **Restart to update** puts it
+in place — refused while a run is under way, which a restart would cut short. One left waiting goes in the next time
+Patchbay starts, which makes that start some twenty seconds longer.
+
+The channel is chosen on the same page:
+
+- **Stable** — published releases. What a downloaded release starts on.
+- **Nightly** — a build of each day's changes to master: first to have them, and first to have their bugs. What a
+  downloaded nightly starts on.
+
+Moving from Nightly back to Stable takes you to the newest release at once, although its version number is lower. A copy
+run from source does not update itself.
+
 ## Requirements
 
 - **Windows or macOS with a desktop Outlook client** — this drives the real client over COM/AppleScript, not Microsoft
   Graph. No app registration, no cloud permissions. (macOS needs *legacy* Outlook.)
-- **Node 24+** — the version Electron 44 itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
-  `engine-strict`, which makes an older Node refuse the installation rather than fail somewhere later.
-- **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
-  `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login. The
-  inspector's model lists come from it too, marked *· claude*: they show what that login offers now, so a new model
-  appears without a new build of the app. So do the effort levels, which differ from model to model — a node offers the
-  ones its model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
+- **Node 24+**, to run or build it from source — the version Electron 44 itself runs, so it is also what `@types/node`
+  is pinned to. `.npmrc` sets `engine-strict`, which makes an older Node refuse the installation rather than fail
+  somewhere later.
+- **[Claude Code](https://code.claude.com/docs/en/setup) installed and signed in**, with a Claude account or an
+  Anthropic API key. Patchbay does not include it: it drives Claude through the Claude Agent SDK, which runs the
+  `claude` installed on your computer — found where Claude Code's installers put it or on the PATH, or at the path set
+  under **Settings → Agents** — and reuses its login. The inspector's model lists come from it too, marked *· claude*:
+  they show what that login offers now, so a new model appears without a new build of the app. So do the effort levels,
+  which differ from model to model — a node offers the ones its model takes, or none for a model that takes none. New
+  nodes start on `opus`, the alias for the newest Opus. Until Claude Code is installed, Settings → Agents says so,
+  Claude's models are missing from the lists, new nodes start on the first model another agent offers instead, and a
+  step on a Claude model goes to its fallback model if it has one.
 - **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on the models it offers — Gemini, and the
   Claude and GPT models beside it, which spend agy's own Google quota rather than your Claude plan. It is found where it
   installs itself, in `~/.local/bin`, or at the path set under **Settings → Agents**. Its models join the model lists,
@@ -197,11 +247,19 @@ npm start
 > from the sibling `../outlook-bridge` checkout with its `prepare` build refused,
 > so after changing it, run `npm run build` there.
 
-To build a distributable:
+To build the zip a release carries, for the machine you are on:
 
 ```bash
-npm run make
+dotnet tool install -g vpk --version 1.2.161
+npm run dist
 ```
+
+`dist` packages the app and hands it to [Velopack](https://velopack.io), which writes the portable zip, and the packages
+installed copies update themselves from, into `out/releases`. `vpk` needs the .NET SDK, and stays at the version of the
+`velopack` package in `package.json`. A version with `-nightly` in it is packed for the nightly channel. On a Mac, set
+`PATCHBAY_SIGN_IDENTITY` to a code-signing certificate's name, or a copy downloaded anywhere else is refused as damaged.
+To try an update before publishing it, start a copy unzipped from an earlier build with
+`--update-feed=<path to out/releases>`, and it checks there instead of GitHub.
 
 ### Check the whole chain works
 
@@ -369,7 +427,7 @@ control** and paste the command shown there into a terminal:
 claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
 ```
 
-After that, "wire me a flow that sorts pre-alerts from rate quotes and runs the pre-alert skill on the first branch" is
+After that, "wire me a flow that sorts invoices from support requests and runs the invoice skill on the first branch" is
 something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
 does — one workspace, not two copies of it — and the window re-reads what it changed as it goes. Every canvas save
 names the version it was made to, so an edit made at the moment before an agent's write to the same flow is refused
@@ -419,6 +477,71 @@ Close the last window and the server stops with it.
 
 `test_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool calls, so whatever
 permission prompt your client puts in front of a tool is what keeps a person in the loop.
+
+## Releasing
+
+Three workflows in `.github/workflows` build every platform — Windows x64, and Macs with Apple silicon and Intel — and
+publish them as GitHub releases, which installed copies read to update. `build.yml` is the build itself; the other two
+decide what to build and when.
+
+**Nightly** (`nightly.yml`) runs every morning and builds master if it has changed since the last nightly; **Run
+workflow** on the Actions tab builds one now. Its version is the one in `package.json`, or the next patch once a release
+of that is out, with `-nightly.<UTC date and time>` after it — so a nightly sorts after the release before it and before
+the one it leads up to. It is published as a prerelease, and only the five newest are kept: an installed copy reads
+GitHub's ten newest releases, and the latest stable one has to stay among them.
+
+**Stable** (`release.yml`) runs on a tag naming the version `package.json` holds:
+
+```bash
+npm version 0.2.0 --no-git-tag-version
+git commit -am "Release 0.2.0"
+git tag v0.2.0
+git push origin master v0.2.0
+```
+
+Every platform is built into a draft release, its notes drawn from the commits since the last one. Nothing reaches
+anyone until you publish the draft on GitHub: publishing it is the release. Then move `package.json` on to the next
+version, which nightlies count from.
+
+A build that fails on any platform takes its draft with it, so nothing half-built is published.
+
+### The Mac signing certificate
+
+Mac builds are signed with one self-signed certificate, held in the repository's secrets. It vouches for nothing — a
+certificate Apple vouches for costs a yearly fee, which is why a first launch needs **Open Anyway** — but without a
+signature a downloaded Mac build is refused as damaged, and macOS files the permission to control Outlook under the
+certificate and the bundle ID, `com.dawnlit.patchbay`. Replacing either asks every Mac user for that permission again,
+so make the certificate once, and keep a copy somewhere other than GitHub.
+
+To make it, with OpenSSL (Git Bash has it):
+
+```bash
+cat > patchbay-signing.cnf <<'EOF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = Dawnlit Patchbay
+[ext]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:false
+EOF
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config patchbay-signing.cnf \
+  -keyout patchbay-signing.key -out patchbay-signing.crt
+openssl pkcs12 -export -inkey patchbay-signing.key -in patchbay-signing.crt -out patchbay-signing.p12 \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+base64 -w0 patchbay-signing.p12 > patchbay-signing.p12.b64
+```
+
+The last three options to `pkcs12` make a file macOS's keychain can read; it asks for a password to protect it with.
+Under the repository's **Settings → Secrets and variables → Actions**, save what `patchbay-signing.p12.b64` holds as
+`MACOS_SIGNING_CERTIFICATE`, and that password as `MACOS_SIGNING_PASSWORD`. Then move the files off this machine to
+somewhere safe. Without the secret, the Mac builds fail rather than publish something no one else could open.
+
+Windows builds are not signed. Updates do not need it; a signature would only quiet SmartScreen, and `vpk pack` takes one
+(`--signParams`, or `--azureTrustedSignFile` for Azure Artifact Signing) once there is a certificate to sign with.
 
 ## Architecture
 
@@ -477,9 +600,11 @@ as a service has to offer its users the modified source.
 **On dependencies.** The license above covers this repository's own code. It does not relicense what it talks to:
 `@anthropic-ai/claude-agent-sdk` is proprietary ("© Anthropic PBC. All rights reserved", subject to Anthropic's
 [legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
-`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). Both are
-installed from npm by whoever builds the app rather than redistributed here — worth understanding before you ship
-binaries, since bundling a proprietary SDK into an AGPL distribution is a question for a lawyer rather than a README.
+`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). This
+repository holds neither: they are installed from npm by whoever builds the app. A release build does carry the SDK's
+own code, but not Claude Code, the program it runs, which each user installs from Anthropic. Shipping a proprietary
+SDK inside an AGPL distribution is still worth understanding before you do — a question for a lawyer rather than a
+README.
 
 ---
 

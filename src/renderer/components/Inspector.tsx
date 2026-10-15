@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
-    DEFAULT_MODEL,
     type Disposition,
     DISPOSITIONS,
     EMAIL_SLOT,
@@ -11,6 +10,7 @@ import {
     type FlowIssue,
     type FlowNode,
     hasInput,
+    isAgyModel,
     type JsonSchema,
     type ModelChoice,
     NODE_KIND_META,
@@ -23,6 +23,7 @@ import {
     type Slot,
     SLOT_NAME,
     slotTypeLabel,
+    startingModel,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -115,7 +116,10 @@ function ModelField({
     else if (!models) hint = 'Asking Claude…';
     else if (listed) hint = listed.description;
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
-    else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
+    // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.
+    else if (models.every((m) => isAgyModel(m.value))) {
+        hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
+    } else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
 
     return (
         <Field label={label} hint={hint}>
@@ -365,7 +369,7 @@ function ModelsField({
                     );
                 })}
             </div>
-            <button onClick={() => onChange([...value, { model: DEFAULT_MODEL, effort: '', enabled: true }])}>
+            <button onClick={() => onChange([...value, { ...startingModel(listing.models, ''), enabled: true }])}>
                 + Add a model
             </button>
         </>
@@ -820,7 +824,7 @@ function McpToolsField({
                            config,
                            patch,
                            hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
-                       }: Section<{ mcpTools: string[] | null }> & { hint?: string }): JSX.Element {
+                       }: Section<{ mcpTools: string[] }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
     const [query, setQuery] = useState('');
 
@@ -844,20 +848,6 @@ function McpToolsField({
             cancelled = true;
         };
     }, []);
-
-    if (config.mcpTools === null) {
-        return (
-            <>
-                <Legend
-                    label="Tools from MCP servers"
-                    hint="Every tool of every server in Settings: this node was set up before they could be picked one by one."
-                />
-                <button onClick={() => patch({ mcpTools: servers?.map((s) => `mcp__${s.name}`) ?? [] })}>
-                    Pick the tools it needs
-                </button>
-            </>
-        );
-    }
 
     const picked = config.mcpTools;
     const set = (ref: string, on: boolean): void =>

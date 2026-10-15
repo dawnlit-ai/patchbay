@@ -231,7 +231,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tools.push(
             tool(
                 'move_email',
-                'File this email into an Inbox subfolder, creating the folder if it does not exist. Give a path relative to the Inbox, e.g. "Processed/Pre-Alerts".',
+                'File this email into an Inbox subfolder, creating the folder if it does not exist. Give a path relative to the Inbox, e.g. "Processed/Invoices".',
                 { folderPath: z.string().min(1) },
                 async ({ folderPath }) => {
                     const result = await outlook.moveEmail(email.ref, folderPath);

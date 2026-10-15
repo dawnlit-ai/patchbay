@@ -29,6 +29,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "scripts/**/*.ts",
+    "scripts/**/*.mts",
     "*.ts",
     "*.mts"
   ]
