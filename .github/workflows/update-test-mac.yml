@@ -1,0 +1,187 @@
+# Throwaway: proves a packed Patchbay updates itself on macOS through Velopack,
+# the way the Windows portable build was proven locally. Builds 0.1.1, 0.1.2 and
+# 0.1.3, unpacks 0.1.1 into ~/Applications, and lets it update twice — once with
+# a full package, once with a delta. Once with an ad-hoc signature (what a build
+# gets with no certificate at all) and once with a throwaway self-signed one.
+name: Update test (macOS)
+
+on:
+  push:
+    branches: [spike/velopack-portable]
+
+permissions:
+  contents: read
+
+jobs:
+  update-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        signing: [adhoc, self-signed]
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      VPK_VERSION: 1.2.161
+      CERT_NAME: Patchbay Update Test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: patchbay
+      # The `file:../outlook-bridge` dependency wants the sibling checkout.
+      - uses: actions/checkout@v7
+        with:
+          repository: dawnlit-ai/outlook-bridge
+          path: outlook-bridge
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Tools
+        run: |
+          # npm 12 is what honours package.json's allowScripts.
+          npm install -g npm@12
+          dotnet tool install -g vpk --version "$VPK_VERSION"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          sw_vers; uname -m; node --version; npm --version
+
+      - name: Build outlook-bridge
+        working-directory: outlook-bridge
+        run: npm install && npm run build
+
+      - name: Install
+        working-directory: patchbay
+        run: npm install
+
+      - name: Self-signed certificate
+        if: matrix.signing == 'self-signed'
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/update-test.keychain-db"; PW=update-test
+          cat > "$RUNNER_TEMP/cert.cnf" <<EOF
+          [req]
+          distinguished_name = dn
+          x509_extensions = ext
+          prompt = no
+          [dn]
+          CN = $CERT_NAME
+          [ext]
+          keyUsage = critical, digitalSignature
+          extendedKeyUsage = critical, codeSigning
+          basicConstraints = critical, CA:false
+          EOF
+          # The system LibreSSL: its .p12 is one `security import` reads.
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 7 -config "$RUNNER_TEMP/cert.cnf" \
+            -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem"
+          /usr/bin/openssl pkcs12 -export -inkey "$RUNNER_TEMP/key.pem" -in "$RUNNER_TEMP/cert.pem" \
+            -out "$RUNNER_TEMP/cert.p12" -passout pass:$PW
+          security create-keychain -p "$PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$PW" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$PW" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KC" > /dev/null
+          echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      # Trust is what makes the identity "valid" to codesign by name; signing by
+      # its SHA-1 below works either way, so a refusal here is reported, not fatal.
+      - name: Trust the certificate
+        if: matrix.signing == 'self-signed'
+        timeout-minutes: 3
+        continue-on-error: true
+        run: |
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Signing identity
+        if: matrix.signing == 'self-signed'
+        run: |
+          security find-identity -p codesigning "$KEYCHAIN"
+          SHA=$(security find-identity -p codesigning "$KEYCHAIN" | awk -v n="\"$CERT_NAME\"" 'index($0, n) {print $2; exit}')
+          test -n "$SHA"
+          echo "SIGN_ARGS=--signAppIdentity $SHA --keychain $KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Build 0.1.1, 0.1.2 and 0.1.3
+        working-directory: patchbay
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/releases" "$RUNNER_TEMP/zips"
+          for V in 0.1.1 0.1.2 0.1.3; do
+            npm pkg set version="$V"
+            npx electron-forge package
+            # shellcheck disable=SC2086 # SIGN_ARGS is several arguments, or none.
+            vpk -x pack --packId Patchbay --packVersion "$V" --packDir out/Patchbay-darwin-arm64/Patchbay.app \
+              --mainExe Patchbay --packTitle Patchbay --packAuthors Dawnlit --runtime osx-arm64 --channel osx-arm64 \
+              --noInst --outputDir "$RUNNER_TEMP/releases" ${SIGN_ARGS:-}
+            cp "$(ls "$RUNNER_TEMP"/releases/*-Portable.zip)" "$RUNNER_TEMP/zips/Patchbay-$V-Portable.zip"
+          done
+          ls -la "$RUNNER_TEMP/releases"
+          cat "$RUNNER_TEMP/releases/releases.osx-arm64.json"
+
+      - name: Update test
+        run: |
+          set -uo pipefail
+          APP="$HOME/Applications/Patchbay.app"
+          UD="$RUNNER_TEMP/userdata"
+          DEFAULT_LOGS="$HOME/Library/Application Support/Patchbay/workspace/logs"
+          FEED="$RUNNER_TEMP/releases"
+          mkdir -p "$HOME/Applications"
+          ditto -x -k "$RUNNER_TEMP/zips/Patchbay-0.1.1-Portable.zip" "$HOME/Applications"
+
+          describe() {
+            echo "--- $1"
+            echo "version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+            codesign -dv "$APP" 2>&1 | grep -E '^(Identifier|Authority|Signature|TeamIdentifier)=' || true
+            echo "designated requirement: $(codesign -d -r- "$APP" 2>&1 | grep '^designated' || echo none)"
+            codesign --verify --deep --strict "$APP" && echo "codesign verify: ok" || echo "codesign verify: FAILED"
+          }
+          logs() { cat "$UD"/workspace/logs/*.jsonl "$DEFAULT_LOGS"/*.jsonl 2>/dev/null; }
+          # Waits for a version to log its start, wherever the restart put its user data.
+          wait_started() {
+            for _ in $(seq 1 240); do
+              logs | grep -q "\"Patchbay $1 started\"" && return 0
+              logs | grep -q 'Update test: failed' && return 1
+              sleep 1
+            done
+            return 1
+          }
+          # The updater lives in Contents/MacOS too, so it gets time to finish before anything there is stopped.
+          stop_app() { sleep 10; pkill -f "$APP/Contents/MacOS/" || true; sleep 3; }
+
+          describe "unpacked 0.1.1"
+          RESULT=0
+          for STEP in "0.1.2" "0.1.3"; do
+            echo "=== updating to $STEP"
+            "$APP/Contents/MacOS/Patchbay" --user-data-dir="$UD" --update-feed="$FEED" >> "$RUNNER_TEMP/app.out" 2>&1 &
+            if wait_started "$STEP"; then
+              echo "PASS: $STEP started after the update"
+            else
+              echo "FAIL: $STEP never started"; RESULT=1
+            fi
+            stop_app
+            describe "after updating to $STEP"
+            [ "$RESULT" = 0 ] || break
+          done
+
+          echo "=== Patchbay's log"
+          logs | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const l of s.split('\n').filter(Boolean)){const e=JSON.parse(l);console.log(e.at.slice(11,19),e.level,e.message,e.detail&&!e.detail.startsWith('workspace')?'| '+e.detail:'')}})"
+          if [ -d "$DEFAULT_LOGS" ]; then echo "(some lines came from the default user-data folder: the restart dropped --user-data-dir)"; fi
+          echo "=== Velopack's logs"
+          find "$HOME/Library/Logs" "$HOME/Library/Caches" "$HOME/Library/Application Support" /tmp "$RUNNER_TEMP" -maxdepth 4 -iname '*velopack*.log' 2>/dev/null | while read -r f; do echo "## $f"; tail -120 "$f"; done
+          echo "=== app output (tail)"
+          tail -40 "$RUNNER_TEMP/app.out"
+          exit $RESULT
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: update-test-${{ matrix.signing }}
+          path: |
+            ${{ runner.temp }}/app.out
+            ${{ runner.temp }}/userdata/workspace/logs
+            ~/Library/Logs/velopack
+            ${{ runner.temp }}/releases/*.json
+          if-no-files-found: ignore

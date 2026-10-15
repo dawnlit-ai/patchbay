@@ -13,6 +13,9 @@ const SHIPPED: Record<string, string[] | null> = {
     [`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`]: null,
     // A link to the sibling checkout, which holds its sources and .git too.
     '@dawnlit/outlook-bridge': ['package.json', 'dist'],
+    // The updater, and the loader that picks its native add-on for the platform.
+    velopack: null,
+    '@neon-rs/load': null,
     zod: null,
 };
 
