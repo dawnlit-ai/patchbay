@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CERTIFICATE" ]; then
-            echo "::error::The MACOS_SIGNING_CERTIFICATE secret is not set. Unsigned, a downloaded Mac build is refused as damaged. See Releasing in the README."
+            echo "::error::The MACOS_SIGNING_CERTIFICATE secret is not set. Unsigned, a downloaded Mac build is refused as damaged. See docs/releasing.md."
             exit 1
           fi
           KC="$RUNNER_TEMP/signing.keychain-db"; KC_PW=$(uuidgen)

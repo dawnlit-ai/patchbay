@@ -21,144 +21,17 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
 
-- **Outlook Trigger** — polls a mailbox through the real Outlook client and starts one run per new email. Tick the
-  folders it reads in the Inbox's folder tree: each tick is that folder alone, so ticking just the Inbox leaves the
-  folders in it out, and *+ below* ticks a folder with everything inside it. Unticking a folder unticks the folders
-  inside it too, so unticking the Inbox unticks them all. A folder made later — by you, or by a rule filing mail
-  away — is not read until you tick it. A trigger reading more than one folder knows an email by sender, time and
-  subject rather than by entry id — Outlook rewrites the id whenever an email moves, so filing one from one watched
-  folder into another doesn't make it new again.
-- **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
-  why.
-- **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
-  and puts the result in a named slot. It leaves by *Valid* when every required field was in the email and the result
-  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*. Like a Processor, it can tick
-  skills that say how to read this kind of email, read slots earlier nodes filled, and take tools from the MCP servers
-  in Settings; unlike one, it cannot draft a reply, move the email or run commands.
-- **Processor** — runs Claude with the skills you tick, holding tools scoped to this one email. It leaves by *Done*,
-  by *Needs review* when it finished but a person has to decide or check something, or by *Error*. Give it an output
-  slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be split into steps that each
-  hand their work to the next — and a run that stops shows which step it stopped at.
-- **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
-  saves, one of its steps does, with its own tools.
+- **Outlook Trigger** — polls the folders you tick through the real Outlook client, and starts one run per new email.
+- **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why.
+- **Extractor** — pulls fields out of the email into a JSON Schema you give it, for later steps to read.
+- **Processor** — runs Claude with the [skills](docs/skills.md) you tick, holding tools scoped to this one email.
+- **Terminal** — ends a path and records a disposition.
 
-Each node hands the email out of exactly **one** output port, and the engine follows the single edge attached to it.
-That constraint is what makes a run a readable path rather than a cloud of concurrent activity.
+Each node hands the email out of exactly **one** output port, so a run is a readable path rather than a cloud of
+concurrent activity. Every run records the prompt each node sent, every tool call and result, and every change to the
+mailbox; select one and the canvas lights up the path that email took.
 
-A Categorizer, Extractor or Processor lists its **Models**, each with its own effort level, in the order its step
-tries them: it runs on the first one that is on, and the others are its fallbacks — agy's Sonnet, say, then agy's
-Gemini Pro, then Claude's own Sonnet. Drag a model up or down the list to change its turn, or switch one off to pass it
-over without losing it; one is always on. A step moves on only when the model before is at its usage
-limit, or its agent is not installed or cannot be reached, and never once the step has changed something: a Processor
-that drafted a reply before its quota ran out is not run again. agy keeps one quota for its Gemini models and another
-for its Claude and GPT ones, so Gemini still answers once agy's Claude models are used up. A model known to be at its
-limit is passed over without being asked until the reset its agent named, and the run's trace says each time a step
-moved on and why. The last model waits for Claude's limit to reset rather than failing, as a node with one model
-does.
-
-### Data on the wire
-
-A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
-a Processor with an output slot fills it only on *Done*, and one that says *Done* with a result that doesn't match its
-schema leaves by *Error* instead.
-A node adds slots and never takes one away, so the email is still there for whichever step replies to it or files
-it. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
-or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
-on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor
-always reads the email, and any slots it ticks besides: the order an earlier step found, say, to look up each line of it.
-Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
-for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
-to bring, and what leaves by each port.
-
-A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `order`
-behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,
-and the flow cannot be watched until that is fixed: an email down the skipping branch would reach it with nothing
-there. A test run of such a flow stops at that node and says why.
-
-## The welcome window
-
-The app opens on a start page rather than a canvas, because "which flow?" is a question the canvas cannot draw an
-answer to. It lists every flow this install holds — its size, when it was last edited, whether a trigger in it is
-being polled — and is a window of its own, sized for a list rather than for the canvas it hands over to.
-
-From it, you can open a flow, start a new one, duplicate one, rename one, delete one, and open a flow file
-somebody sent you. Each flow shows the **project folder** it lives in, with a button that opens that folder in
-Finder or Explorer — it holds the flow's own file and the skills only that flow can reach, and it is the working
-directory its Processors run in.
-
-Flows are files you keep, not copies the app holds. **New flow** and **Duplicate** ask for a name and a location —
-where the last one went, or `Documents/Patchbay` the first time — and make a folder named after the flow there,
-holding its `flow.json`; a duplicate's folder gets a copy of the original's own skills too. **Open flow file…** takes
-a flow file wherever it already is, and copies nothing. Either way the flow is
-listed from that file, every edit is saved back to it, its folder is the one its Processors run in, and its own skills
-live in `.claude/skills` beside it — so a flow kept in a git repository is edited, run and committed from one place.
-Keep each flow in a folder of its own: with file access off, a Processor can read the flow's whole folder, and that is
-the folder the file sits in. An opened file with no id is given one, and so is a copy of a flow already listed; a file
-moved since it was opened keeps its id, so its runs and the watcher's marks follow it. Anything else the file holds is
-kept when it is saved. Flows made before this, and any an agent makes without naming a location, live in the app
-workspace under `flows/`.
-
-Renaming asks a second question: should the folder follow the name? It is offered ticked when the folder is still the
-one the app chose, and left alone when you have named it yourself. A flow kept outside the workspace isn't asked: its
-folder is yours. Either way the flow's **id** does not move — runs already recorded, the watcher's marks and anything
-an agent holds go on pointing at the same flow. Only the path changes, and a rename is refused outright while a run is
-using that directory. So is deleting the flow; runs of it still waiting in the queue are canceled as it goes. Deleting
-a flow kept outside the workspace only takes it off the list — the file and its folder stay as they are.
-
-**☰ Flows** in the canvas's top bar brings the start page back. Opening a flow while a canvas is already up on a
-different one asks where it should go: in that window, in place of the flow on it, or in a second canvas beside it.
-A flow already open raises the window holding it rather than drawing it twice — two canvases on one graph would be
-two editors of one file — and with no canvas up there is nothing to ask. The runs and the console belong to the
-workspace rather than to the flow above them, so every canvas shows all of both, each run named for the flow it ran.
-
-## The run log
-
-Every email produces a `Run`, and every node it touches produces a `Pass`:
-
-- which port it left by, and the one-line reason
-- the full prompt sent to Claude
-- every tool call with its arguments, and every result
-- Outlook side effects (body read, attachment saved, draft left, email moved)
-- when it started and finished
-
-Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email traveled, with each node
-showing its pass number and outcome.
-
-A run under way shows where it is as it goes. The node it is at pulses amber on the canvas, counting how long it has
-been there and saying what it is doing — waiting for the model, running a tool, writing — and the run's row in the list
-names it. In the panel, that node's pass sits open below the ones already finished: its tool calls and results arrive
-as they happen, and what the agent is writing — its reply, its thinking, the result it hands in — appears as it is
-written, followed to the newest line unless you scroll up to read back. When the node leaves by a port, the card
-becomes its finished pass where it stands, with how long it took. Text still being written is shown and never kept;
-the trace records each block once it is whole, as it always has. The run's file is written as it goes, too, so a run
-cut off by a crash still shows the node it was at and what it had done there.
-
-Right-click a run to put its email through the flow again (once whatever stopped it has been fixed, say) or to
-delete it. The new run starts at the trigger the email came in by and reads the flow as it is now. An email filed
-since is found again by its subject, sender and received time.
-
-Runs are plain JSON in the app workspace — one file per run, plus a JSONL index. A database would be the reflex, but
-these records exist to be read when something has gone wrong, so a file you can open and paste into a bug report wins.
-
-## The console
-
-A run explains why an email went where it did. It cannot explain an email that never became a run, and that is what
-the **Console** tab beside Runs is for. It records what the app did outside any one run:
-
-- **watcher** — watching started and stopped, what each poll found, the first poll that marks a folder's mail as seen
-  without running it, a poll whose every email was new (so more may have arrived than one poll takes), and queued
-  email dropped by Stop
-- **run** — each run starting and how it ended, with a link to its trace
-- **outlook** — every call to the client, how long it took, and how long it waited in the queue behind another
-- **agent** — the MCP server listening or failing to, every tool call an agent makes and its input, and every request
-  refused
-- **app** — startup, and seeding the global skill library
-
-Warnings and errors you have not looked at are counted on the tab. The level filter starts at *Info and up*; routine
-lines — a poll that found nothing, an Outlook call that worked — are *debug*, shown under *Everything*.
-
-The window keeps the last 2,000 lines. Every line is also appended to `<userData>/workspace/logs/<date>.jsonl`, one file
-per day, kept for 14 days — **Folder** opens it, and **Clear** empties the window without touching the files.
+**Nothing sends mail.** A Processor can leave an unsent draft in Outlook for a person; no tool in the app sends one.
 
 ## Download
 
@@ -170,442 +43,63 @@ Each [release](https://github.com/dawnlit-ai/patchbay/releases) carries a zip fo
 | Mac with Apple silicon | `Patchbay-osx-arm64-Portable.zip` |
 | Intel Mac              | `Patchbay-osx-x64-Portable.zip`   |
 
-A nightly carries the same zips with `-nightly` in their names. Patchbay runs your nodes on agents you install
-yourself, so install [Claude Code](https://code.claude.com/docs/en/setup) and sign in to it too — see
-[Requirements](#requirements).
+**Windows.** Unzip it somewhere you can write to — not Program Files — and open `Patchbay.exe`. The build is not
+signed, so the first time, SmartScreen says Windows *protected your PC*: **More info → Run anyway**. Removing Patchbay
+is deleting the folder.
 
-**Windows.** Unzip it somewhere you can write to — your Desktop, Documents or a folder of your own, not Program Files —
-and open the `Patchbay.exe` at the top of the folder. The build is not signed, so the first time, SmartScreen says
-Windows *protected your PC*: **More info → Run anyway**. Removing Patchbay is deleting the folder.
-
-**Mac.** Unzip it, move `Patchbay.app` into Applications and open it. It is signed with Dawnlit's own certificate
-rather than one Apple vouches for, so the first time, macOS says it cannot check it for malicious software: open
-**System Settings → Privacy & Security** and click **Open Anyway** beside Patchbay. Opened anywhere but Applications, it
-offers to move itself there: macOS runs an app opened where it was downloaded from a read-only copy, which cannot update
-itself.
+**Mac.** Unzip it, move `Patchbay.app` into Applications and open it. It is not signed by a certificate Apple vouches
+for, so the first time, macOS says it cannot check it for malicious software: open **System Settings → Privacy &
+Security** and click **Open Anyway** beside Patchbay.
 
 Flows, skills, settings, runs and logs live in the workspace — `%APPDATA%\Patchbay\workspace` on Windows,
-`~/Library/Application Support/Patchbay/workspace` on a Mac — never in the app's own folder, so updating, downloading
-again or deleting the app leaves them where they are.
+`~/Library/Application Support/Patchbay/workspace` on a Mac — so updating or deleting the app leaves them where they
+are.
 
-### Updates
-
-A downloaded copy updates itself. A little after it starts, and every few hours while it stays open, it looks for a
-newer version on its channel and downloads it in the background; after the first, an update is usually a patch of a
-megabyte or so rather than the whole app. **Settings → Updates** says what it found, and **Restart to update** puts it
-in place — refused while a run is under way, which a restart would cut short. One left waiting goes in the next time
-Patchbay starts, which makes that start some twenty seconds longer.
-
-The channel is chosen on the same page:
-
-- **Stable** — published releases. What a downloaded release starts on.
-- **Nightly** — a build of each day's changes to master: first to have them, and first to have their bugs. What a
-  downloaded nightly starts on.
-
-Moving from Nightly back to Stable takes you to the newest release at once, although its version number is lower. A copy
-run from source does not update itself.
+A downloaded copy updates itself in the background; **Settings → Updates** says what it found and has **Restart to
+update**. Choose the channel there too: **Stable** for published releases, or **Nightly** for a build of each day's
+changes to master.
 
 ## Requirements
 
-- **Windows or macOS with a desktop Outlook client** — this drives the real client over COM/AppleScript, not Microsoft
-  Graph. No app registration, no cloud permissions. (macOS needs *legacy* Outlook.)
-- **Node 24+**, to run or build it from source — the version Electron 44 itself runs, so it is also what `@types/node`
-  is pinned to. `.npmrc` sets `engine-strict`, which makes an older Node refuse the installation rather than fail
-  somewhere later.
+- **Windows or macOS with a desktop Outlook client.** Patchbay drives the real client over COM/AppleScript, not
+  Microsoft Graph — no app registration, no cloud permissions. macOS needs *legacy* Outlook.
 - **[Claude Code](https://code.claude.com/docs/en/setup) installed and signed in**, with a Claude account or an
-  Anthropic API key. Patchbay does not include it: it drives Claude through the Claude Agent SDK, which runs the
-  `claude` installed on your computer — found where Claude Code's installers put it or on the PATH, or at the path set
-  under **Settings → Agents** — and reuses its login. The inspector's model lists come from it too, marked *· claude*:
-  they show what that login offers now, so a new model appears without a new build of the app. So do the effort levels,
-  which differ from model to model — a node offers the ones its model takes, or none for a model that takes none. New
-  nodes start on `opus`, the alias for the newest Opus. Until Claude Code is installed, Settings → Agents says so,
-  Claude's models are missing from the lists, new nodes start on the first model another agent offers instead, and a
-  step on a Claude model goes to its fallback model if it has one.
-- **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on the models it offers — Gemini, and the
-  Claude and GPT models beside it, which spend agy's own Google quota rather than your Claude plan. It is found where it
-  installs itself, in `~/.local/bin`, or at the path set under **Settings → Agents**. Its models join the model lists,
-  marked *· agy*, each once with the levels agy lists it at under Effort. agy gives them no default level, so a node on one
-  always names its level. Each run gets a workspace of its own holding the node's skills and servers, with a hook that
-  refuses every tool the node was not given — agy's shell, browser and web search included. The hook can refuse but not
-  grant: headless, agy calls an MCP tool only when its own settings allow it, so each tool a node uses needs an
-  `mcp(patchbay_<server>/<tool>)` rule under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. A run
-  that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
-  **Settings → Agents** shows each agent's version, whether it is signed in, and how much of its plan's 5-hour and
-  weekly limits it has used.
-
-## Install
-
-```bash
-npm install
-npm start
-```
-
-> **npm 12 blocks dependency lifecycle scripts by default.** The ones this project
-> allows or refuses are declared in `allowScripts` in `package.json`; run
-> `npm install-scripts ls` to review what is still blocked. The project's own
-> `postinstall` downloads the Electron binary. `@dawnlit/outlook-bridge` links in
-> from the sibling `../outlook-bridge` checkout with its `prepare` build refused,
-> so after changing it, run `npm run build` there.
-
-To build the zip a release carries, for the machine you are on:
-
-```bash
-dotnet tool install -g vpk --version 1.2.161
-npm run dist
-```
-
-`dist` packages the app and hands it to [Velopack](https://velopack.io), which writes the portable zip, and the packages
-installed copies update themselves from, into `out/releases`. `vpk` needs the .NET SDK, and stays at the version of the
-`velopack` package in `package.json`. A version with `-nightly` in it is packed for the nightly channel. On a Mac, set
-`PATCHBAY_SIGN_IDENTITY` to a code-signing certificate's name, or a copy downloaded anywhere else is refused as damaged.
-To try an update before publishing it, start a copy unzipped from an earlier build with
-`--update-feed=<path to out/releases>`, and it checks there instead of GitHub.
-
-### Check the whole chain works
-
-```bash
-npm run selftest
-```
-
-Takes the newest email in your first Outlook account and pushes it through a throwaway trigger → categorizer → terminal
-flow, printing the path it took. It reads and classifies; it never writes to the mailbox. One Claude call, a couple of
-cents. A healthy run ends:
-
-```
-path        : trigger → cat → end-ok
-edges taken : e1, e2
-#2 Sort [ok] → cat:business
-    Business · 97% — A personally written follow-up from a company CEO chasing
-    status on a paid production order… clearly operational business correspondence.
-SELFTEST OK
-```
-
-The MCP server the app exposes has a check of its own, which costs nothing and touches neither Outlook nor Claude:
-
-```bash
-npm run mcpcheck
-```
-
-It starts the server against a throwaway workspace in the temp directory, drives it with a real MCP client — build a
-flow, wire it, open a flow file in place, write, import and move skills, queue and cancel a run, read the console — and
-prints a line per check.
+  Anthropic API key. Patchbay doesn't include it: it runs the `claude` on your computer and reuses its login.
+- **Optionally, the Antigravity CLI (`agy`)**, to run nodes on Gemini and the other models it offers. It needs a
+  permission rule per tool — see [Models and agents](docs/models.md#agy).
 
 ## First run
 
-1. The welcome window opens with no flows the first time. **New flow** asks where to keep it, and gives you a canvas
-   and a folder of its own there.
-   Drag an **Outlook Trigger** onto the canvas and choose a mailbox — the account list comes from your Outlook
-   client.
+1. The welcome window opens with no flows. **New flow** asks where to keep it, and gives you a canvas and a folder of
+   its own there. Drag an **Outlook Trigger** onto the canvas and choose a mailbox.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
-3. Drag a **Processor** per branch, tick a skill from either library, and connect it.
+3. Drag a **Processor** per branch, tick a skill, and connect it.
 4. Pick a real email you already understand and drag it out of Outlook's message list onto the trigger. It runs
-   through the flow straight away, and the runs panel opens to follow it. (**Test run…** picks one from a list
-   instead.)
+   through the flow straight away, and the runs panel opens to follow it. On a Mac, select the email in Outlook and
+   right-click the trigger → *Run the email selected in Outlook* instead. (**Test run…** picks one from a list.)
+5. When the path looks right, **Start watching**. Mail already in the folder is left alone — only new mail starts a
+   run.
 
-   A drag from Outlook carries no id, so the app takes the email Outlook has selected — the one being dragged — once
-   the drag's `.msg` name or text agrees with it, and runs it only if it is in the trigger's mailbox. It is always
-   taken as a copy: Outlook keeps the email. One email per drop.
+## Documentation
 
-   **On a Mac, select the email in Outlook and right-click the trigger → *Run the email selected in Outlook*.**
-   Outlook for Mac's drag carries only a promise to write the email out as a file, which Chromium never hands to
-   the page, so the trigger doesn't light up under it. The right-click takes the selected email with no drag to
-   check it against, and works on Windows too.
-5. When the path looks right, **Start watching**.
-
-The trigger does not process mail already sitting in the folder unless you ask it to — switching a flow on shouldn't
-fire fifty runs for last week's inbox.
-
-## Skills
-
-A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. There are **two libraries**, and
-the inspector lists both, one above the other:
-
-```
-<userData>/workspace/global/skills/<name>/SKILL.md            shared by every flow
-<folder holding the flow's file>/.claude/skills/<name>/SKILL.md     this flow only
-```
-
-**Global** is the shared shelf: any flow can tick these, editing one changes it everywhere, and it is where the seeded
-skills land. **Flow** skills sit inside the flow's own directory — which is also the working directory its nodes run in
-— so only that flow sees them. Deleting a flow in the app workspace deletes them with it; a folder of your own is never
-deleted. Two flow files kept in one folder share it, and its library with it. The two libraries may hold the
-same name without either shadowing the other: a node stores a global tick as `global:<name>` and its own as the bare
-name.
-
-The global library is seeded on first run from the first of these that exists — `skillSeedPath` in Settings, then
-`./skills` — falling back to one starter skill if neither does. Seeding runs only while that library is empty, or holds
-nothing but the starter skill the app wrote itself, so it never fights an edit you made here. A new flow starts with an
-empty library of its own, because everything it needs is already on the shelf.
-
-The list sits in a Processor's or Extractor's inspector, where a tick lets the node use a skill, and on its own when no
-node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
-`.md` files (with none set, Windows asks which, and macOS uses its text editor), and right-clicking a skill can also
-show its folder, for the scripts and references beside it, or delete it. **New** writes one from a template, ticks it on
-the node whose list it came from, and opens it the same way. On a node, a library of more than eight skills starts
-folded to the ones it ticks, and scrolls in place when opened; past eight in all, a filter over both finds one by name or
-description. The server tools below it are listed the same way, a group per server.
-
-The app watches every folder the two libraries read, so a skill saved, renamed or deleted elsewhere — in your editor,
-Finder or Explorer, a `git pull` — shows in every window as it happens. A node still ticking one that has gone lists
-it on its own, to untick, and a run reaching that node leaves by its error port naming the skill, rather than running
-without the instructions it was given.
-
-Drag a skill onto the other library to **move** it between the two. The open flow's ticks are re-pointed as it goes
-(`global:x` ↔ `x`); a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name
-already there replaces it, so both are asked about first.
-
-**Import…** pulls a folder of existing skills into the library it sits on. A flow file may carry skills of its own:
-opening one the first time writes the flow's own skills into `.claude/skills` beside it and adds any global skill whose
-name is still free — it never rewrites a skill already there, beside the file or on the global shelf.
-
-**Settings → Global skills** links folders of skills on the machine — `~/.claude/skills`, say — into the global
-library, which reads and writes them in place, copying nothing. The app workspace's own folder is always read too, and is
-where new skills are saved. The linked folders are ordered: when two folders hold a skill of the same name the higher
-one's is used, the workspace's comes last, and the others are shown as hidden. Editing, deleting or moving a global
-skill changes the copy in use, wherever it is; deleting it lets a hidden one of the same name take over. Unlinking a
-folder deletes nothing. **Folders…** on the global library opens that page, which can also **Import…** a folder's
-skills as copies, lists what is on the shelf with an **Edit** and a **Delete** on each, and holds the seed folder.
-
-Only the workspace's own folder is in plugin layout, so while any folder is linked each run copies the global skills it
-ticks into a temporary plugin and deletes that copy afterwards. That also keeps an edit made mid-run out of the run.
-Seeding writes only into the workspace's folder.
-
-Under the hood the flow's library is discovered as project skills from the run's working directory, and the global one
-is handed over as a local plugin — which is what lets a run load skills from outside its own directory. That is where
-the `global:` prefix comes from.
-
-> A skill that calls another app's MCP tools (`mcp__<server-name>__*`,
-> say) needs that server added under **Settings → MCP servers**, and the
-> tools it calls ticked on the node, before a Processor or Extractor can run it.
-
-A Processor or Extractor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or
-*All* of a server's — and a server with nothing ticked is not started for its run. The inspector asks each server
-for its list. So a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same
-server's tool that sends mail. A Processor saved before tools could be picked keeps every tool of every server until
-*Pick the tools it needs* is pressed; a new one starts with none.
-
-Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled. An
-Extractor's gets the same server, less `draft_reply` and `move_email`:
-
-| Tool              | Always | What it does                                                                       |
-|-------------------|--------|------------------------------------------------------------------------------------|
-| `read_email`      | ✅     | The sender's own text, sender, attachment names — and the quoted thread on request |
-| `record_note`     | ✅     | Writes a note into the run trace                                                   |
-| `save_file`       | ✅     | Saves a text file into the run folder, by a bare file name, and returns its path   |
-| `save_attachment` | opt-in | Saves into the run folder, returns paths                                           |
-| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email            |
-| `move_email`      | opt-in | Files the email into an Inbox subfolder                                            |
-
-`save_attachment` also writes a workbook (`.xlsx`, `.xlsm`) out beside itself as CSV, one file per visible sheet, since
-Read can't open one. Each cell reads as the sheet shows it — `51%` rather than `0.51`, `$45.00/day` rather than `45`,
-dates as `YYYY-MM-DD` — and line N of the CSV is row N of the sheet, so a figure can be traced to its cell. A hidden
-sheet is left out and named in the result.
-
-A Processor's own file access is a separate switch, *Read and write files anywhere, and run commands*, and it starts
-off. Off, Claude reads the run folder — the saved attachments — and the flow's folder, writes only through `save_file`,
-and has no shell at all. That is what a node reading mail from outside should get: an email written to steer the agent
-reading it can then reach nothing beyond its own run. Switch it on only for a skill that has to run a script.
-
-There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
-here sends mail.** A drafted reply waits in Outlook for a person. `read_email` does hand back this email's own entry id,
-so a record a skill writes elsewhere can link back to the message it came from.
-
-`draft_reply` can reply with a template email kept in the mailbox (a `Templates` folder by default), found by subject:
-it keeps the one `[[SECTION]]` asked for, fills its `{{PLACEHOLDERS}}`, and puts the named Outlook signature in
-`{{SIGNATURE}}`. The operator's own wording goes out as they wrote it, and a template that cannot be filled completely
-fails the call rather than drafting half a reply.
-
-## Letting an agent drive it
-
-There are two kinds of MCP server in this app, pointing opposite ways. A Processor is *handed* servers — the
-email-scoped one above, plus whatever you add under **Settings → MCP servers**. This one is the other direction:
-Patchbay's own, which an agent connects *to* in order to drive the app. Switch it on under **Settings → Agent
-control** and paste the command shown there into a terminal:
-
-```bash
-claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
-```
-
-After that, "wire me a flow that sorts invoices from support requests and runs the invoice skill on the first branch" is
-something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
-does — one workspace, not two copies of it — and the window re-reads what it changed as it goes. Every canvas save
-names the version it was made to, so an edit made at the moment before an agent's write to the same flow is refused
-rather than saved over it: the canvas says so, and shows the flow as the agent left it.
-
-| Area     | Tools                                                                                                          |
-|----------|----------------------------------------------------------------------------------------------------------------|
-| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                                          |
-| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                                              |
-| Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `set_global_skill_folders`, `move_skill`, `delete_skill` |
-| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                                          |
-| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                                      |
-| Runs     | `list_runs`, `get_run`, `get_console`                                                                          |
-| Settings | `get_settings`, `list_server_tools`                                                                            |
-
-`get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
-possible without guessing. Everything an agent writes goes through the same repair an opened flow file gets, so a
-value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
-dropped, with the tool that dropped it saying how many.
-
-`write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
-`import_skills`, from a folder on this machine — `~/.claude/skills`, say — optionally narrowed to the names wanted.
-`set_global_skill_folders` sets the folders linked into the global library, as **Settings → Global skills** does.
-`move_skill` re-points the flow's own Processors and Extractors as a drag between the libraries does, and names any
-other flow a skill leaving the global shelf strands.
-
-A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
-under *Runs at once*. `get_run` says which rather than reporting no such run, `list_runs` puts what is queued and under
-way first, and `cancel_run` takes a queued one out before it starts. When an email never became a run at all,
-`get_console` reads the console: this session's lines, or any day's file still kept.
-
-Three things are deliberately absent:
-
-- **No tool reaches into the mailbox for a message.** An agent lists a folder to pick an email to test against;
-  fetching a body is the job of the run's own scoped tools, and those cannot reach a second message. A run already
-  recorded is another matter — `get_run` returns the prompts a node sent, email and all, because a trace you cannot
-  read is not a trace.
-- **No tool writes settings.** The Claude and agy executables and the servers handed to a Processor decide what code
-  a run executes, so they stay with the person at the window.
-- **Nothing sends mail.** Nothing in this app does.
-
-It is off until you switch it on. When it is on it binds to `127.0.0.1` only; every request has to carry the token
-Settings shows, and **New token** cuts off anything still holding the old one. A request whose `Host` is not this
-listener, or that carries an `Origin` at all, is refused before the token is even looked at — those are the two headers
-a web page cannot forge, and a page is the one thing that can be told to post to a loopback port without you knowing.
-Close the last window and the server stops with it.
-
-`test_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool calls, so whatever
-permission prompt your client puts in front of a tool is what keeps a person in the loop.
-
-## Releasing
-
-Three workflows in `.github/workflows` build every platform — Windows x64, and Macs with Apple silicon and Intel — and
-publish them as GitHub releases, which installed copies read to update. `build.yml` is the build itself; the other two
-decide what to build and when.
-
-**Nightly** (`nightly.yml`) runs every morning and builds master if it has changed since the last nightly; **Run
-workflow** on the Actions tab builds one now. Its version is the one in `package.json`, or the next patch once a release
-of that is out, with `-nightly.<UTC date and time>` after it — so a nightly sorts after the release before it and before
-the one it leads up to. It is published as a prerelease, and only the five newest are kept: an installed copy reads
-GitHub's ten newest releases, and the latest stable one has to stay among them.
-
-**Stable** (`release.yml`) runs on a tag naming the version `package.json` holds:
-
-```bash
-npm version 0.2.0 --no-git-tag-version
-git commit -am "Release 0.2.0"
-git tag v0.2.0
-git push origin master v0.2.0
-```
-
-Every platform is built into a draft release, its notes drawn from the commits since the last one. Nothing reaches
-anyone until you publish the draft on GitHub: publishing it is the release. Then move `package.json` on to the next
-version, which nightlies count from.
-
-A build that fails on any platform takes its draft with it, so nothing half-built is published.
-
-### The Mac signing certificate
-
-Mac builds are signed with one self-signed certificate, held in the repository's secrets. It vouches for nothing — a
-certificate Apple vouches for costs a yearly fee, which is why a first launch needs **Open Anyway** — but without a
-signature a downloaded Mac build is refused as damaged, and macOS files the permission to control Outlook under the
-certificate and the bundle ID, `com.dawnlit.patchbay`. Replacing either asks every Mac user for that permission again,
-so make the certificate once, and keep a copy somewhere other than GitHub.
-
-To make it, with OpenSSL (Git Bash has it):
-
-```bash
-cat > patchbay-signing.cnf <<'EOF'
-[req]
-distinguished_name = dn
-x509_extensions = ext
-prompt = no
-[dn]
-CN = Dawnlit Patchbay
-[ext]
-keyUsage = critical, digitalSignature
-extendedKeyUsage = critical, codeSigning
-basicConstraints = critical, CA:false
-EOF
-openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config patchbay-signing.cnf \
-  -keyout patchbay-signing.key -out patchbay-signing.crt
-openssl pkcs12 -export -inkey patchbay-signing.key -in patchbay-signing.crt -out patchbay-signing.p12 \
-  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
-base64 -w0 patchbay-signing.p12 > patchbay-signing.p12.b64
-```
-
-The last three options to `pkcs12` make a file macOS's keychain can read; it asks for a password to protect it with.
-Under the repository's **Settings → Secrets and variables → Actions**, save what `patchbay-signing.p12.b64` holds as
-`MACOS_SIGNING_CERTIFICATE`, and that password as `MACOS_SIGNING_PASSWORD`. Then move the files off this machine to
-somewhere safe. Without the secret, the Mac builds fail rather than publish something no one else could open.
-
-Windows builds are not signed. Updates do not need it; a signature would only quiet SmartScreen, and `vpk pack` takes one
-(`--signParams`, or `--azureTrustedSignFile` for Azure Artifact Signing) once there is a certificate to sign with.
-
-## Architecture
-
-```
-src/
-├─ shared/      flow graph, run/trace records, IPC contract   (both processes)
-├─ main/
-│  ├─ engine/   graph walk + the poller that turns mail into runs
-│  ├─ agents/   runs a step on Claude (Agent SDK) or agy, then on its fallbacks; takes nothing from the app but its host
-│  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
-│  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
-│  ├─ outlook/  seam over @dawnlit/outlook-bridge
-│  ├─ store/    flows and their skills, settings, run traces (files on disk)
-│  └─ ipc.ts    one handler per channel in shared/ipc.ts
-├─ preload/     contextBridge — the renderer gets `window.api` and nothing else
-└─ renderer/    React Flow canvas, inspector, trace viewer
-```
-
-Three decisions worth knowing:
-
-**The `Flow` object is the only copy of the graph.** React Flow's node array is derived on every render, and every
-canvas interaction is translated straight back into a `Flow` edit. There is no second graph to drift.
-
-**Ports are derived from config, not stored.** Editing a categorizer's categories moves its ports with it, and the
-engine treats an edge leaving a port that no longer exists as a dead end it reports, rather than a silent stall.
-
-**Flows run in parallel, and every Outlook call is queued.** Up to *Runs at once* runs are under way together — three
-by default, from Settings — and never two of one flow: a flow's directory is the working directory of every run of it,
-and its mail is handled in the order it arrived. So one long agent run holds up the rest of its own flow's mail and
-nothing else. What does not parallelise is Outlook. Its COM automation is single-threaded — a second script asking for
-the client while one is mid-call blocks until the first finishes, and if that one is slow the second burns its whole
-timeout waiting. (This is not theoretical: two processes talking to Outlook at once is what produced the first
-`powershell run exceeded its 120000ms budget` during development.) So the poller, the inspector's folder lookup and a
-skill's `read_email` all funnel through one queue in `main/outlook/bridge.ts`: overlapping runs overlap while they are
-thinking, and take turns the moment they touch the mailbox.
-
-## Costs
-
-Every Categorizer pass is one Claude call; every Processor pass is an agent loop that runs until the agent is done. The
-app neither caps nor records what either spends — that is left to your Claude plan or API account, and to whatever
-usage view it gives you. Classification runs about a cent on Opus; a processing run depends entirely on the skill.
+- [Flows](docs/flows.md) — the nodes in detail, the slots data travels in, and where flow files live
+- [Models and agents](docs/models.md) — fallback models, Claude Code, agy, and what runs cost
+- [Skills and tools](docs/skills.md) — the two skill libraries, MCP servers, and the tools a run is handed
+- [Runs and the console](docs/runs.md) — what a run records, and what the app logs outside any run
+- [Letting an agent drive it](docs/agent-control.md) — Patchbay's own MCP server
+- [Development](docs/development.md) — running from source, self-checks, architecture
+- [Releasing](docs/releasing.md) — the nightly and stable workflows, and signing
 
 ## Licence
 
-Copyright © 2026 Dawnlit.
+Copyright © 2026 Dawnlit. Patchbay is free software under the **GNU Affero General Public License**, version 3 or
+(at your option) any later version, and comes with no warranty. See [LICENSE](LICENSE). The AGPL's network clause is
+the point of choosing it: anyone who runs a modified version of this app as a service has to offer its users the
+modified source.
 
-Patchbay is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public
-License** as published by the Free Software Foundation, either version 3 of the License, or (at your option)
-any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text, or
-<https://www.gnu.org/licenses/>.
-
-The AGPL's network clause (section 13) is the point of choosing it here: anyone who runs a modified version of this app
-as a service has to offer its users the modified source.
-
-**On dependencies.** The license above covers this repository's own code. It does not relicense what it talks to:
-`@anthropic-ai/claude-agent-sdk` is proprietary ("© Anthropic PBC. All rights reserved", subject to Anthropic's
-[legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
-`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). This
-repository holds neither: they are installed from npm by whoever builds the app. A release build does carry the SDK's
-own code, but not Claude Code, the program it runs, which each user installs from Anthropic. Shipping a proprietary
-SDK inside an AGPL distribution is still worth understanding before you do — a question for a lawyer rather than a
-README.
-
----
-
-Built by **Dawnlit** — <https://github.com/dawnlit-ai>
+The licence covers this repository's own code, not what it talks to. `@anthropic-ai/claude-agent-sdk` is proprietary
+("© Anthropic PBC. All rights reserved", subject to Anthropic's
+[legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and `@dawnlit/outlook-bridge` is
+Apache-2.0. Neither is held in this repository; both are installed from npm by whoever builds the app. A release build
+carries the SDK's own code, but not Claude Code, which each user installs from Anthropic.
