@@ -116,6 +116,8 @@ jobs:
               --mainExe Patchbay --packTitle Patchbay --packAuthors Dawnlit --runtime osx-arm64 --channel osx-arm64 \
               --noInst --outputDir "$RUNNER_TEMP/releases" ${SIGN_ARGS:-}
             cp "$(ls "$RUNNER_TEMP"/releases/*-Portable.zip)" "$RUNNER_TEMP/zips/Patchbay-$V-Portable.zip"
+            # The first update's feed stops at 0.1.2; the second gets 0.1.3 and its delta.
+            if [ "$V" = 0.1.2 ]; then cp -R "$RUNNER_TEMP/releases" "$RUNNER_TEMP/feed-0.1.2"; fi
           done
           ls -la "$RUNNER_TEMP/releases"
           cat "$RUNNER_TEMP/releases/releases.osx-arm64.json"
@@ -126,7 +128,6 @@ jobs:
           APP="$HOME/Applications/Patchbay.app"
           UD="$RUNNER_TEMP/userdata"
           DEFAULT_LOGS="$HOME/Library/Application Support/Patchbay/workspace/logs"
-          FEED="$RUNNER_TEMP/releases"
           mkdir -p "$HOME/Applications"
           ditto -x -k "$RUNNER_TEMP/zips/Patchbay-0.1.1-Portable.zip" "$HOME/Applications"
 
@@ -137,7 +138,8 @@ jobs:
             echo "designated requirement: $(codesign -d -r- "$APP" 2>&1 | grep '^designated' || echo none)"
             codesign --verify --deep --strict "$APP" && echo "codesign verify: ok" || echo "codesign verify: FAILED"
           }
-          logs() { cat "$UD"/workspace/logs/*.jsonl "$DEFAULT_LOGS"/*.jsonl 2>/dev/null; }
+          # The step's shell is `bash -e`: a missing folder here must not end it.
+          logs() { cat "$UD"/workspace/logs/*.jsonl "$DEFAULT_LOGS"/*.jsonl 2>/dev/null || true; }
           # Waits for a version to log its start, wherever the restart put its user data.
           wait_started() {
             for _ in $(seq 1 240); do
@@ -153,7 +155,9 @@ jobs:
           describe "unpacked 0.1.1"
           RESULT=0
           for STEP in "0.1.2" "0.1.3"; do
-            echo "=== updating to $STEP"
+            FEED="$RUNNER_TEMP/releases"
+            if [ "$STEP" = 0.1.2 ]; then FEED="$RUNNER_TEMP/feed-0.1.2"; fi
+            echo "=== updating to $STEP from $FEED"
             "$APP/Contents/MacOS/Patchbay" --user-data-dir="$UD" --update-feed="$FEED" >> "$RUNNER_TEMP/app.out" 2>&1 &
             if wait_started "$STEP"; then
               echo "PASS: $STEP started after the update"
@@ -167,9 +171,13 @@ jobs:
 
           echo "=== Patchbay's log"
           logs | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const l of s.split('\n').filter(Boolean)){const e=JSON.parse(l);console.log(e.at.slice(11,19),e.level,e.message,e.detail&&!e.detail.startsWith('workspace')?'| '+e.detail:'')}})"
-          if [ -d "$DEFAULT_LOGS" ]; then echo "(some lines came from the default user-data folder: the restart dropped --user-data-dir)"; fi
+          if [ -d "$DEFAULT_LOGS" ]; then
+            echo "(some lines came from the default user-data folder: the restart dropped --user-data-dir)"
+          else
+            echo "(every line came from the test's user-data folder: the restart kept --user-data-dir)"
+          fi
           echo "=== Velopack's logs"
-          find "$HOME/Library/Logs" "$HOME/Library/Caches" "$HOME/Library/Application Support" /tmp "$RUNNER_TEMP" -maxdepth 4 -iname '*velopack*.log' 2>/dev/null | while read -r f; do echo "## $f"; tail -120 "$f"; done
+          find "$HOME/Library/Logs" "$HOME/Library/Caches" "$HOME/Library/Application Support" /tmp "$RUNNER_TEMP" -maxdepth 4 -iname '*velopack*.log' 2>/dev/null | while read -r f; do echo "## $f"; tail -120 "$f"; done || true
           echo "=== app output (tail)"
           tail -40 "$RUNNER_TEMP/app.out"
           exit $RESULT
