@@ -111,7 +111,7 @@ export type CancelOutcome = 'stopping' | 'dequeued' | 'unknown';
 export class Watcher {
     /** Runs while any flow is switched on. */
     private timer: NodeJS.Timeout | null = null;
-    /** Flows switched on. Not persisted: after a relaunch, nothing polls until asked to. */
+    /** Flows switched on. Not persisted: after a relaunch, nothing polls until asked. */
     private flowIds = new Set<string>();
     private queue: QueueItem[] = [];
     private polling = false;

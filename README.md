@@ -170,7 +170,9 @@ Each [release](https://github.com/dawnlit-ai/patchbay/releases) carries a zip fo
 | Mac with Apple silicon | `Patchbay-osx-arm64-Portable.zip` |
 | Intel Mac              | `Patchbay-osx-x64-Portable.zip`   |
 
-A nightly carries the same zips with `-nightly` in their names.
+A nightly carries the same zips with `-nightly` in their names. Patchbay runs your nodes on agents you install
+yourself, so install [Claude Code](https://code.claude.com/docs/en/setup) and sign in to it too — see
+[Requirements](#requirements).
 
 **Windows.** Unzip it somewhere you can write to — your Desktop, Documents or a folder of your own, not Program Files —
 and open the `Patchbay.exe` at the top of the folder. The build is not signed, so the first time, SmartScreen says
@@ -210,11 +212,14 @@ run from source does not update itself.
 - **Node 24+**, to run or build it from source — the version Electron 44 itself runs, so it is also what `@types/node`
   is pinned to. `.npmrc` sets `engine-strict`, which makes an older Node refuse the installation rather than fail
   somewhere later.
-- **Claude Code installed**, or an Anthropic API key. The app drives Claude through the Claude Agent SDK, which runs a
-  `claude` binary. If Claude Code is already installed the app finds it automatically and reuses its login. The
-  inspector's model lists come from it too, marked *· claude*: they show what that login offers now, so a new model
-  appears without a new build of the app. So do the effort levels, which differ from model to model — a node offers the
-  ones its model takes, or none for a model that takes none. New nodes start on `opus`, the alias for the newest Opus.
+- **[Claude Code](https://code.claude.com/docs/en/setup) installed and signed in**, with a Claude account or an
+  Anthropic API key. Patchbay does not include it: it drives Claude through the Claude Agent SDK, which runs the
+  `claude` installed on your computer — found where Claude Code's installers put it or on the PATH, or at the path set
+  under **Settings → Agents** — and reuses its login. The inspector's model lists come from it too, marked *· claude*:
+  they show what that login offers now, so a new model appears without a new build of the app. So do the effort levels,
+  which differ from model to model — a node offers the ones its model takes, or none for a model that takes none. New
+  nodes start on `opus`, the alias for the newest Opus. Until Claude Code is installed, Settings → Agents says so,
+  Claude's models are missing from the lists, and a step on one goes to its fallback model if it has one.
 - **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on the models it offers — Gemini, and the
   Claude and GPT models beside it, which spend agy's own Google quota rather than your Claude plan. It is found where it
   installs itself, in `~/.local/bin`, or at the path set under **Settings → Agents**. Its models join the model lists,
@@ -594,9 +599,11 @@ as a service has to offer its users the modified source.
 **On dependencies.** The license above covers this repository's own code. It does not relicense what it talks to:
 `@anthropic-ai/claude-agent-sdk` is proprietary ("© Anthropic PBC. All rights reserved", subject to Anthropic's
 [legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and
-`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). Both are
-installed from npm by whoever builds the app rather than redistributed here — worth understanding before you ship
-binaries, since bundling a proprietary SDK into an AGPL distribution is a question for a lawyer rather than a README.
+`@dawnlit/outlook-bridge` is Apache-2.0 (also Dawnlit's, but separately licensed and separately versioned). This
+repository holds neither: they are installed from npm by whoever builds the app. A release build does carry the SDK's
+own code, but not Claude Code, the program it runs, which each user installs from Anthropic. Shipping a proprietary
+SDK inside an AGPL distribution is still worth understanding before you do — a question for a lawyer rather than a
+README.
 
 ---
 

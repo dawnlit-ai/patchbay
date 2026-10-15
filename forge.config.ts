@@ -4,11 +4,12 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 /**
  * What the main bundle leaves out (vite.main.config.mts), shipped as packages, by
  * the parts of each a run needs; null is all of it. zod is the Agent SDK's one
- * import, and the platform package is its own Claude Code.
+ * import. The SDK's platform package, a copy of Claude Code, is not shipped: a run
+ * starts the Claude Code installed on the machine, which Anthropic publishes and
+ * the user installs (src/main/agents/claude.ts).
  */
 const SHIPPED: Record<string, string[] | null> = {
     '@anthropic-ai/claude-agent-sdk': null,
-    [`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`]: null,
     // A link to the sibling checkout, which holds its sources and .git too.
     '@dawnlit/outlook-bridge': ['package.json', 'dist'],
     // The updater, and the loader that picks its native add-on for the platform.

@@ -22,13 +22,12 @@ interface Props {
     about: AboutInfo | null;
     /** What the agent-control server is actually doing, as opposed to what is asked of it. */
     agentControl: AgentControlStatus | null;
+    /** What the updater is doing, as opposed to which channel is asked of it. */
+    updates: UpdateStatus | null;
 
     onSave(settings: Settings): void;
 
     onRegenerateToken(): void;
-
-    /** What the updater is doing, as opposed to which channel is asked of it. */
-    updates: UpdateStatus | null;
 
     onCheckUpdates(): void;
 
@@ -180,7 +179,7 @@ function AgentState({ status, checking }: { status: AgentStatus | undefined; che
                 {' — '}
                 {status.detail}
                 {checking && <span className="agent-checking"> · checking again…</span>}
-                <span className="set-from">{status.executable || 'The copy that comes with the Agent SDK'}</span>
+                {status.executable && <span className="set-from">{status.executable}</span>}
                 <Usage usage={status.usage}/>
             </div>
         </div>
@@ -493,7 +492,7 @@ export function SettingsPanel({
                                 <div className="set-group">
                                     <Row
                                         label="Claude executable"
-                                        description="Leave it blank to use Claude Code on this computer, or the copy that comes with the Agent SDK. Set a path only if Patchbay can't find either."
+                                        description="Leave it blank to use the Claude Code installed on this computer. Set a path only if Patchbay can't find it."
                                         below={
                                             <>
                                                 <input

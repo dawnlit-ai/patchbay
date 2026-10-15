@@ -33,7 +33,7 @@ export type UpdateChannel = 'stable' | 'nightly';
 export const UPDATE_CHANNELS: UpdateChannel[] = ['stable', 'nightly'];
 
 export interface Settings {
-    /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
+    /** The `claude` executable. Empty finds the Claude Code installed on this computer. */
     claudeExecutablePath: string;
     /** The `agy` executable, for nodes on a model marked · agy. Empty looks where agy installs itself. */
     agyExecutablePath: string;

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
     AccountInfo,
@@ -20,26 +20,35 @@ import { clock, holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './us
  * message stream onto a pass's trace events.
  */
 
+/** Where to get Claude Code, which the app runs but does not ship. */
+const INSTALL_URL = 'https://code.claude.com/docs/en/setup';
+
+const NOT_INSTALLED = `Claude Code is not installed. Install it (${INSTALL_URL}), then run claude in a terminal and sign in.`;
+
 /**
- * The `claude` binary: the one the host names, else an existing Claude Code
- * install (saves a ~200MB download), else undefined for the SDK's own.
+ * The `claude` binary: the one the host names, else where Claude Code's installers
+ * put it — an app opened from the Finder has no shell PATH to find it by — else the
+ * first on the PATH. Null when there is none: the SDK has no copy of its own to fall
+ * back on, as releases leave its platform package out.
  */
-function resolveClaudePath(configured: string | undefined): string | undefined {
+function resolveClaudePath(configured: string | undefined): string | null {
     if (configured) return configured;
-    const candidates =
+    const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
+    const installed =
         process.platform === 'win32'
-            ? [join(homedir(), '.local', 'bin', 'claude.exe')]
-            : [join(homedir(), '.local', 'bin', 'claude'), '/usr/local/bin/claude'];
-    return candidates.find((p) => existsSync(p));
+            ? [join(homedir(), '.local', 'bin', name)]
+            : [join(homedir(), '.local', 'bin', name), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
+    const onPath = (process.env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, name));
+    return [...installed, ...onPath].find((p) => existsSync(p)) ?? null;
 }
 
 /** How long a model list is reused; Claude Code can update itself while the app runs. */
 const MODELS_TTL_MS = 10 * 60_000;
 
-let modelsAsked: { exe: string | undefined; at: number; list: Promise<ModelOption[]> } | null = null;
+let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | null = null;
 
 /** Asks the CLI something about itself, in a session that never runs a turn. */
-async function askIdle<T>(exe: string | undefined, ask: (q: Query) => Promise<T>): Promise<T> {
+async function askIdle<T>(exe: string, ask: (q: Query) => Promise<T>): Promise<T> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     // A prompt stream that never yields: the CLI answers control requests and is
@@ -72,7 +81,7 @@ async function askIdle<T>(exe: string | undefined, ask: (q: Query) => Promise<T>
     }
 }
 
-async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
+async function askForModels(exe: string): Promise<ModelOption[]> {
     const models = await askIdle(exe, (q) => q.supportedModels());
     return models.map((m) => ({
         value: m.value,
@@ -84,8 +93,12 @@ async function askForModels(exe: string | undefined): Promise<ModelOption[]> {
     }));
 }
 
-/** The models the Claude login offers, asked of the CLI so the list never goes stale. */
-function listModels(exe: string | undefined): Promise<ModelOption[]> {
+/**
+ * The models the Claude login offers, asked of the CLI so the list never goes stale.
+ * None while Claude Code is not installed, so the other agents' models still list.
+ */
+function listModels(exe: string | null): Promise<ModelOption[]> {
+    if (!exe) return Promise.resolve([]);
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {
         return modelsAsked.list;
     }
@@ -99,7 +112,7 @@ function listModels(exe: string | undefined): Promise<ModelOption[]> {
     return asked.list;
 }
 
-/** Long enough for the SDK to unpack its own copy of Claude Code on a first start. */
+/** Long enough for Claude Code's first start after it has updated itself. */
 const STATUS_TIMEOUT_MS = 30_000;
 
 function within<T>(promise: Promise<T>, what: string): Promise<T> {
@@ -151,8 +164,9 @@ function planUsage(usage: SDKControlGetUsageResponse | null): UsageWindow[] {
 }
 
 /** The binary a run would start, its version, whether it is signed in, and its plan's usage — asked as a run would. */
-async function claudeStatus(exe: string | undefined): Promise<AgentStatus> {
+async function claudeStatus(exe: string | null): Promise<AgentStatus> {
     const base = { id: 'claude', name: 'Claude Code', executable: exe ?? '' };
+    if (!exe) return { ...base, version: null, ready: false, detail: NOT_INSTALLED, usage: [] };
     const asked = askIdle(exe, async (q) => {
         const account = await q.accountInfo();
         // Experimental in the SDK, so a CLI that cannot answer it just shows no usage.
@@ -162,11 +176,11 @@ async function claudeStatus(exe: string | undefined): Promise<AgentStatus> {
         return { account, usage };
     });
     const [version, answer] = await Promise.all([
-        exe ? versionOf(exe) : Promise.resolve(null),
+        versionOf(exe),
         within(asked, 'Claude Code').catch((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
     ]);
     if (answer instanceof Error) {
-        const missing = exe !== undefined && /ENOENT|not found/i.test(answer.message);
+        const missing = /ENOENT|not found/i.test(answer.message);
         return {
             ...base,
             version,
@@ -253,6 +267,10 @@ interface Attempt {
 }
 
 async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
+    const exe = resolveClaudePath(host.claudeExecutable());
+    // Unavailable rather than failed: a fallback on another agent can still take the step.
+    if (!exe) return { ...settle(request, { error: NOT_INSTALLED, acted: false }), unavailable: NOT_INSTALLED };
+
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -275,7 +293,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         settingSources: request.settingSources ?? [],
         persistSession: false,
         includePartialMessages: request.onLive !== undefined,
-        pathToClaudeCodeExecutable: resolveClaudePath(host.claudeExecutable()),
+        pathToClaudeCodeExecutable: exe,
         stderr: (data) => {
             const line = data.trim();
             if (line) request.onEvent({ at: now(), type: 'error', label: 'claude stderr', detail: line });

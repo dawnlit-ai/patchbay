@@ -1,5 +1,5 @@
 import { app, dialog } from 'electron';
-import { GithubSource, UpdateManager, type UpdateInfo, type UpdateSource } from 'velopack';
+import { GithubSource, type UpdateInfo, UpdateManager, type UpdateSource } from 'velopack';
 import type { UpdateChannel, UpdateStatus } from '@shared/settings';
 import { getSettings } from './store/settingsStore';
 import { log } from './log';
@@ -61,7 +61,12 @@ export class Updates {
     ) {
         const channel = getSettings().updateChannel;
         const why = Updates.unavailable(channel);
-        this.current = { version: app.getVersion(), channel, state: why ? 'unavailable' : 'idle', detail: why ?? undefined };
+        this.current = {
+            version: app.getVersion(),
+            channel,
+            state: why ? 'unavailable' : 'idle',
+            detail: why ?? undefined
+        };
     }
 
     /** Why this copy cannot update itself, or null when it can. */
@@ -80,11 +85,6 @@ export class Updates {
         return this.current;
     }
 
-    private set(partial: Partial<UpdateStatus>): void {
-        this.current = { ...this.current, ...partial };
-        this.changed();
-    }
-
     /** Checks soon after launch, then every few hours. */
     start(): void {
         if (this.current.state === 'unavailable') return;
@@ -99,6 +99,29 @@ export class Updates {
             this.checking = null;
         });
         return this.checking;
+    }
+
+    /** The channel setting changed: what was found on the old one is dropped, and the new one asked at once. */
+    channelChanged(): void {
+        if (this.current.state === 'unavailable') return;
+        this.set({ channel: getSettings().updateChannel });
+        void this.check();
+    }
+
+    /** Quits, and Velopack puts the waiting version in place and starts it. */
+    restart(): void {
+        if (!this.pending) throw new Error('No update is waiting. Check for one first.');
+        if (this.host.busy()) throw new Error('A run is under way. Restart once it has finished, or cancel it first.');
+        // Carried across, so a copy started on a test folder of its own comes back to it.
+        const keep = process.argv.slice(1).filter((arg) => arg.startsWith('--user-data-dir='));
+        this.pending.updates.waitExitThenApplyUpdate(this.pending.info, false, true, keep);
+        log.info('app', `Restarting into Patchbay ${this.pending.info.TargetFullRelease.Version}`);
+        app.quit();
+    }
+
+    private set(partial: Partial<UpdateStatus>): void {
+        this.current = { ...this.current, ...partial };
+        this.changed();
     }
 
     private async run(): Promise<UpdateStatus> {
@@ -130,27 +153,15 @@ export class Updates {
             this.set({ state: 'ready', progress: undefined });
         } catch (e) {
             log.warn('app', 'Could not check for updates', { detail: message(e) });
-            this.set({ state: 'failed', available: undefined, progress: undefined, detail: message(e), checkedAt: new Date().toISOString() });
+            this.set({
+                state: 'failed',
+                available: undefined,
+                progress: undefined,
+                detail: message(e),
+                checkedAt: new Date().toISOString()
+            });
         }
         return this.current;
-    }
-
-    /** The channel setting changed: what was found on the old one is dropped, and the new one asked at once. */
-    channelChanged(): void {
-        if (this.current.state === 'unavailable') return;
-        this.set({ channel: getSettings().updateChannel });
-        void this.check();
-    }
-
-    /** Quits, and Velopack puts the waiting version in place and starts it. */
-    restart(): void {
-        if (!this.pending) throw new Error('No update is waiting. Check for one first.');
-        if (this.host.busy()) throw new Error('A run is under way. Restart once it has finished, or cancel it first.');
-        // Carried across, so a copy started on a test folder of its own comes back to it.
-        const keep = process.argv.slice(1).filter((arg) => arg.startsWith('--user-data-dir='));
-        this.pending.updates.waitExitThenApplyUpdate(this.pending.info, false, true, keep);
-        log.info('app', `Restarting into Patchbay ${this.pending.info.TargetFullRelease.Version}`);
-        app.quit();
     }
 }
 

@@ -93,7 +93,7 @@ export interface AgentStatus {
     /** `claude` or `agy`. */
     id: string;
     name: string;
-    /** The binary a run starts. Empty for the copy of Claude Code that comes with the Agent SDK. */
+    /** The binary a run starts. Empty when none was found. */
     executable: string;
     /** What it says its version is. Null when it did not say. */
     version: string | null;

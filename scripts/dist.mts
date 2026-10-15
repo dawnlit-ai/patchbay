@@ -74,7 +74,7 @@ if (os === 'osx' && identity) {
 } else if (os === 'osx') {
     console.warn(
         'Not signed: fine for trying it on this Mac, but a downloaded copy would be refused as damaged. ' +
-            'Set PATCHBAY_SIGN_IDENTITY to sign it.',
+        'Set PATCHBAY_SIGN_IDENTITY to sign it.',
     );
 }
 

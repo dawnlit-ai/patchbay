@@ -115,7 +115,10 @@ function ModelField({
     else if (!models) hint = 'Asking Claude…';
     else if (listed) hint = listed.description;
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
-    else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
+    // Claude lists nothing at all while Claude Code is missing; each of its models is marked · claude.
+    else if (!models.some((m) => m.displayName.endsWith('· claude'))) {
+        hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
+    } else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
 
     return (
         <Field label={label} hint={hint}>
