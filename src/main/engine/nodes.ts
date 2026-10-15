@@ -76,9 +76,9 @@ function modelsFor({ models }: { models: ModelChoice[] }): Pick<AgentRunRequest,
 
 /**
  * The MCP servers in Settings that `mcpTools` names anything of, and the
- * allowlist entries for what it names. Null names every tool of every server.
+ * allowlist entries for what it names.
  */
-function settingsServers(mcpTools: string[] | null): { servers: Record<string, AgentMcpServer>; allowed: string[] } {
+function settingsServers(mcpTools: string[]): { servers: Record<string, AgentMcpServer>; allowed: string[] } {
     const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
     for (const extra of getSettings().mcpServers) {
@@ -86,8 +86,7 @@ function settingsServers(mcpTools: string[] | null): { servers: Record<string, A
         const whole = `mcp__${extra.name}`;
         // Only what the node names: a server's other tools stay refused, so an email
         // written to steer the agent cannot reach a tool the step never needed.
-        const granted =
-            mcpTools === null ? [whole] : mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
+        const granted = mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
         if (granted.length === 0) continue;
         servers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
         allowed.push(...granted);

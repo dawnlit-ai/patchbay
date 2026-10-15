@@ -824,7 +824,7 @@ function McpToolsField({
                            config,
                            patch,
                            hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
-                       }: Section<{ mcpTools: string[] | null }> & { hint?: string }): JSX.Element {
+                       }: Section<{ mcpTools: string[] }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
     const [query, setQuery] = useState('');
 
@@ -848,20 +848,6 @@ function McpToolsField({
             cancelled = true;
         };
     }, []);
-
-    if (config.mcpTools === null) {
-        return (
-            <>
-                <Legend
-                    label="Tools from MCP servers"
-                    hint="Every tool of every server in Settings: this node was set up before they could be picked one by one."
-                />
-                <button onClick={() => patch({ mcpTools: servers?.map((s) => `mcp__${s.name}`) ?? [] })}>
-                    Pick the tools it needs
-                </button>
-            </>
-        );
-    }
 
     const picked = config.mcpTools;
     const set = (ref: string, on: boolean): void =>

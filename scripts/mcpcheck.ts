@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
-    // Terminals do nothing to the email, so actions written the way an older file kept them are dropped.
+    // Terminals do nothing to the email, so any actions written onto one are dropped.
     const ending = await call('update_node', {
         flowId,
         nodeId: done,

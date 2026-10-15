@@ -137,10 +137,9 @@ export interface ProcessorConfig {
     /**
      * Tools from the MCP servers in Settings, in the SDK's own spelling:
      * `mcp__<server>` for every tool a server has, `mcp__<server>__<tool>` for one.
-     * A server none of them names is not started for the run. Null on a node
-     * saved before the list existed: every tool of every server, as then.
+     * A server none of them names is not started for the run.
      */
-    mcpTools: string[] | null;
+    mcpTools: string[];
 }
 
 /** Ends a path and records how the email came out. It does nothing to the email: the steps before it do. */
@@ -677,27 +676,9 @@ const strings = (value: unknown, fallback: string[]): string[] =>
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
-/**
- * A trigger's folders. One saved before folders were ticked named a single
- * `folder`, which is ticked. Whatever an older trigger read below its folders —
- * `includeSubfolders`, or folders following `watchNewFolders` — is not kept: what
- * lay there cannot be listed without Outlook, and is ticked again in the panel.
- */
-function folderChoice(from: Json, base: FolderChoice): FolderChoice {
-    if (Array.isArray(from.folders)) return { folders: strings(from.folders, base.folders) };
-    return typeof from.folder === 'string' ? { folders: [from.folder.trim()] } : base;
-}
-
-/**
- * One of a node's models. An agy model saved with its level in the id, as
- * `agy:gemini-3.1-pro-high` once was, ran at that level, whatever `effort` says.
- */
+/** One of a node's models. */
 function modelChoice(from: Json): ModelChoice {
-    const model = str(from.model, '');
-    const enabled = bool(from.enabled, true);
-    const level = isAgyModel(model) ? AGY_LEVEL_SUFFIX.exec(model)?.[1] : undefined;
-    if (level) return { model: model.slice(0, -level.length - 1), effort: level, enabled };
-    return { model, effort: str(from.effort, ''), enabled };
+    return { model: str(from.model, ''), effort: str(from.effort, ''), enabled: bool(from.enabled, true) };
 }
 
 /**
@@ -724,7 +705,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 account: str(from.account, base.account),
-                ...folderChoice(from, base),
+                folders: strings(from.folders, base.folders),
                 pollSeconds: num(from.pollSeconds, base.pollSeconds),
                 lookbackDays: num(from.lookbackDays, base.lookbackDays),
                 maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),
@@ -761,7 +742,6 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 inputs: strings(from.inputs, base.inputs),
                 models: modelsOf(from.models, base.models),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
-                // Never null, unlike a Processor's: no Extractor predates the list.
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
         }
@@ -780,14 +760,12 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
-                // Absent only on a node from before the list: it keeps what it had.
-                mcpTools: from.mcpTools === undefined || from.mcpTools === null ? null : strings(from.mcpTools, []),
+                mcpTools: strings(from.mcpTools, base.mcpTools),
             };
         }
         case 'terminal':
             return {
                 ...base,
-                // The actions an older file gives a terminal are dropped here, so its next save leaves them out.
                 disposition: oneOf(from.disposition, DISPOSITIONS, base.disposition),
             };
     }
