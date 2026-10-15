@@ -11,14 +11,13 @@
     "node": ">=24"
   },
   "allowScripts": {
-    "electron-winstaller@5.4.4": true,
     "esbuild@0.28.2": true,
     "file:../outlook-bridge": false
   },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
-    "make": "electron-forge make",
+    "dist": "electron-forge package && node scripts/dist.mts",
     "typecheck": "tsc --noEmit",
     "bundle:check": "esbuild --bundle --platform=node --format=cjs --outdir=.selftest --out-extension:.js=.cjs --external:electron --external:@anthropic-ai/claude-agent-sdk --external:@dawnlit/outlook-bridge --log-level=warning",
     "mcpcheck": "npm run bundle:check -- scripts/mcpcheck.ts && electron .selftest/mcpcheck.cjs",
@@ -27,8 +26,6 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",
-    "@electron-forge/maker-squirrel": "^8.0.1",
-    "@electron-forge/maker-zip": "^8.0.1",
     "@electron-forge/plugin-vite": "^8.0.1",
     "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",

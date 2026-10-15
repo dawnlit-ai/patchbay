@@ -1,6 +1,4 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
-import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 
 /**
@@ -40,8 +38,16 @@ const config: ForgeConfig = {
         // Off: the Agent SDK spawns its Claude Code at the path it resolves, and
         // a path inside app.asar cannot be spawned even when unpacked.
         asar: false,
+        // macOS files the permission to control Outlook under this and the signing
+        // certificate together: changing either asks every Mac user for it again.
+        appBundleId: 'com.dawnlit.patchbay',
+        extendInfo: {
+            NSAppleEventsUsageDescription: 'Patchbay reads, files and drafts your mail by driving Outlook.',
+        },
     },
-    makers: [new MakerSquirrel(), new MakerZIP({}, ['win32', 'darwin'])],
+    // None: `npm run dist` hands the packaged app to Velopack (scripts/dist.mts),
+    // which makes the portable zip and the packages the app updates itself from.
+    makers: [],
     plugins: [
         new VitePlugin({
             build: [

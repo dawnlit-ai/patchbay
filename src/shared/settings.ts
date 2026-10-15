@@ -27,6 +27,11 @@ const DEFAULT_AGENT_CONTROL_PORT = 8787;
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
 export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 
+/** Which releases the app updates itself to: published ones, or a build of each day's changes. */
+export type UpdateChannel = 'stable' | 'nightly';
+
+export const UPDATE_CHANNELS: UpdateChannel[] = ['stable', 'nightly'];
+
 export interface Settings {
     /** The `claude` executable. Empty finds an installed Claude Code, else uses the SDK's own. */
     claudeExecutablePath: string;
@@ -48,6 +53,8 @@ export interface Settings {
     agentControl: AgentControlSettings;
     /** Where New flow or Duplicate last made a flow's folder, offered again next time. Empty offers `Documents/Patchbay`. */
     flowLocation: string;
+    /** Unset in a settings file, a nightly build follows nightlies and any other build follows stable. */
+    updateChannel: UpdateChannel;
 }
 
 export function defaultSettings(): Settings {
@@ -61,7 +68,28 @@ export function defaultSettings(): Settings {
         maxConcurrentRuns: 3,
         agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
         flowLocation: '',
+        updateChannel: 'stable',
     };
+}
+
+/** What Settings → Updates shows, live. */
+export interface UpdateStatus {
+    /** The version running now. */
+    version: string;
+    channel: UpdateChannel;
+    /**
+     * `unavailable` is a copy that cannot update itself: run from source, or not
+     * unpacked from a release. `current` means the last check found nothing newer.
+     */
+    state: 'unavailable' | 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'failed';
+    /** The version found, while it downloads and once it is ready to restart into. */
+    available?: string;
+    /** How much of it has come down, 0–100, while it downloads. */
+    progress?: number;
+    /** Why this copy cannot update, or what went wrong with the last check. */
+    detail?: string;
+    /** When a check last finished, whatever it found. */
+    checkedAt?: string;
 }
 
 /** What the Settings panel shows about the agent-control server, live. */

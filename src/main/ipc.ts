@@ -18,6 +18,7 @@ import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
 import { openFlow, openFlows, showSettings, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
+import { Updates } from './updates';
 
 let watcher: Watcher | null = null;
 
@@ -48,6 +49,22 @@ export function getAgentControl(): AgentControl {
         () => broadcast(IPC.evtAgentControl, agentControl?.status()),
     );
     return agentControl;
+}
+
+let updates: Updates | null = null;
+
+/** The updater, which holds off a restart while the watcher has runs in hand. */
+export function getUpdates(): Updates {
+    updates ??= new Updates(
+        {
+            busy: () => {
+                const status = getWatcher().status();
+                return status.activeRunIds.length > 0 || status.queuedRunIds.length > 0;
+            },
+        },
+        () => broadcast(IPC.evtUpdateStatus, updates?.status()),
+    );
+    return updates;
 }
 
 /**
@@ -218,7 +235,7 @@ export function registerIpc(): void {
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token, skill folders and flow location: a panel opened before a
         // regeneration, a folder change or a new flow would send the old ones back.
-        const { globalSkillFolders, agentControl, flowLocation } = getSettings();
+        const { globalSkillFolders, agentControl, flowLocation, updateChannel } = getSettings();
         const saved = saveSettings({
             ...settings,
             globalSkillFolders,
@@ -227,11 +244,16 @@ export function registerIpc(): void {
         });
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
+        if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
         return saved;
     });
 
     handle(IPC.agentControlStatus, () => getAgentControl().status());
     handle(IPC.agentControlRegenerateToken, () => getAgentControl().regenerateToken());
+
+    handle(IPC.updatesStatus, () => getUpdates().status());
+    handle(IPC.updatesCheck, () => getUpdates().check());
+    handle(IPC.updatesRestart, () => getUpdates().restart());
 
     handle(IPC.outlookAccounts, () => outlook.getAccounts());
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>

@@ -9,6 +9,9 @@ import {
     type McpServerSetting,
     type Settings,
     type SkillSummary,
+    UPDATE_CHANNELS,
+    type UpdateChannel,
+    type UpdateStatus,
 } from '@shared/settings';
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { ahead, time } from '../format';
@@ -23,11 +26,18 @@ interface Props {
     onSave(settings: Settings): void;
 
     onRegenerateToken(): void;
+
+    /** What the updater is doing, as opposed to which channel is asked of it. */
+    updates: UpdateStatus | null;
+
+    onCheckUpdates(): void;
+
+    onRestartToUpdate(): void;
 }
 
 /** The settings window's content: a rail of pages, the current page, and Save. */
 
-type Page = 'agents' | 'skills' | 'runs' | 'servers' | 'agent';
+type Page = 'agents' | 'skills' | 'runs' | 'servers' | 'agent' | 'updates';
 
 const PAGES: { id: Page; label: string }[] = [
     { id: 'agents', label: 'Agents' },
@@ -35,6 +45,7 @@ const PAGES: { id: Page; label: string }[] = [
     { id: 'runs', label: 'Runs' },
     { id: 'servers', label: 'MCP servers' },
     { id: 'agent', label: 'Agent control' },
+    { id: 'updates', label: 'Updates' },
 ];
 
 /**
@@ -47,7 +58,30 @@ const EDITS: Record<Page, (s: Settings) => unknown> = {
     runs: (s) => [s.pollingEnabled, s.maxConcurrentRuns],
     servers: (s) => s.mcpServers,
     agent: (s) => [s.agentControl.enabled, s.agentControl.port],
+    updates: (s) => s.updateChannel,
 };
+
+const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: 'Stable', nightly: 'Nightly' };
+
+/** The updater's state in a sentence. */
+function updateLine(status: UpdateStatus): string {
+    switch (status.state) {
+        case 'unavailable':
+            return status.detail ?? 'This copy cannot update itself.';
+        case 'idle':
+            return 'Not checked yet: the first check runs shortly after Patchbay starts.';
+        case 'checking':
+            return 'Checking…';
+        case 'downloading':
+            return `Downloading ${status.available} — ${status.progress ?? 0}%`;
+        case 'ready':
+            return `${status.available} is downloaded. Restart to use it, or it goes in the next time Patchbay starts.`;
+        case 'current':
+            return 'Up to date.';
+        case 'failed':
+            return `Could not check${status.detail ? `: ${status.detail}` : '.'}`;
+    }
+}
 
 /** The skills the global library offers: each name once, from the highest folder holding it. */
 const onShelf = (folders: GlobalSkillFolder[]): SkillSummary[] =>
@@ -168,6 +202,9 @@ export function SettingsPanel({
                                   agentControl,
                                   onSave,
                                   onRegenerateToken,
+                                  updates,
+                                  onCheckUpdates,
+                                  onRestartToUpdate,
                               }: Props): JSX.Element {
     const [draft, setDraft] = useState<Settings>(settings);
     const [page, setPage] = useState<Page>('agents');
@@ -400,6 +437,14 @@ export function SettingsPanel({
                 <span className="meta on">
                     <span className="dot"/>
                     On
+                </span>
+            );
+        }
+        if (p === 'updates' && updates?.state === 'ready') {
+            return (
+                <span className="meta on">
+                    <span className="dot"/>
+                    Ready
                 </span>
             );
         }
@@ -899,6 +944,92 @@ export function SettingsPanel({
                                     Its tools arrive as <code>mcp__patchbay__*</code>. None of them reads a message
                                     from your mailbox or sends mail: an agent picks an email to test against, and the
                                     run's own tools do the reading.
+                                </p>
+                            </>
+                        )}
+
+                        {page === 'updates' && (
+                            <>
+                                <PageHead title="Updates">
+                                    Patchbay looks for a new version a little after it starts and every few hours
+                                    after that, and downloads it in the background. Nothing changes until it restarts.
+                                </PageHead>
+                                <div className="set-group">
+                                    <Row
+                                        label="Channel"
+                                        description={
+                                            draft.updateChannel !== settings.updateChannel
+                                                ? 'Save changes to look on this channel now.'
+                                                : draft.updateChannel === 'nightly'
+                                                    ? "A build of each day's changes: first to have them, and first to have their bugs."
+                                                    : 'Releases, once they have been tried as nightlies.'
+                                        }
+                                        below={
+                                            <div className="segmented" role="radiogroup" aria-label="Channel">
+                                                {UPDATE_CHANNELS.map((channel) => (
+                                                    <button
+                                                        key={channel}
+                                                        role="radio"
+                                                        aria-checked={draft.updateChannel === channel}
+                                                        onClick={() => patch({ updateChannel: channel })}
+                                                    >
+                                                        {CHANNEL_LABELS[channel]}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        }
+                                    />
+                                </div>
+
+                                {updates && (
+                                    <div className="conn">
+                                        <div
+                                            className={`conn-status${
+                                                updates.state === 'ready' || updates.state === 'current'
+                                                    ? ' live'
+                                                    : updates.state === 'failed'
+                                                        ? ' err'
+                                                        : ''
+                                            }`}
+                                        >
+                                            <span className={`dot${updates.state === 'ready' ? ' live' : ''}`}/>
+                                            <span>{updateLine(updates)}</span>
+                                            <span className="spacer"/>
+                                            <span className="conn-when">
+                                                {updates.checkedAt ? `Checked ${time(updates.checkedAt)}` : ''}
+                                            </span>
+                                        </div>
+                                        <div className="conn-actions">
+                                            <span>
+                                                Patchbay {updates.version} · {CHANNEL_LABELS[updates.channel]}
+                                            </span>
+                                            <span className="spacer"/>
+                                            <button
+                                                disabled={
+                                                    updates.state === 'unavailable' ||
+                                                    updates.state === 'checking' ||
+                                                    updates.state === 'downloading'
+                                                }
+                                                onClick={onCheckUpdates}
+                                            >
+                                                Check now
+                                            </button>
+                                            {updates.state === 'ready' && (
+                                                <button
+                                                    title="Patchbay closes, puts the new version in place and opens again"
+                                                    onClick={onRestartToUpdate}
+                                                >
+                                                    Restart to update
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <p className="set-note">
+                                    Moving from Nightly back to Stable takes you to the newest release, even though
+                                    its version number is lower. Your flows, skills and settings live outside the app
+                                    folder, so an update never touches them.
                                 </p>
                             </>
                         )}
