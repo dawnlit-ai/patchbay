@@ -436,7 +436,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 from: z.string().describe('Source node id.'),
                 port: z
                     .string()
-                    .describe('Output port on the source node, e.g. "done", "out" or "cat:pre-alert".'),
+                    .describe('Output port on the source node, e.g. "done", "out" or "cat:invoice".'),
                 to: z.string().describe('Target node id.'),
             },
         },

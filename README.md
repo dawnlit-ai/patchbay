@@ -14,10 +14,10 @@ why an email went where it did.
 A **flow** is a graph with one trigger and any number of branches:
 
 ```
-Outlook Inbox ──▶ Categorize ──┬─ "Pre-alert"    ─▶ Process (skill) ─┬─ Done         ─▶ Terminal
+Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (skill) ─┬─ Done         ─▶ Terminal
                                │                                     ├─ Needs review ─▶ Terminal (needs-review)
                                │                                     └─ Error        ─▶ Terminal
-                               ├─ "Rate quote"   ─▶ Process (skill) ──▶ …
+                               ├─ "Support"      ─▶ Process (skill) ──▶ …
                                └─ Unmatched      ─▶ Terminal (needs-review)
 ```
 
@@ -65,12 +65,12 @@ A node adds slots and never takes one away, so the email is still there for whic
 it. A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON),
 or both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act
 on it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor
-always reads the email, and any slots it ticks besides: the lanes an earlier step found, say, to price each of them.
+always reads the email, and any slots it ticks besides: the order an earlier step found, say, to look up each line of it.
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
 for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
 to bring, and what leaves by each port.
 
-A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `shipment`
+A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `order`
 behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,
 and the flow cannot be watched until that is fixed: an email down the skipping branch would reach it with nothing
 there. A test run of such a flow stops at that node and says why.
@@ -427,7 +427,7 @@ control** and paste the command shown there into a terminal:
 claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
 ```
 
-After that, "wire me a flow that sorts pre-alerts from rate quotes and runs the pre-alert skill on the first branch" is
+After that, "wire me a flow that sorts invoices from support requests and runs the invoice skill on the first branch" is
 something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
 does — one workspace, not two copies of it — and the window re-reads what it changed as it goes. Every canvas save
 names the version it was made to, so an edit made at the moment before an agent's write to the same flow is refused

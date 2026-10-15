@@ -22,7 +22,7 @@ export interface TriggerConfig {
     /** SMTP address as Outlook reports it. Empty until the user picks one. */
     account: string;
     /**
-     * The folders read, each by its path under the Inbox ("Mobile, AL\Carrier"),
+     * The folders read, each by its path under the Inbox ("Clients\Acme"),
      * with '' for the Inbox itself. Each is read on its own, not the folders in
      * it, and a folder made later is read only once it is ticked.
      */
@@ -51,7 +51,7 @@ export const readsFolder = (choice: FolderChoice, path: string): boolean =>
 export const soleFolder = (choice: FolderChoice): string | null =>
     choice.folders.length === 1 ? (choice.folders[0] ?? null) : null;
 
-/** The folders a trigger reads, in a few words: `Inbox`, `Pre-Alerts` or `3 folders`. */
+/** The folders a trigger reads, in a few words: `Inbox`, `Invoices` or `3 folders`. */
 export function folderLabel(choice: FolderChoice): string {
     const { folders } = choice;
     if (folders.length === 0) return 'no folder';
@@ -84,7 +84,7 @@ export interface CategorizerConfig {
 }
 
 export interface ExtractorConfig {
-    /** The slot later nodes read the result by, e.g. "shipment". */
+    /** The slot later nodes read the result by, e.g. "order". */
     output: string;
     /** JSON Schema the result has to match to leave by Valid. */
     schema: JsonSchema;
@@ -258,7 +258,7 @@ const opaque = (schema: unknown): boolean =>
 
 /**
  * Whether `data` falls short of `schema` without the field at `path`, e.g.
- * "containers.0.number": the object that would hold it is in `data`, and its
+ * "items.0.sku": the object that would hold it is in `data`, and its
  * schema lists the field in `required`. A field under an object `data` left out
  * is not needed, and one the schema cannot be followed to counts as needed.
  */
@@ -497,7 +497,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                     properties: {
                         reference: {
                             type: 'string',
-                            description: 'The shipment, order or booking reference the email is about.',
+                            description: 'The order, invoice or ticket number the email is about.',
                         },
                     },
                     required: ['reference'],

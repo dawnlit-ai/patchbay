@@ -294,7 +294,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         '',
         'Take every value from the email itself. When the email does not give a field, do',
         'not guess one: leave it out if the schema allows that, or give an empty value if it',
-        'does not, and list the field\'s path (e.g. "containers.0.number") in `missing`.',
+        'does not, and list the field\'s path (e.g. "items.0.sku") in `missing`.',
         ...(config.inputs.length > 0
             ? [
                 'The data after the email is what earlier steps took from it. Use it to know what',

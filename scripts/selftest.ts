@@ -21,7 +21,7 @@ function buildFlow(account: string): Flow {
             id: 'business',
             label: 'Business',
             description:
-                'A message from a person or company about actual work: a request, a quote, a shipment, an invoice, a question that expects an answer.',
+                'A message from a person or company about actual work: a request, a quote, an order, an invoice, a question that expects an answer.',
         },
         {
             id: 'bulk',
