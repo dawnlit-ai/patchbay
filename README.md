@@ -219,7 +219,8 @@ run from source does not update itself.
   they show what that login offers now, so a new model appears without a new build of the app. So do the effort levels,
   which differ from model to model — a node offers the ones its model takes, or none for a model that takes none. New
   nodes start on `opus`, the alias for the newest Opus. Until Claude Code is installed, Settings → Agents says so,
-  Claude's models are missing from the lists, and a step on one goes to its fallback model if it has one.
+  Claude's models are missing from the lists, new nodes start on the first model another agent offers instead, and a
+  step on a Claude model goes to its fallback model if it has one.
 - **Optionally, the Antigravity CLI (`agy`)**, signed in, to run a node on the models it offers — Gemini, and the
   Claude and GPT models beside it, which spend agy's own Google quota rather than your Claude plan. It is found where it
   installs itself, in `~/.local/bin`, or at the path set under **Settings → Agents**. Its models join the model lists,

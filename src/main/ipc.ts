@@ -45,6 +45,7 @@ export function getAgentControl(): AgentControl {
         {
             watcher: () => getWatcher(),
             changed: (change) => broadcast(IPC.evtWorkspaceChanged, change),
+            modelsOffered: () => agents.listModels(),
         },
         () => broadcast(IPC.evtAgentControl, agentControl?.status()),
     );

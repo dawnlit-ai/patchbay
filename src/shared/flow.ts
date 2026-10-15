@@ -437,7 +437,35 @@ export const AGY_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** `agy models` lists a model once per level, as `<id>-<level>`; a run names the two apart. */
 export const AGY_LEVEL_SUFFIX = new RegExp(`-(${AGY_LEVELS.join('|')})$`);
 
-export function defaultConfig(kind: NodeKind): NodeConfig {
+/** Of a model the agents offer, what a new node needs to start on it. */
+export interface OfferedModel {
+    value: string;
+    effortLevels: string[];
+    effortRequired?: boolean;
+}
+
+/**
+ * The model a new node starts on, from the models the agents offer now: the newest
+ * Opus while Claude Code lists any, else the first one offered — on a computer with
+ * only agy, one of agy's. `effort` is the level wanted, kept where the model takes
+ * it; otherwise a model that must have one gets its top level. Opus as well while
+ * the list is on its way, or when nothing is installed to list any.
+ */
+export function startingModel(
+    offered: readonly OfferedModel[] | null | undefined,
+    effort: string,
+): Omit<ModelChoice, 'enabled'> {
+    const first = offered?.[0];
+    // Claude takes every model no other agent claims, so any such model is Claude's.
+    if (!first || offered.some((m) => !isAgyModel(m.value))) return { model: DEFAULT_MODEL, effort };
+    const levels = first.effortLevels;
+    if (levels.includes(effort)) return { model: first.value, effort };
+    return { model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : '' };
+}
+
+/** A node's defaults. `offered` is the agents' model list, which picks the model its steps start on. */
+export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] | null): NodeConfig {
+    const models = (effort: string): ModelChoice[] => [{ ...startingModel(offered, effort), enabled: true }];
     switch (kind) {
         case 'trigger.outlook':
             return {
@@ -456,7 +484,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                     { id: 'a', label: 'Category A', description: 'Describe the emails that belong here.' },
                     { id: 'b', label: 'Category B', description: 'Describe the emails that belong here.' },
                 ],
-                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
+                models: models(''),
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -477,7 +505,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
                 skills: [],
                 inputs: [],
-                models: [{ model: DEFAULT_MODEL, effort: '', enabled: true }],
+                models: models(''),
                 includeAttachments: false,
                 mcpTools: [],
             };
@@ -490,7 +518,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
                 inputs: [],
                 output: '',
                 schema: { type: 'object', properties: {} },
-                models: [{ model: DEFAULT_MODEL, effort: 'high', enabled: true }],
+                models: models('high'),
                 allowDraftReply: false,
                 allowMoveEmail: false,
                 allowSaveAttachments: true,
@@ -557,8 +585,14 @@ export function triggerConfig(node: FlowNode | undefined): TriggerConfig | undef
 }
 
 /** A node of `kind` with its defaults. */
-export function makeNode(kind: NodeKind, id: string, position: { x: number; y: number }): FlowNode {
-    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind) };
+/** A new node with its kind's defaults; `offered`, the agents' model list, picks the model it starts on. */
+export function makeNode(
+    kind: NodeKind,
+    id: string,
+    position: { x: number; y: number },
+    offered?: readonly OfferedModel[] | null,
+): FlowNode {
+    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind, offered) };
 }
 
 /** Enough tail to tell two of a kind apart without becoming the name itself. */

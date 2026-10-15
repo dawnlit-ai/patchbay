@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Background,
     BackgroundVariant,
@@ -31,6 +31,7 @@ import {
     modelsInTurn,
     NODE_KIND_META,
     type NodeKind,
+    type OfferedModel,
     outputPorts,
     provides,
     requires,
@@ -285,6 +286,17 @@ export function FlowCanvas({
                                onRunOutlookSelected,
                            }: FlowCanvasProps): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
+    /**
+     * The models the agents offer, which a dropped node starts on the first of when
+     * Claude Code is not installed. Null until they answer, when it starts on Opus.
+     */
+    const offered = useRef<OfferedModel[] | null>(null);
+    useEffect(() => {
+        void window.api.agents
+            .models()
+            .then((list) => (offered.current = list))
+            .catch(() => undefined);
+    }, []);
     /** The trigger a dragged email is over. Only read while `mailDrag` holds. */
     const [dropTarget, setDropTarget] = useState<string | null>(null);
     /** Something from outside the app is being dragged over the canvas — an email out of Outlook, most likely. */
@@ -450,10 +462,12 @@ export function FlowCanvas({
             // Approximate placement: the node is immediately draggable, and skipping
             // the viewport transform keeps this free of a provider wrapper.
             const id = mintNodeId(flow, kind);
-            const node = makeNode(kind, id, {
-                x: event.clientX - bounds.left - 116,
-                y: event.clientY - bounds.top - 40,
-            });
+            const node = makeNode(
+                kind,
+                id,
+                { x: event.clientX - bounds.left - 116, y: event.clientY - bounds.top - 40 },
+                offered.current,
+            );
             onChange({ ...flow, nodes: [...flow.nodes, node] });
             onSelect(id);
         },

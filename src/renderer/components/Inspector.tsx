@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
-    DEFAULT_MODEL,
     type Disposition,
     DISPOSITIONS,
     EMAIL_SLOT,
@@ -11,6 +10,7 @@ import {
     type FlowIssue,
     type FlowNode,
     hasInput,
+    isAgyModel,
     type JsonSchema,
     type ModelChoice,
     NODE_KIND_META,
@@ -23,6 +23,7 @@ import {
     type Slot,
     SLOT_NAME,
     slotTypeLabel,
+    startingModel,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -115,8 +116,8 @@ function ModelField({
     else if (!models) hint = 'Asking Claude…';
     else if (listed) hint = listed.description;
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
-    // Claude lists nothing at all while Claude Code is missing; each of its models is marked · claude.
-    else if (!models.some((m) => m.displayName.endsWith('· claude'))) {
+    // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.
+    else if (models.every((m) => isAgyModel(m.value))) {
         hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
     } else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
 
@@ -368,7 +369,7 @@ function ModelsField({
                     );
                 })}
             </div>
-            <button onClick={() => onChange([...value, { model: DEFAULT_MODEL, effort: '', enabled: true }])}>
+            <button onClick={() => onChange([...value, { ...startingModel(listing.models, ''), enabled: true }])}>
                 + Add a model
             </button>
         </>

@@ -13,6 +13,7 @@ import {
     mintNodeId,
     NODE_KINDS,
     type NodeConfig,
+    type OfferedModel,
     outputPorts,
     parseFlow,
     retickSkill,
@@ -46,6 +47,12 @@ export interface AgentHost {
 
     /** Something an agent wrote is now on disk; the window is told to re-read it. */
     changed(change: WorkspaceChange): void;
+
+    /**
+     * The models the agents offer, which a new node starts on the first of when
+     * Claude Code is not installed. Left out, new nodes start on Opus.
+     */
+    modelsOffered?(): Promise<OfferedModel[]>;
 }
 
 /** How far back the tools that offer a real email to run against look. */
@@ -344,13 +351,15 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 y: z.number().optional(),
             },
         },
-        ({ flowId, kind, name, x, y }) => {
+        async ({ flowId, kind, name, x, y }) => {
             const id = mintNodeId(requireFlow(flowId), kind);
+            // An agent that cannot be asked leaves the node on Opus, for update_node to change.
+            const offered = await host.modelsOffered?.().catch(() => null);
             const { flow } = editFlow(host, flowId, (current) => {
                 // Placed to the right of everything already there, so a flow built
                 // entirely through these tools still opens as something readable.
                 const right = current.nodes.reduce((max, n) => Math.max(max, n.position.x), -180);
-                const node = makeNode(kind, id, { x: x ?? right + 260, y: y ?? 200 });
+                const node = makeNode(kind, id, { x: x ?? right + 260, y: y ?? 200 }, offered);
                 return { ...current, nodes: [...current.nodes, name ? { ...node, name } : node] };
             });
             return json(describeNode(flow, requireNode(flow, id)));
