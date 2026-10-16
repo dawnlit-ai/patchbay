@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
@@ -20,7 +20,6 @@ import {
     provides,
     requires,
     shortId,
-    type Slot,
     SLOT_NAME,
     slotTypeLabel,
     startingModel,
@@ -32,6 +31,7 @@ import type { McpServerTool } from '@shared/settings';
 import { FolderTree } from './FolderTree';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
+import { type DataTokens, tint } from '../slotColors';
 
 /** Configures the selected node: one section per kind, each handed its narrowed config. */
 
@@ -1007,23 +1007,30 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
     );
 }
 
-/** One slot as a row: its name, and its type or why there is none. */
-function SlotRow({ name, type, problem }: { name: string; type?: string; problem?: string }): JSX.Element {
+/** One slot as a row: its name in its colour, and its type or why there is none. */
+function SlotRow({ name, token, type, problem }: {
+    name: string;
+    token?: string;
+    type?: string;
+    problem?: string
+}): JSX.Element {
     return (
         <div className="slot-row">
-            <span className="slot-chip">{name}</span>
+            <span className={`slot-chip ${tint(token)}`}>{name}</span>
             <span className={problem ? 'slot-problem' : 'slot-type'}>{problem ?? type}</span>
         </div>
     );
 }
 
 /** What the node reads, what reaches it, and what leaves by each port. */
-function DataSection({ node, available }: { node: FlowNode; available: Available | undefined }): JSX.Element {
+function DataSection({ node, available, tokens }: {
+    node: FlowNode;
+    available: Available | undefined;
+    tokens: DataTokens
+}): JSX.Element {
     const reads = requires(node);
     const ports = outputPorts(node);
     const arriving = [...(available ?? new Map())];
-    const adds = (slots: Slot[]): string =>
-        slots.map((slot) => `+ ${slot.name} (${slotTypeLabel(slot.type)})`).join(', ');
 
     return (
         <>
@@ -1037,8 +1044,15 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
                         let problem: string | undefined;
                         if (!available) problem = 'not known until a trigger reaches this node';
                         else if (!type) problem = 'not filled on every path here';
+                        // Coloured only once it is sure to arrive; the problem says why not.
                         return (
-                            <SlotRow key={name} name={name} type={type && slotTypeLabel(type)} problem={problem}/>
+                            <SlotRow
+                                key={name}
+                                name={name}
+                                token={type && tokens.get(name)}
+                                type={type && slotTypeLabel(type)}
+                                problem={problem}
+                            />
                         );
                     })}
 
@@ -1047,7 +1061,7 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
                         hint={available ? 'Every path here fills these.' : 'No trigger reaches this node yet.'}
                     />
                     {arriving.map(([name, type]) => (
-                        <SlotRow key={name} name={name} type={slotTypeLabel(type)}/>
+                        <SlotRow key={name} name={name} token={tokens.get(name)} type={slotTypeLabel(type)}/>
                     ))}
                 </>
             )}
@@ -1067,7 +1081,13 @@ function DataSection({ node, available }: { node: FlowNode; available: Available
                 return (
                     <div key={port.id} className="slot-row">
                         <span className={`port-name ${port.tone}`}>{port.label}</span>
-                        <span className="slot-type">{added.length > 0 ? adds(added) : 'nothing new'}</span>
+                        {added.length === 0 && <span className="slot-type">nothing new</span>}
+                        {added.map((slot) => (
+                            <Fragment key={slot.name}>
+                                <span className={`slot-chip ${tint(tokens.get(slot.name))}`}>+ {slot.name}</span>
+                                <span className="slot-type">{slotTypeLabel(slot.type)}</span>
+                            </Fragment>
+                        ))}
                     </div>
                 );
             })}
@@ -1082,13 +1102,15 @@ interface Props {
     /** Slots every path into this node fills. Undefined when no trigger reaches it. */
     available: Available | undefined;
     issues: FlowIssue[];
+    /** Each slot's colour, as the canvas draws it. */
+    tokens: DataTokens;
 
     onChange(node: FlowNode): void;
 
     onDelete(nodeId: string): void;
 }
 
-export function Inspector({ node, library, available, issues, onChange, onDelete }: Props): JSX.Element {
+export function Inspector({ node, library, available, issues, tokens, onChange, onDelete }: Props): JSX.Element {
     if (!node) {
         return (
             <div>
@@ -1137,7 +1159,7 @@ export function Inspector({ node, library, available, issues, onChange, onDelete
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 
-            <DataSection node={node} available={available}/>
+            <DataSection node={node} available={available} tokens={tokens}/>
 
             <div className="gap"/>
             <button className="danger" onClick={() => onDelete(node.id)}>

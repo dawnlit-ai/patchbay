@@ -57,6 +57,18 @@
     --k-processor: #7c3aed;
     --k-terminal: #64748b;
 
+    /*
+     * Data on the wire, per slot: the email's own, then one for each slot a node
+     * fills, taken in turn. A wire, its port's handle and the slot's chips share it.
+     */
+    --data-email: #0369a1;
+    --data-1: #c2410c;
+    --data-2: #a21caf;
+    --data-3: #4d7c0f;
+    --data-4: #4338ca;
+    --data-5: #a16207;
+    --data-6: #0f766e;
+
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius: 10px;
@@ -112,6 +124,14 @@
     --k-extractor: #2dd4bf;
     --k-processor: #c084fc;
     --k-terminal: #9aa0a6;
+
+    --data-email: #38bdf8;
+    --data-1: #fb923c;
+    --data-2: #e879f9;
+    --data-3: #a3e635;
+    --data-4: #818cf8;
+    --data-5: #facc15;
+    --data-6: #2dd4bf;
 }
 
 * {
@@ -149,6 +169,35 @@ body {
 
 .kind-terminal {
     --k: var(--k-terminal);
+}
+
+/* Per-slot colour, set on a wire, a port's handle or a slot chip and read as var(--d). */
+.data-email {
+    --d: var(--data-email);
+}
+
+.data-1 {
+    --d: var(--data-1);
+}
+
+.data-2 {
+    --d: var(--data-2);
+}
+
+.data-3 {
+    --d: var(--data-3);
+}
+
+.data-4 {
+    --d: var(--data-4);
+}
+
+.data-5 {
+    --d: var(--data-5);
+}
+
+.data-6 {
+    --d: var(--data-6);
 }
 
 button {
@@ -1643,14 +1692,22 @@ button.wide {
     color: var(--dim);
 }
 
+/* A wire takes the colour of what it carries; one whose data is not known yet stays grey. */
 .react-flow__edge-path {
-    stroke: var(--line);
-    stroke-width: 1.8;
+    stroke: var(--d, var(--line));
+    stroke-width: 3;
+}
+
+/* Picked out, it keeps that colour and thickens. React Flow's own focus rule
+   outranks the one below, so it is handed the colour through its variable. */
+.react-flow__edge {
+    --xy-edge-stroke-selected: var(--d, var(--accent));
 }
 
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path {
-    stroke: var(--accent);
+    stroke: var(--d, var(--accent));
+    stroke-width: 4;
 }
 
 /* The × that cuts an edge, shown on hover or selection. Inside the edge's group,
@@ -1689,10 +1746,19 @@ button.wide {
 }
 
 .react-flow__edge.taken .react-flow__edge-path {
-    stroke: var(--accent);
-    stroke-width: 2.6;
+    stroke: var(--d, var(--accent));
+    stroke-width: 4;
     stroke-dasharray: 6 4;
     animation: dash 0.7s linear infinite;
+}
+
+/* While a run is traced, the wires it did not take step back. */
+.react-flow__edge.untaken {
+    opacity: 0.3;
+}
+
+.react-flow__edge.untaken:hover {
+    opacity: 1;
 }
 
 @keyframes dash {
@@ -1705,7 +1771,7 @@ button.wide {
     border: none;
     width: 9px;
     height: 9px;
-    background: var(--dim);
+    background: var(--d, var(--dim));
 }
 
 .react-flow__handle-left {
@@ -1713,7 +1779,8 @@ button.wide {
 }
 
 .react-flow__handle.taken-handle {
-    background: var(--accent);
+    background: var(--d, var(--accent));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--d, var(--accent)) 30%, transparent);
 }
 
 .react-flow__controls-button {
@@ -1910,6 +1977,11 @@ button.wide {
     color: var(--text);
 }
 
+.slot-chip.tinted {
+    background: color-mix(in srgb, var(--d) 14%, transparent);
+    color: var(--d);
+}
+
 .slot-chip.missing {
     background: var(--err-soft);
     color: var(--err);
@@ -1917,8 +1989,6 @@ button.wide {
 
 .node-port .slot-chip.adds {
     margin-left: 6px;
-    background: color-mix(in srgb, var(--k) 14%, transparent);
-    color: var(--k);
 }
 
 /* A slot a node reads that some path to it never fills, or one it overwrites. */

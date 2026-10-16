@@ -24,6 +24,7 @@ import type { Library } from './components/SkillLibrary';
 import { TestRunDialog } from './components/TestRunDialog';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
+import { dataTokens } from './slotColors';
 import { useTheme } from './theme';
 
 /** Matches what main keeps, so the window never holds lines main has let go. */
@@ -268,6 +269,8 @@ export function App({ initialFlowId }: Props): JSX.Element {
 
     /** Which slots reach each node, and what falls short — redrawn with every edit. */
     const slots = useMemo(() => (flow ? checkSlots(flow) : null), [flow]);
+    /** Each slot's colour, shared by the canvas and the inspector. */
+    const tokens = useMemo(() => dataTokens(flow?.nodes ?? []), [flow]);
 
     const updateNode = useCallback(
         (node: FlowNode) => {
@@ -528,6 +531,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                         selectedNodeId={selectedNodeId}
                         highlight={highlight}
                         slots={slots}
+                        tokens={tokens}
                         onChange={updateFlow}
                         onSelect={setSelectedNodeId}
                         onRunOutlookDrag={(nodeId, drag) =>
@@ -594,6 +598,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
                             library={library}
                             available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
                             issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
+                            tokens={tokens}
                             onChange={updateNode}
                             onDelete={deleteNode}
                         />

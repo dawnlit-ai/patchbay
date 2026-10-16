@@ -41,6 +41,7 @@ import {
 import type { Pass, PassUnderWay } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
 import { activity } from '../activity';
+import { type DataTokens, tint } from '../slotColors';
 import { ContextMenu } from './ContextMenu';
 import { Elapsed } from './Elapsed';
 
@@ -71,6 +72,7 @@ interface NodeData extends Record<string, unknown> {
     issues: FlowIssue[];
     /** The slots every path here fills. Undefined when no trigger reaches the node. */
     available?: Available;
+    tokens: DataTokens;
 }
 
 interface EdgeData extends Record<string, unknown> {
@@ -78,7 +80,7 @@ interface EdgeData extends Record<string, unknown> {
 }
 
 function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass, working, drop, issues, available } = data as NodeData;
+    const { flowNode, pass, working, drop, issues, available, tokens } = data as NodeData;
     const reads = requires(flowNode);
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
@@ -118,7 +120,7 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                         return (
                             <span
                                 key={name}
-                                className={`slot-chip${missing ? ' missing' : ''}`}
+                                className={classNames('slot-chip', missing ? 'missing' : tint(tokens.get(name)))}
                                 title={type ? slotTypeLabel(type) : missing ? 'Not filled on every path here' : undefined}
                             >
                                 {name}
@@ -137,7 +139,11 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                         >
                             {port.label}
                             {provides(flowNode, port.id).map((slot) => (
-                                <span key={slot.name} className="slot-chip adds" title={slotTypeLabel(slot.type)}>
+                                <span
+                                    key={slot.name}
+                                    className={classNames('slot-chip adds', tint(tokens.get(slot.name)))}
+                                    title={slotTypeLabel(slot.type)}
+                                >
                                     + {slot.name}
                                 </span>
                             ))}
@@ -145,7 +151,10 @@ function NodeCard({ data, selected }: NodeProps): JSX.Element {
                                 type="source"
                                 position={Position.Right}
                                 id={port.id}
-                                className={pass?.outPort === port.id ? 'taken-handle' : undefined}
+                                className={classNames(
+                                    tint(wireToken(flowNode, port.id, available, tokens)),
+                                    pass?.outPort === port.id && 'taken-handle',
+                                )}
                             />
                         </div>
                     ))}
@@ -189,6 +198,24 @@ function describe(node: FlowNode): string {
             return c.disposition;
     }
 }
+
+/**
+ * The colour token of what leaves `node` by `port`: the slot the port adds, or
+ * else the newest one the node holds — what the step before handed on. Undefined
+ * while no trigger reaches the node, when what it holds is not known.
+ */
+function wireToken(
+    node: FlowNode,
+    port: string,
+    available: Available | undefined,
+    tokens: DataTokens,
+): string | undefined {
+    const newest = provides(node, port).at(-1)?.name ?? (available && [...available.keys()].at(-1));
+    return newest === undefined ? undefined : tokens.get(newest);
+}
+
+const classNames = (...names: (string | false | null | undefined)[]): string | undefined =>
+    names.filter(Boolean).join(' ') || undefined;
 
 /**
  * An edge with its cut button, drawn inside the edge's own group (not via
@@ -260,6 +287,8 @@ export interface FlowCanvasProps {
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
     slots: SlotCheck | null;
+    /** Each slot's colour, which its wires, handles and chips take. */
+    tokens: DataTokens;
 
     onChange(flow: Flow): void;
 
@@ -280,6 +309,7 @@ export function FlowCanvas({
                                selectedNodeId,
                                highlight,
                                slots,
+                               tokens,
                                onChange,
                                onSelect,
                                onRunOutlookDrag,
@@ -330,10 +360,11 @@ export function FlowCanvas({
                         drop,
                         issues: slots?.issues.filter((issue) => issue.nodeId === n.id) ?? [],
                         available: slots?.available.get(n.id),
+                        tokens,
                     } satisfies NodeData,
                 };
             }),
-        [flow.nodes, measured, selectedNodeId, highlight, mailDrag, dropTarget, slots],
+        [flow.nodes, measured, selectedNodeId, highlight, mailDrag, dropTarget, slots, tokens],
     );
 
     const removeEdge = useCallback(
@@ -341,20 +372,25 @@ export function FlowCanvas({
         [flow, onChange],
     );
 
-    const rfEdges: Edge[] = useMemo(
-        () =>
-            flow.edges.map((e) => ({
+    const rfEdges: Edge[] = useMemo(() => {
+        const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+        return flow.edges.map((e) => {
+            const source = byId.get(e.source);
+            return {
                 id: e.id,
                 type: 'wire',
                 source: e.source,
                 sourceHandle: e.sourceHandle,
                 target: e.target,
                 targetHandle: 'in',
-                className: highlight?.takenEdges.has(e.id) ? 'taken' : undefined,
+                className: classNames(
+                    source && tint(wireToken(source, e.sourceHandle, slots?.available.get(e.source), tokens)),
+                    highlight && (highlight.takenEdges.has(e.id) ? 'taken' : 'untaken'),
+                ),
                 data: { onRemove: removeEdge } satisfies EdgeData,
-            })),
-        [flow.edges, highlight, removeEdge],
-    );
+            };
+        });
+    }, [flow.nodes, flow.edges, highlight, removeEdge, slots, tokens]);
 
     const onNodesChange = useCallback(
         (changes: NodeChange[]) => {

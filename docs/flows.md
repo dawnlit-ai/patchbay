@@ -45,7 +45,10 @@ it — so an Extractor can pull the fields, and a Processor draft a templated re
 reads the email, and any slots it ticks besides.
 
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
-for its type. The inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
+for its type. Every slot has a colour of its own — the email's, then one per slot a node fills — and a wire takes the
+colour of the newest slot it carries: the one its port adds, or else what the step before handed on. So a wire's
+colour matches the chip of the slot it brings to the next card. A wire stays grey until a trigger reaches it. The
+inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
 to bring, and what leaves by each port.
 
 A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `order`
