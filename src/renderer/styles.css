@@ -1066,7 +1066,7 @@ button.wide {
     background: var(--primary-fg);
 }
 
-/* A small whole number picked in one click, rather than typed or stepped to. */
+/* One of a few choices picked in one click, rather than typed or stepped to: a small number, or a word or two. */
 .segmented {
     display: inline-flex;
     gap: 2px;
@@ -1077,8 +1077,10 @@ button.wide {
 }
 
 .segmented button {
-    width: 36px;
-    padding: 4px 0;
+    /* Numbers keep one width; a word widens its own button. */
+    min-width: 36px;
+    padding: 4px 10px;
+    white-space: nowrap;
     color: var(--muted);
     background: transparent;
     border: none;

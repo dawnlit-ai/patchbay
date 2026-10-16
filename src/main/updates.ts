@@ -101,11 +101,13 @@ export class Updates {
         return this.checking;
     }
 
-    /** The channel setting changed: what was found on the old one is dropped, and the new one asked at once. */
+    /**
+     * The channel setting changed: what was found on the old one is dropped, and the new one asked at once.
+     * A copy that cannot update still shows the channel chosen.
+     */
     channelChanged(): void {
-        if (this.current.state === 'unavailable') return;
         this.set({ channel: getSettings().updateChannel });
-        void this.check();
+        if (this.current.state !== 'unavailable') void this.check();
     }
 
     /** Quits, and Velopack puts the waiting version in place and starts it. */
