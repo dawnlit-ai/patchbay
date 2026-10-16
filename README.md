@@ -42,6 +42,7 @@ no installer.
 | Platform               | Zip                               |
 |------------------------|-----------------------------------|
 | Windows                | `Patchbay-win-x64-Portable.zip`   |
+| Windows on Arm         | `Patchbay-win-arm64-Portable.zip` |
 | Mac with Apple silicon | `Patchbay-osx-arm64-Portable.zip` |
 | Intel Mac              | `Patchbay-osx-x64-Portable.zip`   |
 

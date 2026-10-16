@@ -33,6 +33,13 @@ installed copies update themselves from, into `out/releases`. `vpk` needs the .N
 `velopack` package in `package.json`. A version with `-nightly` in it is packed for the nightly channel. On a Mac, set
 `PATCHBAY_SIGN_IDENTITY` to a code-signing certificate's name, or a copy downloaded anywhere else is refused as damaged.
 
+To build for the other architecture — Windows on Arm from an Intel or AMD PC, say — package for it and pack that:
+
+```bash
+npx electron-forge package --arch=arm64
+node scripts/dist.mts --arch arm64
+```
+
 To try an update before publishing it, start a copy unzipped from an earlier build with
 `--update-feed=<path to out/releases>`, and it checks there instead of GitHub.
 

@@ -1,6 +1,6 @@
 # Releasing
 
-Three workflows in `.github/workflows` build every platform — Windows x64, and Macs with Apple silicon and Intel — and
+Three workflows in `.github/workflows` build every platform — Windows x64 and Arm, and Macs with Apple silicon and Intel — and
 publish them as GitHub releases, which installed copies read to update. `build.yml` is the build itself; the other two
 decide what to build and when. A build that fails on any platform takes its draft with it, so nothing half-built is
 published.

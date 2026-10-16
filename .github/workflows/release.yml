@@ -6,7 +6,7 @@ name: Release
 
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags: [ 'v[0-9]+.[0-9]+.[0-9]+' ]
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -51,7 +51,7 @@ jobs:
 
   discard:
     # The draft goes; the tag is yours, and stays.
-    needs: [prepare, build]
+    needs: [ prepare, build ]
     if: failure() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     env:

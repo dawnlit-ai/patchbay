@@ -36,6 +36,8 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, rid: win-x64 }
+          # GitHub's Arm runner, free to public repositories.
+          - { os: windows-11-arm, rid: win-arm64 }
           - { os: macos-latest, rid: osx-arm64 }
           # GitHub's last Intel runner, kept until August 2027.
           - { os: macos-15-intel, rid: osx-x64 }

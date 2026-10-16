@@ -6,6 +6,9 @@
  *   node scripts/dist.mts                    pack only
  *   node scripts/dist.mts --publish <tag>    fetch the last release for a delta, pack,
  *                                            then add it all to the GitHub release <tag>
+ *   node scripts/dist.mts --arch arm64       pack the build for another architecture,
+ *                                            which `electron-forge package --arch=arm64`
+ *                                            made; x64 or arm64, with either of the above
  *
  * The channel follows the version: `0.2.0` goes out on `<os>-<arch>`, and
  * `0.2.0-nightly.<stamp>` on `<os>-<arch>-nightly` — the names the app asks for.
@@ -27,14 +30,18 @@ const nightly = version.includes('-nightly');
 
 const os = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'osx' : null;
 if (!os) throw new Error(`There are no Patchbay releases for ${process.platform}.`);
-const rid = `${os}-${process.arch}`;
+const archAt = process.argv.indexOf('--arch');
+const arch = archAt >= 0 ? process.argv[archAt + 1] : process.arch;
+// The two the app asks for an update channel by (src/main/updates.ts).
+if (arch !== 'x64' && arch !== 'arm64') throw new Error(`There are no Patchbay releases for ${arch}; --arch takes x64 or arm64.`);
+const rid = `${os}-${arch}`;
 const channel = nightly ? `${rid}-nightly` : rid;
 
 const packDir =
     os === 'win'
-        ? join(root, 'out', `Patchbay-win32-${process.arch}`)
-        : join(root, 'out', `Patchbay-darwin-${process.arch}`, 'Patchbay.app');
-if (!existsSync(packDir)) throw new Error(`Nothing at ${packDir}. Run electron-forge package first.`);
+        ? join(root, 'out', `Patchbay-win32-${arch}`)
+        : join(root, 'out', `Patchbay-darwin-${arch}`, 'Patchbay.app');
+if (!existsSync(packDir)) throw new Error(`Nothing at ${packDir}. Run electron-forge package --arch=${arch} first.`);
 const releases = join(root, 'out', 'releases');
 
 const tagAt = process.argv.indexOf('--publish');
