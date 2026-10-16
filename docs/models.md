@@ -1,7 +1,8 @@
 # Models and agents
 
-Patchbay runs your nodes on agents you install yourself: Claude Code, and optionally the Antigravity CLI (`agy`).
-**Settings → Agents** shows each one's version, whether it is signed in, and how much of its plan's 5-hour and weekly
+Patchbay runs your nodes on agents you install yourself: Claude Code, the Antigravity CLI (`agy`), or both. Neither
+is required — Patchbay opens and you can build flows without them — but a Categorizer, Extractor or Processor runs on
+one, so installing at least one is recommended. **Settings → Agents** shows each one's version, whether it is signed in, and how much of its plan's 5-hour and weekly
 limits it has used.
 
 ## Fallback models

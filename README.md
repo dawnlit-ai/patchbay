@@ -35,7 +35,9 @@ mailbox; select one and the canvas lights up the path that email took.
 
 ## Download
 
-Each [release](https://github.com/dawnlit-ai/patchbay/releases) carries a zip for each platform. There is no installer.
+**[dawnlit.com/download](https://dawnlit.com/download)** has the newest stable release and the newest nightly. Each
+[release](https://github.com/dawnlit-ai/patchbay/releases) here carries the same zips, one for each platform. There is
+no installer.
 
 | Platform               | Zip                               |
 |------------------------|-----------------------------------|
@@ -63,10 +65,16 @@ changes to master.
 
 - **Windows or macOS with a desktop Outlook client.** Patchbay drives the real client over COM/AppleScript, not
   Microsoft Graph — no app registration, no cloud permissions. macOS needs *legacy* Outlook.
-- **[Claude Code](https://code.claude.com/docs/en/setup) installed and signed in**, with a Claude account or an
-  Anthropic API key. Patchbay doesn't include it: it runs the `claude` on your computer and reuses its login.
-- **Optionally, the Antigravity CLI (`agy`)**, to run nodes on Gemini and the other models it offers. It needs a
-  permission rule per tool — see [Models and agents](docs/models.md#agy).
+
+## Recommended
+
+An agent to run your nodes on — one of these, or both. Neither is required: Patchbay opens and you can build flows
+without them, but a Categorizer, Extractor or Processor runs on one. Patchbay includes neither.
+
+- **[Claude Code](https://code.claude.com/docs/en/setup), installed and signed in**, with a Claude account or an
+  Anthropic API key. Patchbay runs the `claude` on your computer and reuses its login.
+- **The Antigravity CLI (`agy`)**, to run nodes on Gemini and the other models it offers. It needs a permission rule
+  per tool — see [Models and agents](docs/models.md#agy).
 
 ## First run
 
@@ -102,4 +110,4 @@ The licence covers this repository's own code, not what it talks to. `@anthropic
 ("© Anthropic PBC. All rights reserved", subject to Anthropic's
 [legal agreements](https://code.claude.com/docs/en/legal-and-compliance)), and `@dawnlit/outlook-bridge` is
 Apache-2.0. Neither is held in this repository; both are installed from npm by whoever builds the app. A release build
-carries the SDK's own code, but not Claude Code, which each user installs from Anthropic.
+carries the SDK's own code, but not Claude Code, which anyone who wants it installs from Anthropic.
