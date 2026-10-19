@@ -316,7 +316,7 @@ async function askForVersion(exe: string, signal: AbortSignal): Promise<string |
 
 /** The binary a run would start, its version, whether it is signed in, and its quota. */
 async function agyStatus(exe: string): Promise<AgentStatus> {
-    const base = { id: 'agy', name: 'agy', executable: exe };
+    const base = { id: 'agy', name: 'Antigravity CLI', executable: exe };
     const timeout = AbortSignal.timeout(STATUS_TIMEOUT_MS);
     // All three at once, as each takes a second or two. Only a signed-in agy lists
     // its models, and the quota is asked before that is known, so a model list that

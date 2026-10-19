@@ -444,11 +444,12 @@ export interface OfferedModel {
 }
 
 /**
- * The model a new node starts on, from the models the agents offer now: the newest
- * Opus while Claude Code lists any, else the first one offered — on a computer with
- * only agy, one of agy's. `effort` is the level wanted, kept where the model takes
- * it; otherwise a model that must have one gets its top level. Opus as well while
- * the list is on its way, or when nothing is installed to list any.
+ * The model a new node starts on, from the models the agents offer now, listed in
+ * Settings' order: the newest Opus when Claude's come first, else the first one
+ * offered — agy's, where agy is listed above Claude, or Claude is switched off or
+ * not installed. `effort` is the level wanted, kept where the model takes it;
+ * otherwise a model that must have one gets its top level. Opus as well while the
+ * list is on its way, or when nothing is installed to list any.
  */
 export function startingModel(
     offered: readonly OfferedModel[] | null | undefined,
@@ -456,7 +457,7 @@ export function startingModel(
 ): Omit<ModelChoice, 'enabled'> {
     const first = offered?.[0];
     // Claude takes every model no other agent claims, so any such model is Claude's.
-    if (!first || offered.some((m) => !isAgyModel(m.value))) return { model: DEFAULT_MODEL, effort };
+    if (!first || !isAgyModel(first.value)) return { model: DEFAULT_MODEL, effort };
     const levels = first.effortLevels;
     if (levels.includes(effort)) return { model: first.value, effort };
     return { model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : '' };

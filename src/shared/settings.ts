@@ -24,6 +24,39 @@ export interface AgentControlSettings {
 
 const DEFAULT_AGENT_CONTROL_PORT = 8787;
 
+/** The agents a step can run on: `claude` takes every model no other agent claims, `agy` those stored as `agy:<id>`. */
+export type AgentId = 'claude' | 'agy';
+
+export const AGENT_IDS: AgentId[] = ['claude', 'agy'];
+
+/** What Settings and a run's trace call each agent. */
+export const AGENT_NAMES: Record<AgentId, string> = {
+    claude: 'Claude by Anthropic',
+    agy: 'Antigravity by Google',
+};
+
+/** One agent as Settings → Agents lists it. */
+export interface AgentSetting {
+    id: AgentId;
+    /** Off, its models leave the model lists and a step on one goes straight to its next model. */
+    enabled: boolean;
+}
+
+/**
+ * The agents a settings file lists, each once and in its order, with any it does
+ * not name — as a file from before they could be ordered names none — on at the end.
+ */
+export function agentsInOrder(stored: unknown): AgentSetting[] {
+    const listed: AgentSetting[] = [];
+    for (const a of Array.isArray(stored) ? stored : []) {
+        if (AGENT_IDS.includes(a?.id) && !listed.some((l) => l.id === a.id)) {
+            listed.push({ id: a.id, enabled: a.enabled !== false });
+        }
+    }
+    const missing = AGENT_IDS.filter((id) => !listed.some((a) => a.id === id));
+    return [...listed, ...missing.map((id) => ({ id, enabled: true }))];
+}
+
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
 export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
 
@@ -37,6 +70,11 @@ export interface Settings {
     claudeExecutablePath: string;
     /** The `agy` executable, for nodes on a model marked · agy. Empty looks where agy installs itself. */
     agyExecutablePath: string;
+    /**
+     * Every agent, in the order its models are listed: a new node starts on the
+     * first one's. One switched off is passed over by every step.
+     */
+    agents: AgentSetting[];
     /** Extra MCP servers, whose tools a Processor or Extractor is handed as its `mcpTools` names them. */
     mcpServers: McpServerSetting[];
     /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
@@ -61,6 +99,7 @@ export function defaultSettings(): Settings {
     return {
         claudeExecutablePath: '',
         agyExecutablePath: '',
+        agents: agentsInOrder([]),
         skillSeedPath: '',
         globalSkillFolders: [],
         mcpServers: [],

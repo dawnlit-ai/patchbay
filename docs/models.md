@@ -5,6 +5,11 @@ is required — Patchbay opens and you can build flows without them — but a Ca
 one, so installing at least one is recommended. **Settings → Agents** shows each one's version, whether it is signed in, and how much of its plan's 5-hour and weekly
 limits it has used.
 
+It also lists the agents in order. The model lists offer each agent's models in that order, and a new node starts on
+the first one's — move Antigravity above Claude and new nodes start on one of agy's models. Switch an agent off and its
+models leave the lists, it is no longer checked, and a step on one of its models goes straight to its next model; one
+agent always stays on.
+
 ## Fallback models
 
 A Categorizer, Extractor or Processor lists its **Models**, each with its own effort level, in the order its step
@@ -12,7 +17,7 @@ tries them: it runs on the first one that is on, and the others are its fallback
 Gemini Pro, then Claude's own Sonnet. Drag a model up or down the list to change its turn, or switch one off to pass it
 over without losing it; one is always on.
 
-A step moves on only when the model before is at its usage limit, or its agent is not installed or cannot be reached —
+A step moves on only when the model before is at its usage limit, or its agent is switched off, not installed or cannot be reached —
 and never once the step has changed something: a Processor that drafted a reply before its quota ran out is not run
 again. A model known to be at its limit is passed over until the reset its agent named, and the run's trace says each
 time a step moved on and why. The last model waits for its limit to reset rather than failing, as a node with one
@@ -26,8 +31,8 @@ your computer — found where Claude Code's installers put it or on the PATH, or
 **Settings → Agents** — and reuses its login.
 
 The inspector's model lists come from that login, marked *· claude*, so a new model appears without a new build of
-the app. So do the effort levels, which differ from model to model. New nodes start on `opus`, the alias for the
-newest Opus.
+the app. So do the effort levels, which differ from model to model. While Claude is listed first, new nodes start on
+`opus`, the alias for the newest Opus.
 
 Until Claude Code is installed, Settings → Agents says so, Claude's models are missing from the lists, new nodes start
 on the first model another agent offers instead, and a step on a Claude model goes to its fallback if it has one.

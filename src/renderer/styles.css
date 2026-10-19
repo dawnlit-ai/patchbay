@@ -921,6 +921,34 @@ button.wide {
     color: var(--err);
 }
 
+/* The agents, a card each, in the order their models are listed. */
+.agent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Its place in that order, before its name. */
+.agent-rank {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--panel-3);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Switched off: its place and its executable go quiet, its switch stays as it is. */
+.agent-card.off .agent-rank,
+.agent-card.off .set-row + .set-row {
+    opacity: 0.55;
+}
+
 /* An agent's state under its executable: a dot, then what it said about itself. */
 .agent-state {
     display: flex;

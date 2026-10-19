@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
+import type { AgentId, AgentSetting } from '@shared/settings';
 import type { LiveText, TraceEvent } from '@shared/trace';
 
 /** An MCP server a run is handed: a command to start, or one this process serves itself. */
@@ -79,7 +80,7 @@ export interface AgentRunResult {
 /** One agent a step can run on. */
 export interface AgentBackend {
     /** What Settings and its status call it: `claude` or `agy`. */
-    id: string;
+    id: AgentId;
 
     /** Whether a node's stored model runs on this agent. */
     owns(model: string): boolean;
@@ -103,6 +104,9 @@ export interface AgentHost {
 
     /** The `agy` binary the app names, if it names one. Otherwise it is looked for where agy installs itself. */
     agyExecutable(): string | undefined;
+
+    /** Every agent in the order Settings lists it, each switched on or off. */
+    agents(): AgentSetting[];
 
     /** Something the app's own log should hear, beyond the run's trace. */
     warn(message: string, detail?: string): void;

@@ -27,7 +27,7 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
-import type { McpServerTool } from '@shared/settings';
+import { AGENT_NAMES, type AgentId, type McpServerTool } from '@shared/settings';
 import { FolderTree } from './FolderTree';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
@@ -68,6 +68,8 @@ interface Models {
     /** Null until the agents have answered. */
     models: ModelOption[] | null;
     error: string | null;
+    /** The agents switched off in Settings, whose models are left out of the list. */
+    off: AgentId[];
 }
 
 /**
@@ -77,6 +79,7 @@ interface Models {
 function useModels(): Models {
     const [models, setModels] = useState<ModelOption[] | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [off, setOff] = useState<AgentId[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -88,12 +91,15 @@ function useModels(): Models {
             .catch((e: Error) => {
                 if (!cancelled) setError(e.message);
             });
+        void window.api.settings.get().then((settings) => {
+            if (!cancelled) setOff(settings.agents.filter((a) => !a.enabled).map((a) => a.id));
+        });
         return () => {
             cancelled = true;
         };
     }, []);
 
-    return { models, error };
+    return { models, error, off };
 }
 
 /** The list's entry for a node's model: by its own name, or a pinned id an alias stands for today. */
@@ -107,15 +113,20 @@ function ModelField({
                         value,
                         models,
                         error,
+                        off,
                         onChange,
                     }: Models & { label?: string; value: string; onChange(model: string): void }): JSX.Element {
     const listed = models?.find((m) => m.value === value);
     const sameToday = models?.find((m) => m.resolvedModel === value);
+    const agent: AgentId = isAgyModel(value) ? 'agy' : 'claude';
     let hint: string;
     if (error) hint = `Could not ask Claude which models it offers: ${error}`;
     else if (!models) hint = 'Asking Claude…';
     else if (listed) hint = listed.description;
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
+    else if (off.includes(agent)) {
+        hint = `${AGENT_NAMES[agent]} is switched off in Settings → Agents, so the step passes ${value} over. The node keeps it meanwhile.`;
+    }
     // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.
     else if (models.every((m) => isAgyModel(m.value))) {
         hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
@@ -246,7 +257,7 @@ function ModelsField({
         <>
             <Legend
                 label="Models"
-                hint="The step runs on the first one that is on, and goes to the next in turn when the one before is at its usage limit, or its agent is not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing. Drag to reorder."
+                hint="The step runs on the first one that is on, and goes to the next in turn when the one before is at its usage limit, or its agent is switched off, not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing. Drag to reorder."
             />
             <div
                 ref={list}

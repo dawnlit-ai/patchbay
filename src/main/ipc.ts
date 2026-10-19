@@ -266,7 +266,7 @@ export function registerIpc(): void {
     handle(IPC.outlookDragged, (account: string, drag: OutlookDrag) => outlook.readDragged(account, drag));
     handle(IPC.outlookSelected, (account: string) => outlook.readSelected(account));
 
-    // Claude's first; agy's after, or none when agy is not installed.
+    // Each switched-on agent's, in the order Settings lists them; none from one not installed.
     handle(IPC.agentsModels, () => agents.listModels());
     handle(IPC.agentsStatus, (id: string) => agents.status(id));
     handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));

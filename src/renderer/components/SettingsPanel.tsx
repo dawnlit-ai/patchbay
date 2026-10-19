@@ -2,8 +2,11 @@ import type { JSX, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
     type AboutInfo,
+    AGENT_IDS,
+    AGENT_NAMES,
     type AgentControlSettings,
     type AgentControlStatus,
+    type AgentId,
     CONCURRENT_RUNS_RANGE,
     type GlobalSkillFolder,
     type McpServerSetting,
@@ -52,7 +55,7 @@ const PAGES: { id: Page; label: string }[] = [
  * folders are left out: main keeps its own on save, so a stale copy here is not a change.
  */
 const EDITS: Record<Page, (s: Settings) => unknown> = {
-    agents: (s) => [s.claudeExecutablePath, s.agyExecutablePath],
+    agents: (s) => [s.claudeExecutablePath, s.agyExecutablePath, s.agents],
     skills: (s) => s.skillSeedPath,
     runs: (s) => [s.pollingEnabled, s.maxConcurrentRuns],
     servers: (s) => s.mcpServers,
@@ -104,9 +107,21 @@ function connectCommand(status: AgentControlStatus): string {
 }
 
 /** An on/off setting. A button rather than a checkbox, so it reads as a switch to a screen reader too. */
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange(on: boolean): void }): JSX.Element {
-    return <button className="switch" role="switch" aria-checked={on} aria-label={label}
-                   onClick={() => onChange(!on)}/>;
+function Switch({
+                    on,
+                    label,
+                    disabled,
+                    title,
+                    onChange,
+                }: {
+    on: boolean;
+    label: string;
+    disabled?: boolean;
+    title?: string;
+    onChange(on: boolean): void;
+}): JSX.Element {
+    return <button className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled}
+                   title={title} onClick={() => onChange(!on)}/>;
 }
 
 /**
@@ -165,12 +180,44 @@ function Usage({ usage }: { usage: UsageWindow[] }): JSX.Element | null {
     );
 }
 
-/** The agents the Agents page checks, each under its executable. */
-const AGENTS = ['claude', 'agy'];
+/** Each agent's executable setting, the marker its models carry, and what to say about the path. */
+const AGENT_EXECUTABLES: Record<
+    AgentId,
+    { key: 'claudeExecutablePath' | 'agyExecutablePath'; marker: string; label: string; description: string }
+> = {
+    claude: {
+        key: 'claudeExecutablePath',
+        marker: '· claude',
+        label: 'Claude executable',
+        description: "Leave it blank to use the Claude Code installed on this computer. Set a path only if Patchbay can't find it.",
+    },
+    agy: {
+        key: 'agyExecutablePath',
+        marker: '· agy',
+        label: 'Antigravity executable',
+        description:
+            'Leave it blank to use the Antigravity CLI where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Its models join the model lists once it is found and signed in.',
+    },
+};
 
 /** One agent's state under its executable: found, which version, signed in. */
-function AgentState({ status, checking }: { status: AgentStatus | undefined; checking: boolean }): JSX.Element {
-    if (!status) return <div className="agent-state">{checking ? 'Checking…' : 'Not checked.'}</div>;
+function AgentState({
+                        status,
+                        checking,
+                        off,
+                    }: {
+    status: AgentStatus | undefined;
+    checking: boolean;
+    /** Switched off as saved, so it is not checked. */
+    off: boolean;
+}): JSX.Element {
+    if (!status) {
+        return (
+            <div className="agent-state">
+                {checking ? 'Checking…' : off ? 'Not checked while it is switched off.' : 'Not checked.'}
+            </div>
+        );
+    }
     return (
         <div className={`agent-state ${status.ready ? 'ok' : 'bad'}`}>
             <span className="dot"/>
@@ -263,19 +310,32 @@ export function SettingsPanel({
             if (latest()) setChecking((c) => ({ ...c, [id]: false }));
         }
     };
-    const checkAgents = (): void => AGENTS.forEach((id) => void checkAgent(id));
-    const checkingAgents = AGENTS.some((id) => checking[id]);
+    // Only the ones switched on as saved: one switched off may well not be installed.
+    const switchedOn = settings.agents.filter((a) => a.enabled).map((a) => a.id);
+    const checkAgents = (): void => switchedOn.forEach((id) => void checkAgent(id));
+    const checkingAgents = AGENT_IDS.some((id) => checking[id]);
 
     // What the last check this session found, at once, while the next one runs.
     useEffect(() => {
-        for (const id of AGENTS) {
+        for (const id of AGENT_IDS) {
             void window.api.agents.lastStatus(id).then((last) => {
                 if (last) setAgentStates((states) => (states[id] ? states : { ...states, [id]: last }));
             });
         }
     }, []);
 
-    useEffect(checkAgents, [settings.claudeExecutablePath, settings.agyExecutablePath]);
+    useEffect(checkAgents, [settings.claudeExecutablePath, settings.agyExecutablePath, switchedOn.join()]);
+
+    const moveAgent = (from: number, to: number): void =>
+        setDraft((d) => {
+            const agents = [...d.agents];
+            const [agent] = agents.splice(from, 1);
+            agents.splice(to, 0, agent!);
+            return { ...d, agents };
+        });
+
+    const switchAgent = (index: number, enabled: boolean): void =>
+        setDraft((d) => ({ ...d, agents: d.agents.map((a, j) => (j === index ? { ...a, enabled } : a)) }));
 
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({ ...d, agentControl: { ...d.agentControl, ...partial } }));
@@ -486,43 +546,93 @@ export function SettingsPanel({
                         {page === 'agents' && (
                             <>
                                 <PageHead title="Agents">
-                                    What your Categorizer, Extractor and Processor nodes run on: Claude, or the
-                                    Antigravity CLI where a node picks a model marked · agy.
+                                    What your Categorizer, Extractor and Processor nodes run on. The model lists
+                                    offer each agent's models in this order, and a new node starts on the first
+                                    one's. Switch an agent off to take its models out of the lists.
                                 </PageHead>
-                                <div className="set-group">
-                                    <Row
-                                        label="Claude executable"
-                                        description="Leave it blank to use the Claude Code installed on this computer. Set a path only if Patchbay can't find it."
-                                        below={
-                                            <>
-                                                <input
-                                                    className="mono"
-                                                    aria-label="Claude executable"
-                                                    value={draft.claudeExecutablePath}
-                                                    placeholder="Found automatically"
-                                                    onChange={(e) => patch({ claudeExecutablePath: e.target.value })}
+                                <div className="agent-list" role="list" aria-label="Agents, in order">
+                                    {draft.agents.map((agent, i) => {
+                                        const name = AGENT_NAMES[agent.id];
+                                        const { key, marker, label, description } = AGENT_EXECUTABLES[agent.id];
+                                        const on = draft.agents.filter((a) => a.enabled);
+                                        const above = draft.agents.slice(0, i).filter((a) => a.enabled).at(-1);
+                                        const last = agent.enabled && on.length === 1;
+                                        return (
+                                            <div
+                                                key={agent.id}
+                                                role="listitem"
+                                                className={`set-group agent-card${agent.enabled ? '' : ' off'}`}
+                                            >
+                                                <Row
+                                                    label={
+                                                        <>
+                                                            <span className="agent-rank">{i + 1}</span>
+                                                            {name}
+                                                        </>
+                                                    }
+                                                    description={
+                                                        <>
+                                                            Models marked <em>{marker}</em>
+                                                            {!agent.enabled
+                                                                ? '. Switched off: they leave the model lists, and a step on one goes to its next model.'
+                                                                : above
+                                                                    ? `, listed after ${AGENT_NAMES[above.id]}'s.`
+                                                                    : ', listed first, so new nodes start on one of them.'}
+                                                        </>
+                                                    }
+                                                    control={
+                                                        <>
+                                                            <button
+                                                                className="ghost"
+                                                                aria-label={`Move ${name} up`}
+                                                                title="Move up"
+                                                                disabled={i === 0}
+                                                                onClick={() => moveAgent(i, i - 1)}
+                                                            >
+                                                                ↑
+                                                            </button>
+                                                            <button
+                                                                className="ghost"
+                                                                aria-label={`Move ${name} down`}
+                                                                title="Move down"
+                                                                disabled={i === draft.agents.length - 1}
+                                                                onClick={() => moveAgent(i, i + 1)}
+                                                            >
+                                                                ↓
+                                                            </button>
+                                                            <Switch
+                                                                on={agent.enabled}
+                                                                label={`Use ${name}`}
+                                                                disabled={last}
+                                                                title={last ? 'A step needs one agent on.' : undefined}
+                                                                onChange={(enabled) => switchAgent(i, enabled)}
+                                                            />
+                                                        </>
+                                                    }
                                                 />
-                                                <AgentState status={agentStates.claude}
-                                                            checking={checking.claude === true}/>
-                                            </>
-                                        }
-                                    />
-                                    <Row
-                                        label="agy executable"
-                                        description="Leave it blank to use agy where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Its models join the model lists once agy is found and signed in."
-                                        below={
-                                            <>
-                                                <input
-                                                    className="mono"
-                                                    aria-label="agy executable"
-                                                    value={draft.agyExecutablePath}
-                                                    placeholder="Found automatically"
-                                                    onChange={(e) => patch({ agyExecutablePath: e.target.value })}
+                                                <Row
+                                                    label="Executable"
+                                                    description={description}
+                                                    below={
+                                                        <>
+                                                            <input
+                                                                className="mono"
+                                                                aria-label={label}
+                                                                value={draft[key]}
+                                                                placeholder="Found automatically"
+                                                                onChange={(e) => patch({ [key]: e.target.value })}
+                                                            />
+                                                            <AgentState
+                                                                status={agentStates[agent.id]}
+                                                                checking={checking[agent.id] === true}
+                                                                off={!switchedOn.includes(agent.id)}
+                                                            />
+                                                        </>
+                                                    }
                                                 />
-                                                <AgentState status={agentStates.agy} checking={checking.agy === true}/>
-                                            </>
-                                        }
-                                    />
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                                 <div className="set-actions">
                                     <button disabled={checkingAgents} onClick={() => void checkAgents()}>
@@ -530,7 +640,8 @@ export function SettingsPanel({
                                     </button>
                                 </div>
                                 <p className="set-note">
-                                    Checked with the saved paths: a path typed above is checked once it is saved.
+                                    Checked as saved: a path typed above, or an agent switched on, is checked once
+                                    it is saved.
                                 </p>
                             </>
                         )}
