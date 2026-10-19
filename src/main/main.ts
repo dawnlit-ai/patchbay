@@ -14,7 +14,7 @@ VelopackApp.build().run();
 void app.whenReady().then(() => {
     // Nothing in the default menu applies to this app.
     Menu.setApplicationMenu(null);
-    log.info('app', `Patchbay ${app.getVersion()} started`, { detail: `workspace: ${workspaceRoot()}` });
+    log.info('app', `Patchbay ${app.getVersion()} started`, {detail: `workspace: ${workspaceRoot()}`});
     const seeded = seedGlobalLibrary();
     if (seeded.length > 0) log.info('app', `Seeded the global skill library: ${seeded.join(', ')}`);
     registerIpc();

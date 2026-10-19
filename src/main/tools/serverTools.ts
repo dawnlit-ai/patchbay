@@ -15,17 +15,17 @@ const TIMEOUT_MS = 30_000;
 const listed = new Map<string, { at: number; tools: Promise<McpServerTool[]> }>();
 
 async function ask(command: string, args: string[]): Promise<McpServerTool[]> {
-    const client = new Client({ name: 'patchbay', version: '1.0.0' });
-    const transport = new StdioClientTransport({ command, args, stderr: 'ignore' });
+    const client = new Client({name: 'patchbay', version: '1.0.0'});
+    const transport = new StdioClientTransport({command, args, stderr: 'ignore'});
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`it did not answer within ${TIMEOUT_MS / 1000} seconds`)), TIMEOUT_MS);
     });
     try {
         await Promise.race([client.connect(transport), timeout]);
-        const { tools } = await Promise.race([client.listTools(), timeout]);
+        const {tools} = await Promise.race([client.listTools(), timeout]);
         return tools
-            .map((t) => ({ name: t.name, description: t.description ?? '' }))
+            .map((t) => ({name: t.name, description: t.description ?? ''}))
             .sort((a, b) => a.name.localeCompare(b.name));
     } finally {
         clearTimeout(timer);
@@ -40,7 +40,7 @@ export function listServerTools(server: string): Promise<McpServerTool[]> {
     const key = JSON.stringify([setting.command, setting.args]);
     const hit = listed.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.tools;
-    const entry = { at: Date.now(), tools: ask(setting.command, setting.args) };
+    const entry = {at: Date.now(), tools: ask(setting.command, setting.args)};
     listed.set(key, entry);
     // A failure is not kept: the next look should try the server again.
     entry.tools.catch(() => {

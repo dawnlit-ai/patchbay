@@ -47,7 +47,7 @@ const isProblem = (entry: LogEntry): boolean => entry.level === 'warn' || entry.
 /** Where the open flow is kept, for the rename dialog and the topbar's tooltip. */
 type Place = Omit<FlowEntry, 'flow'>;
 
-const placeOf = ({ folder, path, file, inPlace }: FlowEntry): Place => ({ folder, path, file, inPlace });
+const placeOf = ({folder, path, file, inPlace}: FlowEntry): Place => ({folder, path, file, inPlace});
 
 /** A flow opened in place is named by its file: its folder may hold others. */
 const shownPath = (place: Place): string => (place.inPlace ? place.file : place.path);
@@ -57,7 +57,7 @@ interface Props {
     initialFlowId: string;
 }
 
-export function App({ initialFlowId }: Props): JSX.Element {
+export function App({initialFlowId}: Props): JSX.Element {
     const [flow, setFlow] = useState<Flow | null>(null);
     const [place, setPlace] = useState<Place | null>(null);
     /** Only for the skill list, which says what moving one would mean elsewhere. */
@@ -82,7 +82,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     /** Read by the push listener, which is subscribed once and would see stale state. */
     const consoleOnScreen = useRef(false);
     consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
-    const { error, attempt, report: setError } = useErrorBanner();
+    const {error, attempt, report: setError} = useErrorBanner();
     const [theme, setTheme] = useTheme();
 
     /** Every library belongs to a flow, so switching flows swaps the list. */
@@ -275,7 +275,7 @@ export function App({ initialFlowId }: Props): JSX.Element {
     const updateNode = useCallback(
         (node: FlowNode) => {
             if (!flow) return;
-            updateFlow({ ...flow, nodes: flow.nodes.map((n) => (n.id === node.id ? node : n)) });
+            updateFlow({...flow, nodes: flow.nodes.map((n) => (n.id === node.id ? node : n))});
         },
         [flow, updateFlow],
     );

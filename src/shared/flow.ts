@@ -53,7 +53,7 @@ export const soleFolder = (choice: FolderChoice): string | null =>
 
 /** The folders a trigger reads, in a few words: `Inbox`, `Invoices` or `3 folders`. */
 export function folderLabel(choice: FolderChoice): string {
-    const { folders } = choice;
+    const {folders} = choice;
     if (folders.length === 0) return 'no folder';
     return folders.length === 1 ? folders[0] || 'Inbox' : `${folders.length} folders`;
 }
@@ -194,25 +194,25 @@ export const UNMATCHED_PORT = 'unmatched';
 export function outputPorts(node: FlowNode): Port[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
-            return [{ id: 'out', label: 'On email', tone: 'flow' }];
+            return [{id: 'out', label: 'On email', tone: 'flow'}];
         case 'categorizer':
             return [
                 ...node.config.categories.map(
-                    (c): Port => ({ id: `cat:${c.id}`, label: c.label || c.id, tone: 'match' }),
+                    (c): Port => ({id: `cat:${c.id}`, label: c.label || c.id, tone: 'match'}),
                 ),
-                { id: UNMATCHED_PORT, label: 'Unmatched', tone: 'fallback' },
+                {id: UNMATCHED_PORT, label: 'Unmatched', tone: 'fallback'},
             ];
         case 'extractor':
             return [
-                { id: 'valid', label: 'Valid', tone: 'flow' },
-                { id: 'invalid', label: 'Incomplete', tone: 'fallback' },
-                { id: 'error', label: 'Error', tone: 'error' },
+                {id: 'valid', label: 'Valid', tone: 'flow'},
+                {id: 'invalid', label: 'Incomplete', tone: 'fallback'},
+                {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'processor':
             return [
-                { id: 'done', label: 'Done', tone: 'flow' },
-                { id: 'review', label: 'Needs review', tone: 'fallback' },
-                { id: 'error', label: 'Error', tone: 'error' },
+                {id: 'done', label: 'Done', tone: 'flow'},
+                {id: 'review', label: 'Needs review', tone: 'fallback'},
+                {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'terminal':
             return [];
@@ -237,7 +237,7 @@ export interface Slot {
 }
 
 /** Every run starts holding this one slot, put there by its trigger. */
-export const EMAIL_SLOT: Slot = { name: 'email', type: { kind: 'email' } };
+export const EMAIL_SLOT: Slot = {name: 'email', type: {kind: 'email'}};
 
 /** A slot name a prompt, a template or a person can write without quoting it. */
 export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -297,12 +297,12 @@ export function provides(node: FlowNode, port: string): Slot[] {
         case 'extractor':
             // Only Valid promises the data: Incomplete may have left fields out.
             return port === 'valid'
-                ? [{ name: node.config.output, type: { kind: 'json', schema: node.config.schema } }]
+                ? [{name: node.config.output, type: {kind: 'json', schema: node.config.schema}}]
                 : [];
         case 'processor':
             // Needs review may stop short of the result, so only Done promises it.
             return port === 'done' && node.config.output
-                ? [{ name: node.config.output, type: { kind: 'json', schema: node.config.schema } }]
+                ? [{name: node.config.output, type: {kind: 'json', schema: node.config.schema}}]
                 : [];
         default:
             return [];
@@ -419,7 +419,7 @@ export function checkSlots(flow: Flow): SlotCheck {
             });
         }
     }
-    return { available: arriving, issues };
+    return {available: arriving, issues};
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────
@@ -457,15 +457,15 @@ export function startingModel(
 ): Omit<ModelChoice, 'enabled'> {
     const first = offered?.[0];
     // Claude takes every model no other agent claims, so any such model is Claude's.
-    if (!first || !isAgyModel(first.value)) return { model: DEFAULT_MODEL, effort };
+    if (!first || !isAgyModel(first.value)) return {model: DEFAULT_MODEL, effort};
     const levels = first.effortLevels;
-    if (levels.includes(effort)) return { model: first.value, effort };
-    return { model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : '' };
+    if (levels.includes(effort)) return {model: first.value, effort};
+    return {model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : ''};
 }
 
 /** A node's defaults. `offered` is the agents' model list, which picks the model its steps start on. */
 export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] | null): NodeConfig {
-    const models = (effort: string): ModelChoice[] => [{ ...startingModel(offered, effort), enabled: true }];
+    const models = (effort: string): ModelChoice[] => [{...startingModel(offered, effort), enabled: true}];
     switch (kind) {
         case 'trigger.outlook':
             return {
@@ -481,8 +481,8 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
             return {
                 kind,
                 categories: [
-                    { id: 'a', label: 'Category A', description: 'Describe the emails that belong here.' },
-                    { id: 'b', label: 'Category B', description: 'Describe the emails that belong here.' },
+                    {id: 'a', label: 'Category A', description: 'Describe the emails that belong here.'},
+                    {id: 'b', label: 'Category B', description: 'Describe the emails that belong here.'},
                 ],
                 models: models(''),
                 includeBody: true,
@@ -517,7 +517,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 readEmail: true,
                 inputs: [],
                 output: '',
-                schema: { type: 'object', properties: {} },
+                schema: {type: 'object', properties: {}},
                 models: models('high'),
                 allowDraftReply: false,
                 allowMoveEmail: false,
@@ -526,7 +526,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 mcpTools: [],
             };
         case 'terminal':
-            return { kind, disposition: 'done' };
+            return {kind, disposition: 'done'};
     }
 }
 
@@ -592,7 +592,7 @@ export function makeNode(
     position: { x: number; y: number },
     offered?: readonly OfferedModel[] | null,
 ): FlowNode {
-    return { id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind, offered) };
+    return {id, kind, name: defaultNodeName(kind), position, config: defaultConfig(kind, offered)};
 }
 
 /** Enough tail to tell two of a kind apart without becoming the name itself. */
@@ -618,7 +618,7 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
     const kept = flow.edges.filter((e) => !(e.source === source && e.sourceHandle === sourceHandle));
     return {
         ...flow,
-        edges: [...kept, { id: edgeId(source, sourceHandle, target), source, sourceHandle, target }],
+        edges: [...kept, {id: edgeId(source, sourceHandle, target), source, sourceHandle, target}],
     };
 }
 
@@ -636,21 +636,21 @@ export function retickSkill(flow: Flow, before: string, after: string): Flow {
         // Through a Set: a node ticking both libraries' copies would otherwise
         // end up ticking the survivor twice.
         const skills = [...new Set(config.skills.map((s) => (s === before ? after : s)))];
-        return { ...node, config: { ...config, skills } };
+        return {...node, config: {...config, skills}};
     });
-    return changed ? { ...flow, nodes } : flow;
+    return changed ? {...flow, nodes} : flow;
 }
 
 /** Whether any node in the flow ticks this skill. */
 export function ticksSkill(flow: Flow, ref: string): boolean {
     return flow.nodes.some(
-        ({ config }) => (config.kind === 'processor' || config.kind === 'extractor') && config.skills.includes(ref),
+        ({config}) => (config.kind === 'processor' || config.kind === 'extractor') && config.skills.includes(ref),
     );
 }
 
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
-    return { id, name, nodes: [], edges: [], updatedAt: new Date().toISOString() };
+    return {id, name, nodes: [], edges: [], updatedAt: new Date().toISOString()};
 }
 
 // ── Reading a flow the app did not write ─────────────────────────────────
@@ -679,7 +679,7 @@ const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =
 
 /** One of a node's models. */
 function modelChoice(from: Json): ModelChoice {
-    return { model: str(from.model, ''), effort: str(from.effort, ''), enabled: bool(from.enabled, true) };
+    return {model: str(from.model, ''), effort: str(from.effort, ''), enabled: bool(from.enabled, true)};
 }
 
 /**
@@ -694,7 +694,7 @@ function modelsOf(value: unknown, base: ModelChoice[]): ModelChoice[] {
     if (models.length === 0) return base;
     return models.some((choice) => choice.enabled)
         ? models
-        : models.map((choice, i) => (i === 0 ? { ...choice, enabled: true } : choice));
+        : models.map((choice, i) => (i === 0 ? {...choice, enabled: true} : choice));
 }
 
 /** Every field replaced by its default unless the file supplies the right type. */
@@ -722,7 +722,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                     let id = wanted;
                     for (let n = 2; taken.has(id); n++) id = `${wanted}-${n}`;
                     taken.add(id);
-                    return { id, label: str(c.label, ''), description: str(c.description, '') };
+                    return {id, label: str(c.label, ''), description: str(c.description, '')};
                 });
             return {
                 ...base,
@@ -795,7 +795,7 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
                     name: str(n.name, '') || defaultNodeName(kind),
                     // Laid out in a row when the file carries no coordinates, so a
                     // flow written by hand still opens as something readable.
-                    position: { x: num(position.x, 80 + i * 260), y: num(position.y, 200) },
+                    position: {x: num(position.x, 80 + i * 260), y: num(position.y, 200)},
                     config: parseConfig(kind, n.config),
                 },
             ];
@@ -816,7 +816,7 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
             const id = str(e.id, '') || edgeId(source, sourceHandle, target);
             if (takenEdges.has(id)) return [];
             takenEdges.add(id);
-            return [{ id, source, sourceHandle, target }];
+            return [{id, source, sourceHandle, target}];
         },
     );
 

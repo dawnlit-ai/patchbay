@@ -29,7 +29,7 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
         account: config?.account ?? '',
         folders: config?.folders ?? [''],
     };
-    const { account } = scope;
+    const {account} = scope;
     const mailbox = JSON.stringify(scope);
     /** Names one read exactly; a read is still under way until a result carries it. */
     const read = JSON.stringify([scope, days, limit]);
@@ -50,7 +50,7 @@ export function useRecentMail(trigger: FlowNode | undefined, days: number, limit
         let cancelled = false;
         window.api.outlook.recent(scope, days, limit).then(
             (emails) => {
-                if (!cancelled) setResult({ read, mailbox, emails, error: null });
+                if (!cancelled) setResult({read, mailbox, emails, error: null});
             },
             (e: Error) => {
                 if (cancelled) return;

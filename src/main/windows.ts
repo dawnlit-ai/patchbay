@@ -94,7 +94,7 @@ function load(win: BrowserWindow, hash: string): void {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
         void win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#${hash}`);
     } else {
-        void win.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`), { hash });
+        void win.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`), {hash});
     }
 }
 
@@ -142,7 +142,7 @@ export function showWelcome(): void {
         return;
     }
     // Sized for a list, not a canvas.
-    welcome = make({ width: 940, height: 640, minWidth: 760, minHeight: 520, maximizable: false });
+    welcome = make({width: 940, height: 640, minWidth: 760, minHeight: 520, maximizable: false});
     welcome.on('closed', () => {
         welcome = null;
     });
@@ -155,7 +155,7 @@ export function showSettings(): void {
         raise(settings);
         return;
     }
-    settings = make({ width: 820, height: 600, minWidth: 700, minHeight: 480, maximizable: false });
+    settings = make({width: 820, height: 600, minWidth: 700, minHeight: 480, maximizable: false});
     settings.on('closed', () => {
         settings = null;
     });
@@ -180,8 +180,8 @@ export function openFlow(flowId: string, where: OpenWhere = 'current'): void {
     } else {
         // `beside` reads the canvas in front, so it is asked before the new one
         // takes that place.
-        const win = make(beside({ width: 1560, height: 980, minWidth: 1100, minHeight: 700 }));
-        track({ win, flowId });
+        const win = make(beside({width: 1560, height: 980, minWidth: 1100, minHeight: 700}));
+        track({win, flowId});
         load(win, `flow=${encodeURIComponent(flowId)}`);
     }
     // Closed after the canvas exists, so the app is never momentarily windowless —

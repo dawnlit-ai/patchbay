@@ -10,10 +10,10 @@ import { time } from '../format';
 
 /** The quietest level each choice shows. */
 const LEVEL_CHOICES: { level: LogLevel; label: string }[] = [
-    { level: 'debug', label: 'Everything' },
-    { level: 'info', label: 'Info and up' },
-    { level: 'warn', label: 'Warnings and errors' },
-    { level: 'error', label: 'Errors only' },
+    {level: 'debug', label: 'Everything'},
+    {level: 'info', label: 'Info and up'},
+    {level: 'warn', label: 'Warnings and errors'},
+    {level: 'error', label: 'Errors only'},
 ];
 
 /**
@@ -26,17 +26,18 @@ export interface ConsoleView {
     filter: string;
 }
 
-export const DEFAULT_CONSOLE_VIEW: ConsoleView = { minLevel: 'info', source: '', filter: '' };
+export const DEFAULT_CONSOLE_VIEW: ConsoleView = {minLevel: 'info', source: '', filter: ''};
 
 /** Within this many pixels of the end counts as reading the newest lines. */
 const STICK_PX = 24;
 
-function LogRow({ entry, onOpenRun }: { entry: LogEntry; onOpenRun(runId: string): void }): JSX.Element {
+function LogRow({entry, onOpenRun}: { entry: LogEntry; onOpenRun(runId: string): void }): JSX.Element {
     const [open, setOpen] = useState(false);
     const expandable = Boolean(entry.detail);
     return (
         <div className={`log-row level-${entry.level}`}>
-            <div className={`head${expandable ? ' expandable' : ''}`} onClick={() => expandable && setOpen(!open)}>
+            <div className={`head${expandable ? ' expandable' : ''}`}
+                 onClick={() => expandable && setOpen(!open)}>
                 <span className="at">{time(entry.at)}</span>
                 <span className="level">{entry.level}</span>
                 <span className="source">{entry.source}</span>
@@ -75,8 +76,8 @@ interface Props {
     onOpenRun(runId: string): void;
 }
 
-export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenRun }: Props): JSX.Element {
-    const { minLevel, source, filter } = view;
+export function ConsolePanel({entries, view, onView, onClear, onReveal, onOpenRun}: Props): JSX.Element {
+    const {minLevel, source, filter} = view;
     const scroller = useRef<HTMLDivElement>(null);
     /** Read on scroll rather than on render: by render time the new line has moved the end. */
     const following = useRef(true);
@@ -104,7 +105,7 @@ export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenR
                 <select
                     className="compact"
                     value={minLevel}
-                    onChange={(e) => onView({ ...view, minLevel: e.target.value as LogLevel })}
+                    onChange={(e) => onView({...view, minLevel: e.target.value as LogLevel})}
                 >
                     {LEVEL_CHOICES.map((c) => (
                         <option key={c.level} value={c.level}>
@@ -115,7 +116,7 @@ export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenR
                 <select
                     className="compact"
                     value={source}
-                    onChange={(e) => onView({ ...view, source: e.target.value as LogSource | '' })}
+                    onChange={(e) => onView({...view, source: e.target.value as LogSource | ''})}
                 >
                     <option value="">All sources</option>
                     {LOG_SOURCES.map((s) => (
@@ -128,7 +129,7 @@ export function ConsolePanel({ entries, view, onView, onClear, onReveal, onOpenR
                     className="compact"
                     placeholder="Filter"
                     value={filter}
-                    onChange={(e) => onView({ ...view, filter: e.target.value })}
+                    onChange={(e) => onView({...view, filter: e.target.value})}
                 />
                 <span className="spacer"/>
                 <button className="ghost" onClick={onReveal} title="Open the folder of daily log files">

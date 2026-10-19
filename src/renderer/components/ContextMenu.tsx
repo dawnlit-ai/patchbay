@@ -27,7 +27,7 @@ interface Props {
     onClose(): void;
 }
 
-export function ContextMenu({ x, y, items, label, onClose }: Props): JSX.Element {
+export function ContextMenu({x, y, items, label, onClose}: Props): JSX.Element {
     const menu = useRef<HTMLDivElement>(null);
     const buttons = useRef(new Map<number, HTMLButtonElement>());
     const [at, setAt] = useState<{ left: number; top: number } | null>(null);
@@ -90,7 +90,7 @@ export function ContextMenu({ x, y, items, label, onClose }: Props): JSX.Element
                 className="menu"
                 role="menu"
                 aria-label={label}
-                style={{ left: at?.left ?? x, top: at?.top ?? y, visibility: at ? 'visible' : 'hidden' }}
+                style={{left: at?.left ?? x, top: at?.top ?? y, visibility: at ? 'visible' : 'hidden'}}
                 onMouseDown={(e) => e.stopPropagation()}
             >
                 {items.map((item, index) => (

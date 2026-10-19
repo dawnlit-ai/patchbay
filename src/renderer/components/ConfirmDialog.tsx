@@ -15,7 +15,7 @@ interface Props extends Question {
     onConfirm(): void;
 }
 
-export function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm }: Props): JSX.Element {
+export function ConfirmDialog({title, message, confirmLabel, onCancel, onConfirm}: Props): JSX.Element {
     const cancel = useRef<HTMLButtonElement>(null);
 
     // Cancel takes the focus, not the confirm: these questions guard something

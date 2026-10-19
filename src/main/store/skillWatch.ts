@@ -38,10 +38,10 @@ function changed(): void {
 function roots(): Root[] {
     const everything = (): boolean => true;
     return [
-        ...getSettings().globalSkillFolders.map((path) => ({ path, concerns: everything })),
-        { path: globalSkillsDir(), concerns: everything },
-        { path: flowsDir(), concerns: (file: string) => file.split(/[\\/]/).includes('.claude') },
-        ...openedFlowSkillDirs().map((path) => ({ path, concerns: everything })),
+        ...getSettings().globalSkillFolders.map((path) => ({path, concerns: everything})),
+        {path: globalSkillsDir(), concerns: everything},
+        {path: flowsDir(), concerns: (file: string) => file.split(/[\\/]/).includes('.claude')},
+        ...openedFlowSkillDirs().map((path) => ({path, concerns: everything})),
     ];
 }
 
@@ -64,11 +64,11 @@ export function rewatch(): void {
         watcher.close();
         watchers.delete(path);
     }
-    for (const { path, concerns } of wanted) {
+    for (const {path, concerns} of wanted) {
         if (watchers.has(path) || !existsSync(path)) continue;
         try {
             // Not persistent: a watch is no reason to keep the process alive.
-            const watcher = watch(path, { recursive: true, persistent: false }, (_event, file) => {
+            const watcher = watch(path, {recursive: true, persistent: false}, (_event, file) => {
                 // Some platforms leave the name out; a spare re-read is harmless.
                 if (!file || concerns(file)) changed();
             });

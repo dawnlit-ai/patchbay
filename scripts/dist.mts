@@ -25,7 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..');
-const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
+const {version} = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
 const nightly = version.includes('-nightly');
 
 const os = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'osx' : null;
@@ -55,7 +55,7 @@ function vpk(args: string[], allowFailure = false): void {
     const tool = process.env.VPK ?? 'vpk';
     const [command, ...rest] = tool.endsWith('.dll') ? ['dotnet', tool] : [tool];
     // Without a console of its own, vpk draws no progress bars into the log.
-    const result = spawnSync(command!, [...rest, '--legacyConsole', ...args], { stdio: 'inherit' });
+    const result = spawnSync(command!, [...rest, '--legacyConsole', ...args], {stdio: 'inherit'});
     if (result.status === 0) return;
     if (allowFailure) return;
     throw new Error(`vpk ${args[0]} failed${result.error ? `: ${result.error.message}` : ''}.`);

@@ -50,15 +50,15 @@ export function listRuns(limit: number): RunSummary[] {
 }
 
 export function clearRuns(): void {
-    rmSync(runsDir(), { recursive: true, force: true });
-    mkdirSync(runsDir(), { recursive: true });
+    rmSync(runsDir(), {recursive: true, force: true});
+    mkdirSync(runsDir(), {recursive: true});
 }
 
 /** One run gone: its trace, its saved files and its line in the index. The caller makes sure it is not under way. */
 export function removeRun(id: string): void {
     if (!isRunId(id)) throw new Error(`No run with id "${id}".`);
-    rmSync(runFile(id), { force: true });
-    rmSync(runScratchDir(id), { recursive: true, force: true });
+    rmSync(runFile(id), {force: true});
+    rmSync(runScratchDir(id), {recursive: true, force: true});
     const file = runIndexFile();
     if (!existsSync(file)) return;
     const kept = readFileSync(file, 'utf8')

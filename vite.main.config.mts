@@ -4,7 +4,7 @@ import { alias } from './vite.shared.mjs';
 // Not bundled: the Agent SDK and outlook-bridge find files relative to their own
 // package, and electron comes from the runtime.
 export default defineConfig({
-    resolve: { alias },
+    resolve: {alias},
     build: {
         rollupOptions: {
             external: [

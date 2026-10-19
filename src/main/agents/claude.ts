@@ -49,7 +49,7 @@ let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | nul
 
 /** Asks the CLI something about itself, in a session that never runs a turn. */
 async function askIdle<T>(exe: string, ask: (q: Query) => Promise<T>): Promise<T> {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const {query} = await import('@anthropic-ai/claude-agent-sdk');
 
     // A prompt stream that never yields: the CLI answers control requests and is
     // closed before it runs anything, so asking costs nothing.
@@ -102,7 +102,7 @@ function listModels(exe: string | null): Promise<ModelOption[]> {
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {
         return modelsAsked.list;
     }
-    const asked = { exe, at: Date.now(), list: askForModels(exe) };
+    const asked = {exe, at: Date.now(), list: askForModels(exe)};
     modelsAsked = asked;
     // A failure is not kept: once Claude Code is installed or logged in, the next
     // ask should find out.
@@ -126,7 +126,7 @@ function within<T>(promise: Promise<T>, what: string): Promise<T> {
 /** "2.1.288" from `claude --version`'s "2.1.288 (Claude Code)". */
 async function versionOf(exe: string): Promise<string | null> {
     try {
-        const { stdout } = await promisify(execFile)(exe, ['--version'], { timeout: STATUS_TIMEOUT_MS });
+        const {stdout} = await promisify(execFile)(exe, ['--version'], {timeout: STATUS_TIMEOUT_MS});
         return stdout.trim().split(/\s+/)[0] || null;
     } catch {
         return null;
@@ -165,15 +165,15 @@ function planUsage(usage: SDKControlGetUsageResponse | null): UsageWindow[] {
 
 /** The binary a run would start, its version, whether it is signed in, and its plan's usage — asked as a run would. */
 async function claudeStatus(exe: string | null): Promise<AgentStatus> {
-    const base = { id: 'claude', name: 'Claude Code', executable: exe ?? '' };
-    if (!exe) return { ...base, version: null, ready: false, detail: NOT_INSTALLED, usage: [] };
+    const base = {id: 'claude', name: 'Claude Code', executable: exe ?? ''};
+    if (!exe) return {...base, version: null, ready: false, detail: NOT_INSTALLED, usage: []};
     const asked = askIdle(exe, async (q) => {
         const account = await q.accountInfo();
         // Experimental in the SDK, so a CLI that cannot answer it just shows no usage.
         const usage = signedInAs(account)
-            ? await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).catch(() => null)
+            ? await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({skipBehaviors: true}).catch(() => null)
             : null;
-        return { account, usage };
+        return {account, usage};
     });
     const [version, answer] = await Promise.all([
         versionOf(exe),
@@ -228,18 +228,18 @@ interface LooseStreamEvent {
 function liveBlock(block: LooseBlock | undefined): LiveText | null {
     switch (block?.type) {
         case 'text':
-            return { type: 'assistant', label: '', text: '' };
+            return {type: 'assistant', label: '', text: ''};
         case 'thinking':
-            return { type: 'thinking', label: 'thinking', text: '' };
+            return {type: 'thinking', label: 'thinking', text: ''};
         case 'tool_use':
-            return { type: 'tool-call', label: block.name ?? 'tool', text: '' };
+            return {type: 'tool-call', label: block.name ?? 'tool', text: ''};
         default:
             return null;
     }
 }
 
 function renderToolResult(block: LooseBlock): string {
-    const { content } = block;
+    const {content} = block;
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) {
         return content
@@ -269,11 +269,11 @@ interface Attempt {
 async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
     const exe = resolveClaudePath(host.claudeExecutable());
     // Unavailable rather than failed: a fallback on another agent can still take the step.
-    if (!exe) return { ...settle(request, { error: NOT_INSTALLED, acted: false }), unavailable: NOT_INSTALLED };
+    if (!exe) return {...settle(request, {error: NOT_INSTALLED, acted: false}), unavailable: NOT_INSTALLED};
 
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const {query} = await import('@anthropic-ai/claude-agent-sdk');
 
     /** Tool name by tool_use id, so a result can name the call it answers. */
     const toolNames = new Map<string, string>();
@@ -296,12 +296,12 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         pathToClaudeCodeExecutable: exe,
         stderr: (data) => {
             const line = data.trim();
-            if (line) request.onEvent({ at: now(), type: 'error', label: 'claude stderr', detail: line });
+            if (line) request.onEvent({at: now(), type: 'error', label: 'claude stderr', detail: line});
         },
     };
 
     if (request.skillPlugins?.length) {
-        options.plugins = request.skillPlugins.map((path) => ({ type: 'local', path, skipMcpDiscovery: true }));
+        options.plugins = request.skillPlugins.map((path) => ({type: 'local', path, skipMcpDiscovery: true}));
     }
     if (request.additionalDirectories?.length) {
         options.additionalDirectories = request.additionalDirectories;
@@ -312,10 +312,10 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     // came from the CLI's own list for the model.
     if (request.effort) options.effort = request.effort as Options['effort'];
     if (request.skills && request.skills.length > 0) options.skills = request.skills;
-    if (request.jsonSchema) options.outputFormat = { type: 'json_schema', schema: request.jsonSchema };
+    if (request.jsonSchema) options.outputFormat = {type: 'json_schema', schema: request.jsonSchema};
     if (request.signal) {
         const controller = new AbortController();
-        request.signal.addEventListener('abort', () => controller.abort(), { once: true });
+        request.signal.addEventListener('abort', () => controller.abort(), {once: true});
         options.abortController = controller;
     }
 
@@ -332,7 +332,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         let acted = false;
         let live = null as LiveText | null;
         try {
-            for await (const message of query({ prompt: request.prompt, options })) {
+            for await (const message of query({prompt: request.prompt, options})) {
                 if (message.type === 'stream_event') {
                     // A subagent's blocks would interleave with this run's own.
                     if (message.parent_tool_use_id) continue;
@@ -340,11 +340,11 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
                     if (event.type === 'content_block_start') {
                         live = liveBlock(event.content_block);
                     } else if (event.type === 'content_block_delta' && live) {
-                        const { delta } = event;
+                        const {delta} = event;
                         // A thinking block's signature arrives as a delta too, with none of these.
                         const more = delta?.text ?? delta?.thinking ?? delta?.partial_json;
                         if (!more) continue;
-                        live = { ...live, text: live.text + more };
+                        live = {...live, text: live.text + more};
                         request.onLive?.(live);
                     } else if (event.type === 'content_block_stop' && live) {
                         // The whole block follows as an assistant message.
@@ -379,7 +379,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
                                 detail: block.text
                             });
                         } else if (block.type === 'thinking' && block.thinking?.trim()) {
-                            request.onEvent({ at: now(), type: 'thinking', label: 'thinking', detail: block.thinking });
+                            request.onEvent({at: now(), type: 'thinking', label: 'thinking', detail: block.thinking});
                         } else if (block.type === 'tool_use') {
                             const name = block.name ?? 'tool';
                             // The answering result quotes this call's id, so the pair can be
@@ -426,14 +426,14 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         }
         // A block cut off mid-way never arrives whole.
         if (live) request.onLive?.(null);
-        return { structured, error, acted };
+        return {structured, error, acted};
     };
 
     for (; ;) {
         const held = usageHeldUntil();
         if (held && request.waitOutLimit === false) {
             const unavailable = `Claude is at its usage limit until ${clock(held)}`;
-            return { ...settle(request, { error: unavailable, acted: false }), unavailable };
+            return {...settle(request, {error: unavailable, acted: false}), unavailable};
         }
         if (held) {
             request.onEvent({
@@ -470,20 +470,20 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
                 unavailable: `Claude hit its usage limit, which lifts at ${clock(limit.until)}`
             };
         }
-        request.onEvent({ at: now(), type: 'error', label: result.error ?? 'usage limit' });
+        request.onEvent({at: now(), type: 'error', label: result.error ?? 'usage limit'});
     }
 }
 
-function settle(request: AgentRunRequest, { structured, error }: Attempt): AgentRunResult {
+function settle(request: AgentRunRequest, {structured, error}: Attempt): AgentRunResult {
     // No structured output means the question went unanswered, whatever text came
     // back with it.
     if (!error && request.jsonSchema && structured === undefined) {
         error = 'Claude returned no structured output for the requested schema.';
     }
 
-    if (error) request.onEvent({ at: now(), type: 'error', label: error });
+    if (error) request.onEvent({at: now(), type: 'error', label: error});
 
-    return { ok: !error, structured, error };
+    return {ok: !error, structured, error};
 }
 
 /** Claude takes any model another backend does not claim: its aliases carry no prefix. */

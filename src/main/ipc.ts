@@ -103,7 +103,7 @@ function handleWrite<T extends unknown[], R>(
 
 /** A write that changes which flows exist or where one lives. */
 function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
-    handleWrite({ flows: true, skills: false }, channel, fn);
+    handleWrite({flows: true, skills: false}, channel, fn);
 }
 
 /**
@@ -114,7 +114,7 @@ function handleCanvasSave(): void {
     const known = new Set<number>();
     const save = readable((writer: string, flow: Flow) => flowStore.saveFlowFrom(writer, flow));
     ipcMain.handle(IPC.flowsSave, (event, flow: Flow) => {
-        const { id } = event.sender;
+        const {id} = event.sender;
         if (!known.has(id)) {
             known.add(id);
             event.sender.once('destroyed', () => {
@@ -160,8 +160,8 @@ function flowLocationOffered(): string {
 }
 
 const FLOW_FILTERS = [
-    { name: 'Patchbay flow', extensions: ['json'] },
-    { name: 'All files', extensions: ['*'] },
+    {name: 'Patchbay flow', extensions: ['json']},
+    {name: 'All files', extensions: ['*']},
 ];
 
 export function registerIpc(): void {
@@ -192,12 +192,12 @@ export function registerIpc(): void {
     });
     handleFlowWrite(IPC.flowsCreate, (name: string, location: string) => {
         const flow = flowStore.createFlow(name, location);
-        saveSettings({ ...getSettings(), flowLocation: location });
+        saveSettings({...getSettings(), flowLocation: location});
         return flow;
     });
     handleFlowWrite(IPC.flowsDuplicate, (source: Flow, name: string, location: string) => {
         const copy = flowStore.duplicateFlow(source, name, location);
-        saveSettings({ ...getSettings(), flowLocation: location });
+        saveSettings({...getSettings(), flowLocation: location});
         return copy;
     });
     handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
@@ -216,7 +216,7 @@ export function registerIpc(): void {
         return flowStore.setFlowFolder(id, folder);
     });
     handle(IPC.flowsReveal, async (id: string) => {
-        const { file, inPlace } = flowStore.flowLocation(id);
+        const {file, inPlace} = flowStore.flowLocation(id);
         // A folder opened in place may hold more than this flow, so the file is picked out in it.
         if (inPlace) shell.showItemInFolder(file);
         else await shell.openPath(dirname(file));
@@ -236,12 +236,12 @@ export function registerIpc(): void {
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token, skill folders and flow location: a panel opened before a
         // regeneration, a folder change or a new flow would send the old ones back.
-        const { globalSkillFolders, agentControl, flowLocation, updateChannel } = getSettings();
+        const {globalSkillFolders, agentControl, flowLocation, updateChannel} = getSettings();
         const saved = saveSettings({
             ...settings,
             globalSkillFolders,
             flowLocation,
-            agentControl: { ...settings.agentControl, token: agentControl.token },
+            agentControl: {...settings.agentControl, token: agentControl.token},
         });
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
@@ -273,7 +273,7 @@ export function registerIpc(): void {
 
     // Skills are edited in other apps, so main watches their folders and every
     // window re-reads its list on a change, whoever made it.
-    watchSkills(() => broadcast(IPC.evtWorkspaceChanged, { flows: false, skills: true }));
+    watchSkills(() => broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: true}));
     handle(IPC.skillsList, (flowId: string) => {
         rewatch();
         return skillStore.listAllSkills(flowId);
@@ -299,7 +299,7 @@ export function registerIpc(): void {
                 scope === 'global'
                     ? 'Choose SKILL.md files to add to every flow'
                     : 'Choose SKILL.md files to add to this flow',
-            filters: [{ name: 'Skills', extensions: ['md'] }],
+            filters: [{name: 'Skills', extensions: ['md']}],
             properties: ['openFile', 'multiSelections'],
         });
         if (picked.canceled || picked.filePaths.length === 0) return null;
@@ -310,7 +310,7 @@ export function registerIpc(): void {
         return skillStore.globalShelf();
     });
     // Every flow's global skills change at once, so every window re-reads them.
-    handleWrite({ flows: false, skills: true }, IPC.skillsSetFolders, (paths: string[]) => {
+    handleWrite({flows: false, skills: true}, IPC.skillsSetFolders, (paths: string[]) => {
         const shelf = skillStore.setGlobalFolders(paths);
         rewatch();
         return shelf;

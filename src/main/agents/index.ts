@@ -45,18 +45,18 @@ export function createAgents(host: AgentHost): Agents {
      * last one is always asked, and waits out a limit rather than handing it on.
      * One whose agent is switched off is never asked.
      */
-    const run = async ({ fallbacks = [], ...step }: AgentRunRequest): Promise<AgentRunResult> => {
+    const run = async ({fallbacks = [], ...step}: AgentRunRequest): Promise<AgentRunResult> => {
         const later = [...fallbacks];
-        let choice: { model: string; effort?: string } = { model: step.model, effort: step.effort };
+        let choice: { model: string; effort?: string } = {model: step.model, effort: step.effort};
         for (; ;) {
             const next = later.shift();
             const backend = backendFor(choice.model);
             const held = next ? backend.heldUntil(choice.model) : 0;
             const result: AgentRunResult = !switchedOn(backend)
-                ? { ok: false, unavailable: `${AGENT_NAMES[backend.id]} is switched off in Settings → Agents` }
+                ? {ok: false, unavailable: `${AGENT_NAMES[backend.id]} is switched off in Settings → Agents`}
                 : held
-                    ? { ok: false, unavailable: `${choice.model} is at its usage limit until ${clock(held)}` }
-                    : await backend.run({ ...step, ...choice, waitOutLimit: !next });
+                    ? {ok: false, unavailable: `${choice.model} is at its usage limit until ${clock(held)}`}
+                    : await backend.run({...step, ...choice, waitOutLimit: !next});
             // A cancelled run goes no further.
             if (result.ok || !next || !result.unavailable || step.signal?.aborted) return result;
             step.onEvent({

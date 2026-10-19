@@ -1,7 +1,7 @@
 {
   "name": "patchbay",
   "productName": "Patchbay",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Wire email-processing flows like a patchbay: drag nodes, connect ports, and watch every email travel a traced path. Outlook in, Claude skills out. Built by Dawnlit.",
   "author": "Dawnlit",

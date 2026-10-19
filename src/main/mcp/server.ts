@@ -24,8 +24,8 @@ const SERVER_NAME = 'patchbay';
 const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
 
 function deny(res: ServerResponse, status: number, message: string): void {
-    res.writeHead(status, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: message }));
+    res.writeHead(status, {'content-type': 'application/json'});
+    res.end(JSON.stringify({error: message}));
 }
 
 /** An agent's input can carry a whole SKILL.md; the console keeps the start of it. */
@@ -42,10 +42,10 @@ function logToolCalls(server: McpServer): void {
             const detail = input === '{}' ? undefined : input.slice(0, MAX_ARGS_CHARS);
             try {
                 const result = await cb(...args);
-                log.info('agent', `Called ${name}`, { detail });
+                log.info('agent', `Called ${name}`, {detail});
                 return result;
             } catch (e) {
-                log.warn('agent', `${name} failed: ${e instanceof Error ? e.message : String(e)}`, { detail });
+                log.warn('agent', `${name} failed: ${e instanceof Error ? e.message : String(e)}`, {detail});
                 throw e;
             }
         });
@@ -110,7 +110,7 @@ export class AgentControl {
         if (!settings.token) {
             saveSettings({
                 ...getSettings(),
-                agentControl: { ...settings, token: randomBytes(24).toString('hex') },
+                agentControl: {...settings, token: randomBytes(24).toString('hex')},
             });
         }
         this.listen(settings.port);
@@ -122,7 +122,7 @@ export class AgentControl {
         const settings = getSettings();
         saveSettings({
             ...settings,
-            agentControl: { ...settings.agentControl, token: randomBytes(24).toString('hex') },
+            agentControl: {...settings.agentControl, token: randomBytes(24).toString('hex')},
         });
         log.info('agent', 'Issued a new token; the old one no longer works');
         this.onStatus();
@@ -174,12 +174,12 @@ export class AgentControl {
 
     private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
         this.lastRequestAt = new Date().toISOString();
-        const { token } = getSettings().agentControl;
+        const {token} = getSettings().agentControl;
         const path = (req.url ?? '/').split('?')[0];
         // A refusal is the one outcome the agent sees and the person does not, so
         // the console gets it too.
         const refuse = (status: number, message: string): void => {
-            const { host = '(none)', origin = '(none)' } = req.headers;
+            const {host = '(none)', origin = '(none)'} = req.headers;
             log.warn('agent', `Refused ${req.method ?? 'a request'} ${path} (${status}): ${message}`, {
                 detail: `from ${req.socket.remoteAddress ?? 'unknown'} · Host ${host} · Origin ${origin}`,
             });
@@ -200,8 +200,8 @@ export class AgentControl {
 
     private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const server = new McpServer(
-            { name: SERVER_NAME, version: app.getVersion() },
-            { instructions: INSTRUCTIONS },
+            {name: SERVER_NAME, version: app.getVersion()},
+            {instructions: INSTRUCTIONS},
         );
         logToolCalls(server);
         registerAgentTools(server, this.host);

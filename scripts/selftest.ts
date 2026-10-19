@@ -44,27 +44,27 @@ function buildFlow(account: string): Flow {
         name: 'Self test',
         updatedAt: new Date().toISOString(),
         nodes: [
-            { id: 'trigger', kind: 'trigger.outlook', name: 'Inbox', position: { x: 0, y: 0 }, config: trigger },
-            { id: 'cat', kind: 'categorizer', name: 'Sort', position: { x: 300, y: 0 }, config: categorizer },
+            {id: 'trigger', kind: 'trigger.outlook', name: 'Inbox', position: {x: 0, y: 0}, config: trigger},
+            {id: 'cat', kind: 'categorizer', name: 'Sort', position: {x: 300, y: 0}, config: categorizer},
             {
                 id: 'end-ok',
                 kind: 'terminal',
                 name: 'Business done',
-                position: { x: 620, y: -60 },
+                position: {x: 620, y: -60},
                 config: doneTerminal
             },
             {
                 id: 'end-bulk',
                 kind: 'terminal',
                 name: 'Bulk parked',
-                position: { x: 620, y: 80 },
+                position: {x: 620, y: 80},
                 config: reviewTerminal
             },
         ],
         edges: [
-            { id: 'e1', source: 'trigger', sourceHandle: 'out', target: 'cat' },
-            { id: 'e2', source: 'cat', sourceHandle: 'cat:business', target: 'end-ok' },
-            { id: 'e3', source: 'cat', sourceHandle: 'cat:bulk', target: 'end-bulk' },
+            {id: 'e1', source: 'trigger', sourceHandle: 'out', target: 'cat'},
+            {id: 'e2', source: 'cat', sourceHandle: 'cat:business', target: 'end-ok'},
+            {id: 'e3', source: 'cat', sourceHandle: 'cat:bulk', target: 'end-bulk'},
             // "unmatched" is deliberately left unconnected, so a run that lands there
             // proves the engine reports a dead end instead of stalling.
         ],

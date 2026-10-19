@@ -13,7 +13,7 @@ export function SettingsWindow(): JSX.Element {
     /** The app's own MCP server, so the panel can show whether it is listening. */
     const [agentControl, setAgentControl] = useState<AgentControlStatus | null>(null);
     const [updates, setUpdates] = useState<UpdateStatus | null>(null);
-    const { error, attempt } = useErrorBanner();
+    const {error, attempt} = useErrorBanner();
     // Nothing here switches the theme, but a switch made in another window has to
     // reach this one, and the hook is what listens for it.
     useTheme();

@@ -44,19 +44,19 @@ function readFlowFile(path: string): Flow | null {
     if (!raw || typeof raw.id !== 'string') return null;
     const flow = parseFlow(raw, raw.id, typeof raw.name === 'string' ? raw.name : 'Untitled flow');
     // Kept as written: it is the version a canvas saves against.
-    return typeof raw.updatedAt === 'string' ? { ...flow, updatedAt: raw.updatedAt } : flow;
+    return typeof raw.updatedAt === 'string' ? {...flow, updatedAt: raw.updatedAt} : flow;
 }
 
 /** Write a flow over its file, keeping whatever else the file holds: one opened in place may carry more than the graph. */
 function writeFlowFile(path: string, flow: Flow): void {
     const raw = readJson<unknown>(path, null);
     const rest = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
-    writeJson(path, { ...rest, ...flow });
+    writeJson(path, {...rest, ...flow});
 }
 
 export function listFlows(): Flow[] {
     return [...flowHomes().values()]
-        .flatMap(({ file }) => readFlowFile(file) ?? [])
+        .flatMap(({file}) => readFlowFile(file) ?? [])
         .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -73,7 +73,7 @@ export function saveFlow(flow: Flow): Flow {
     // against, so two writes landing in one millisecond must not share one.
     const previous = Date.parse(getFlow(flow.id)?.updatedAt ?? '');
     const stamp = Number.isNaN(previous) ? Date.now() : Math.max(Date.now(), previous + 1);
-    const next: Flow = { ...flow, updatedAt: new Date(stamp).toISOString() };
+    const next: Flow = {...flow, updatedAt: new Date(stamp).toISOString()};
     writeFlowFile(flowFile(next.id), next);
     return next;
 }
@@ -97,10 +97,10 @@ export function saveFlowFrom(writer: string, flow: Flow): SaveOutcome {
     lineage.set(writer, mine);
     const key = `${flow.id}@${flow.updatedAt}`;
     const current = getFlow(flow.id);
-    if (!current || current.updatedAt !== (mine.get(key) ?? flow.updatedAt)) return { current };
+    if (!current || current.updatedAt !== (mine.get(key) ?? flow.updatedAt)) return {current};
     const saved = saveFlow(flow);
     mine.set(key, saved.updatedAt);
-    return { saved };
+    return {saved};
 }
 
 /** A window closed: nothing it sent will be resolved again. */
@@ -112,15 +112,15 @@ export function forgetWriter(writer: string): void {
 export function renameFlow(id: string, name: string): Flow {
     const flow = getFlow(id);
     if (!flow) throw new Error('That flow is no longer in the workspace.');
-    return saveFlow({ ...flow, name });
+    return saveFlow({...flow, name});
 }
 
 // ── Where a flow lives ───────────────────────────────────────────────────
 
 export function entryFor(flow: Flow): FlowEntry {
-    const { file, inPlace } = flowHome(flow.id);
+    const {file, inPlace} = flowHome(flow.id);
     const path = dirname(file);
-    return { flow, folder: basename(path), path, file, inPlace };
+    return {flow, folder: basename(path), path, file, inPlace};
 }
 
 export function listFlowEntries(): FlowEntry[] {
@@ -153,7 +153,7 @@ function freeFolder(wanted: string, except?: string, parent = flowsDir()): strin
  * one, it goes in the workspace. Every new and copied flow comes through here.
  */
 function createIn(flow: Flow, location?: string): Flow {
-    const next: Flow = { ...flow, updatedAt: new Date().toISOString() };
+    const next: Flow = {...flow, updatedAt: new Date().toISOString()};
     const folder = toFolderName(flow.name);
     if (location === undefined) {
         writeJson(join(flowDirNamed(freeFolder(folder)), FLOW_FILE), next);
@@ -162,7 +162,7 @@ function createIn(flow: Flow, location?: string): Flow {
     }
     if (!isAbsolute(location)) throw new Error(`"${location}" is not a full path. Choose a folder for the flow.`);
     const parent = resolve(location);
-    mkdirSync(parent, { recursive: true });
+    mkdirSync(parent, {recursive: true});
     // Numbered past anything already there, so a new flow never moves into someone's folder.
     const dir = join(parent, freeFolder(folder, undefined, parent));
     mkdirSync(dir);
@@ -206,10 +206,10 @@ export function createFlow(name: string, location?: string): Flow {
  * they only need to be unique within a flow; watermarks are not.
  */
 export function duplicateFlow(source: Flow, name: string, location: string): Flow {
-    const copy = createIn({ ...source, id: randomUUID(), name }, location);
+    const copy = createIn({...source, id: randomUUID(), name}, location);
     // Read where it is: making it would leave an empty library in a folder opened in place.
     const library = flowSkillsDirAt(source.id);
-    if (existsSync(library)) cpSync(library, flowSkillsDir(copy.id), { recursive: true });
+    if (existsSync(library)) cpSync(library, flowSkillsDir(copy.id), {recursive: true});
     return copy;
 }
 
@@ -223,7 +223,7 @@ export function removeFlow(id: string): void {
     if (home.inPlace) {
         setOpenedFlowFiles(openedFlowFiles().filter((file) => !samePath(file, home.file)));
     } else {
-        rmSync(dirname(home.file), { recursive: true, force: true });
+        rmSync(dirname(home.file), {recursive: true, force: true});
         forgetFlowHomes();
     }
     // One per trigger, keyed `<flowId>:<nodeId>`.
@@ -248,14 +248,14 @@ function bundledSkills(raw: unknown): BundledSkill[] {
     const list = (raw as { skills?: unknown }).skills;
     if (!Array.isArray(list)) return [];
     return list.flatMap((entry): BundledSkill[] => {
-        const { name, scope, content } = (entry ?? {}) as {
+        const {name, scope, content} = (entry ?? {}) as {
             name?: unknown;
             scope?: unknown;
             content?: unknown;
         };
         if (typeof name !== 'string' || typeof content !== 'string') return [];
         if (!isValidSkillName(name)) return [];
-        return [{ name, scope: scope === 'global' ? 'global' : 'flow', content }];
+        return [{name, scope: scope === 'global' ? 'global' : 'flow', content}];
     });
 }
 
@@ -298,9 +298,9 @@ export function openFlowFile(path: string): Flow {
         name: typeof fields.name === 'string' ? fields.name : label.replace(/\.json$/i, '') || 'Opened flow',
         updatedAt: typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString(),
     };
-    const { id } = stamp;
+    const {id} = stamp;
     if (id !== fields.id || stamp.name !== fields.name || stamp.updatedAt !== fields.updatedAt) {
-        writeJson(file, { ...fields, ...stamp });
+        writeJson(file, {...fields, ...stamp});
     }
     setOpenedFlowFiles([file, ...openedFlowFiles().filter((listed) => !samePath(listed, file))]);
 

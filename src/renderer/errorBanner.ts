@@ -24,5 +24,5 @@ export function useErrorBanner(): ErrorBanner {
         }
     }, []);
 
-    return { error, attempt, report };
+    return {error, attempt, report};
 }

@@ -33,11 +33,11 @@ export async function saveWorkbookAsCsv(path: string): Promise<{ sheets: CsvShee
     const stem = basename(path, extname(path));
     const one = workbook.sheets.length === 1;
     const sheets: CsvSheet[] = [];
-    for (const { name, rows } of workbook.sheets) {
+    for (const {name, rows} of workbook.sheets) {
         const file = await writeNew(dirname(path), one ? stem : `${stem} - ${fileSafe(name)}`, '.csv', toCsv(rows));
-        sheets.push({ sheet: name, path: file, rows: rows.filter((row) => row.length > 0).length });
+        sheets.push({sheet: name, path: file, rows: rows.filter((row) => row.length > 0).length});
     }
-    return { sheets, hidden: workbook.hidden };
+    return {sheets, hidden: workbook.hidden};
 }
 
 async function writeNew(dir: string, stem: string, extension: string, content: string): Promise<string> {
@@ -105,7 +105,7 @@ function zipParts(file: Buffer): Parts {
         if (encrypted || local + 30 > file.length || file.readUInt32LE(local) !== 0x04034b50) continue;
         const start = local + 30 + file.readUInt16LE(local + 26) + file.readUInt16LE(local + 28);
         // Part names are case-insensitive in a workbook.
-        entries.set(name.toLowerCase(), { method, start, size, declared });
+        entries.set(name.toLowerCase(), {method, start, size, declared});
     }
 
     return (name) => {
@@ -117,7 +117,7 @@ function zipParts(file: Buffer): Parts {
         if (entry.method !== 8) throw new Error(`${name} is compressed in a way this reader does not know`);
         try {
             // Capped as well, since the size a zip declares is only its say-so.
-            return inflateRawSync(raw, { maxOutputLength: MAX_PART_BYTES }).toString('utf8');
+            return inflateRawSync(raw, {maxOutputLength: MAX_PART_BYTES}).toString('utf8');
         } catch {
             throw new Error(`${name} is damaged or too large to read`);
         }
@@ -132,7 +132,7 @@ const NS = '(?:[\\w.-]+:)?';
 /** Every `tag` element in `xml`: its attributes, and what it holds ('' when it closes itself). */
 function elements(xml: string, tag: string): { attrs: string; inner: string }[] {
     const pattern = new RegExp(`<${NS}${tag}(?=[\\s/>])([^>]*?)(?:/>|>([\\s\\S]*?)</${NS}${tag}>)`, 'g');
-    return Array.from(xml.matchAll(pattern), (m) => ({ attrs: m[1] ?? '', inner: m[2] ?? '' }));
+    return Array.from(xml.matchAll(pattern), (m) => ({attrs: m[1] ?? '', inner: m[2] ?? ''}));
 }
 
 /** `name` may be a pattern, for an attribute whose prefix varies. */
@@ -141,7 +141,7 @@ function attr(attrs: string, name: string): string | undefined {
     return m ? unescapeXml(m[1] ?? m[2] ?? '') : undefined;
 }
 
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const ENTITIES: Record<string, string> = {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'"};
 
 function unescapeXml(text: string): string {
     return text.replace(/&(?:#x([\da-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi, (whole, hex?: string, dec?: string, named?: string) => {
@@ -155,7 +155,7 @@ function unescapeXml(text: string): string {
 function stringText(xml: string): string {
     const runs = xml.replace(new RegExp(`<${NS}rPh\\b[\\s\\S]*?</${NS}rPh>`, 'g'), '');
     return elements(runs, 't')
-        .map(({ inner }) => unescapeXml(inner))
+        .map(({inner}) => unescapeXml(inner))
         .join('')
         .replace(/_x([\da-f]{4})_/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
 }
@@ -179,13 +179,13 @@ function readWorkbook(file: Buffer): { sheets: Sheet[]; hidden: string[] } {
         const target = related.find((r) => r.type.endsWith(type))?.target;
         return target === undefined ? undefined : parts(target);
     };
-    const strings = elements(partOfType('/sharedStrings') ?? '', 'si').map(({ inner }) => stringText(inner));
+    const strings = elements(partOfType('/sharedStrings') ?? '', 'si').map(({inner}) => stringText(inner));
     const formats = cellFormats(partOfType('/styles') ?? '');
     const date1904 = ['1', 'true'].includes(attr(elements(bookXml, 'workbookPr')[0]?.attrs ?? '', 'date1904') ?? '');
 
     const sheets: Sheet[] = [];
     const hidden: string[] = [];
-    for (const { attrs } of elements(bookXml, 'sheet')) {
+    for (const {attrs} of elements(bookXml, 'sheet')) {
         const name = attr(attrs, 'name') ?? '';
         const id = attr(attrs, '[\\w.-]+:id');
         const part = related.find((r) => r.id === id);
@@ -197,16 +197,16 @@ function readWorkbook(file: Buffer): { sheets: Sheet[]; hidden: string[] } {
             continue;
         }
         const xml = parts(part.target);
-        if (xml !== undefined) sheets.push({ name, rows: sheetRows(xml, strings, formats, date1904) });
+        if (xml !== undefined) sheets.push({name, rows: sheetRows(xml, strings, formats, date1904)});
     }
-    return { sheets, hidden };
+    return {sheets, hidden};
 }
 
 /** What a part links to, by its `_rels` file: resolved to part names. */
 function relationships(parts: Parts, part: string): { id: string; type: string; target: string }[] {
     const dir = posix.dirname(part);
     const xml = parts(posix.join(dir, '_rels', `${posix.basename(part)}.rels`)) ?? '';
-    return elements(xml, 'Relationship').flatMap(({ attrs }) => {
+    return elements(xml, 'Relationship').flatMap(({attrs}) => {
         const target = attr(attrs, 'Target');
         if (!target || attr(attrs, 'TargetMode') === 'External') return [];
         return [{
@@ -266,9 +266,9 @@ const isBuiltInDate = (id: number): boolean => (id >= 27 && id <= 36) || (id >= 
 /** Each cell style's number format code, by the style index a cell's `s` gives. */
 function cellFormats(styles: string): string[] {
     const custom = new Map(
-        elements(styles, 'numFmt').map(({ attrs }) => [Number(attr(attrs, 'numFmtId')), attr(attrs, 'formatCode') ?? '']),
+        elements(styles, 'numFmt').map(({attrs}) => [Number(attr(attrs, 'numFmtId')), attr(attrs, 'formatCode') ?? '']),
     );
-    return elements(elements(styles, 'cellXfs')[0]?.inner ?? '', 'xf').map(({ attrs }) => {
+    return elements(elements(styles, 'cellXfs')[0]?.inner ?? '', 'xf').map(({attrs}) => {
         const id = Number(attr(attrs, 'numFmtId') ?? 0);
         return custom.get(id) ?? BUILT_IN_FORMATS[id] ?? (isBuiltInDate(id) ? 'yyyy-mm-dd' : 'General');
     });

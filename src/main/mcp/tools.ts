@@ -109,7 +109,7 @@ get_console is where the app said why: polls, Outlook failures, mail marked seen
 
 // ── Results ──────────────────────────────────────────────────────────────
 
-const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
+const text = (value: string) => ({content: [{type: 'text' as const, text: value}]});
 const json = (value: unknown) => text(JSON.stringify(value, null, 2));
 
 // ── Reading the workspace ────────────────────────────────────────────────
@@ -144,7 +144,7 @@ function describeNode(flow: Flow, node: FlowNode) {
 }
 
 const describeFlow = (flow: Flow) => {
-    const { available, issues } = checkSlots(flow);
+    const {available, issues} = checkSlots(flow);
     return {
         id: flow.id,
         name: flow.name,
@@ -213,8 +213,8 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     const before = requireFlow(flowId);
     const edited = edit(before);
     const flow = flowStore.saveFlow(parseFlow(edited, before.id, before.name));
-    host.changed({ flows: true, skills: false });
-    return { flow, droppedEdges: edited.edges.length - flow.edges.length };
+    host.changed({flows: true, skills: false});
+    return {flow, droppedEdges: edited.edges.length - flow.edges.length};
 }
 
 /** `flowId` is read only for a flow's own library; the global one is shared. */
@@ -250,11 +250,11 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             description:
                 'Every flow in this install, with its id, its size, when it was last written, its file and the directory it lives in — which is the working directory its nodes run in. `inPlace` marks a flow file opened from elsewhere on disk: it is saved where it is, and its folder is the person’s own.',
             inputSchema: {},
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
         () =>
             json(
-                flowStore.listFlowEntries().map(({ flow, folder, path, file, inPlace }) => ({
+                flowStore.listFlowEntries().map(({flow, folder, path, file, inPlace}) => ({
                     id: flow.id,
                     name: flow.name,
                     updatedAt: flow.updatedAt,
@@ -274,10 +274,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'Get a flow',
             description:
                 'One flow in full: every node with its configuration, the output ports that configuration gives it, and what each port is wired to.',
-            inputSchema: { flowId: flowIdArg },
-            annotations: { readOnlyHint: true },
+            inputSchema: {flowId: flowIdArg},
+            annotations: {readOnlyHint: true},
         },
-        ({ flowId }) => json(describeFlow(requireFlow(flowId))),
+        ({flowId}) => json(describeFlow(requireFlow(flowId))),
     );
 
     server.registerTool(
@@ -294,9 +294,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     .describe('Absolute path of the folder to make the flow’s own folder in. Made if missing.'),
             },
         },
-        ({ name, location }) => {
+        ({name, location}) => {
             const flow = flowStore.createFlow(name, location === undefined ? undefined : absoluteDir(location));
-            host.changed({ flows: true, skills: false });
+            host.changed({flows: true, skills: false});
             return json(describeFlow(flow));
         },
     );
@@ -306,9 +306,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Rename a flow',
             description: 'Change what a flow is called. Its id, its graph and its skills are untouched.',
-            inputSchema: { flowId: flowIdArg, name: z.string().min(1) },
+            inputSchema: {flowId: flowIdArg, name: z.string().min(1)},
         },
-        ({ flowId, name }) => json(describeFlow(editFlow(host, flowId, (flow) => ({ ...flow, name })).flow)),
+        ({flowId, name}) => json(describeFlow(editFlow(host, flowId, (flow) => ({...flow, name})).flow)),
     );
 
     server.registerTool(
@@ -317,15 +317,15 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'Delete a flow',
             description:
                 'Delete a flow, the skill library belonging to it and the watcher marks that go with it. A flow opened in place is only taken off the list, its file and folder left as they are. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
-            inputSchema: { flowId: flowIdArg },
-            annotations: { destructiveHint: true, idempotentHint: true },
+            inputSchema: {flowId: flowIdArg},
+            annotations: {destructiveHint: true, idempotentHint: true},
         },
-        ({ flowId }) => {
+        ({flowId}) => {
             const flow = requireFlow(flowId);
-            const { inPlace, file } = flowStore.entryFor(flow);
+            const {inPlace, file} = flowStore.entryFor(flow);
             const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
-            host.changed({ flows: true, skills: true });
+            host.changed({flows: true, skills: true});
             return text(
                 (inPlace
                     ? `Removed "${flow.name}" from the list. Its file is still at ${file}.`
@@ -351,16 +351,16 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 y: z.number().optional(),
             },
         },
-        async ({ flowId, kind, name, x, y }) => {
+        async ({flowId, kind, name, x, y}) => {
             const id = mintNodeId(requireFlow(flowId), kind);
             // An agent that cannot be asked leaves the node on Opus, for update_node to change.
             const offered = await host.modelsOffered?.().catch(() => null);
-            const { flow } = editFlow(host, flowId, (current) => {
+            const {flow} = editFlow(host, flowId, (current) => {
                 // Placed to the right of everything already there, so a flow built
                 // entirely through these tools still opens as something readable.
                 const right = current.nodes.reduce((max, n) => Math.max(max, n.position.x), -180);
-                const node = makeNode(kind, id, { x: x ?? right + 260, y: y ?? 200 }, offered);
-                return { ...current, nodes: [...current.nodes, name ? { ...node, name } : node] };
+                const node = makeNode(kind, id, {x: x ?? right + 260, y: y ?? 200}, offered);
+                return {...current, nodes: [...current.nodes, name ? {...node, name} : node]};
             });
             return json(describeNode(flow, requireNode(flow, id)));
         },
@@ -384,18 +384,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     .describe('Partial node configuration. get_flow shows the shape this kind takes.'),
             },
         },
-        ({ flowId, nodeId, name, x, y, config }) => {
-            const { flow, droppedEdges } = editFlow(host, flowId, (current) => {
+        ({flowId, nodeId, name, x, y, config}) => {
+            const {flow, droppedEdges} = editFlow(host, flowId, (current) => {
                 const node = requireNode(current, nodeId);
                 const next: FlowNode = {
                     ...node,
                     name: name ?? node.name,
-                    position: { x: x ?? node.position.x, y: y ?? node.position.y },
+                    position: {x: x ?? node.position.x, y: y ?? node.position.y},
                     // Unvetted; `parseFlow` repairs it on the way out. `kind` goes
                     // last so a patch cannot change the node's kind.
-                    config: { ...node.config, ...config, kind: node.config.kind } as NodeConfig,
+                    config: {...node.config, ...config, kind: node.config.kind} as NodeConfig,
                 };
-                return { ...current, nodes: current.nodes.map((n) => (n.id === nodeId ? next : n)) };
+                return {...current, nodes: current.nodes.map((n) => (n.id === nodeId ? next : n))};
             });
             return json({
                 node: describeNode(flow, requireNode(flow, nodeId)),
@@ -413,15 +413,15 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Remove a node',
             description: 'Take a node off the canvas, along with every edge into or out of it.',
-            inputSchema: { flowId: flowIdArg, nodeId: z.string() },
-            annotations: { destructiveHint: true, idempotentHint: true },
+            inputSchema: {flowId: flowIdArg, nodeId: z.string()},
+            annotations: {destructiveHint: true, idempotentHint: true},
         },
-        ({ flowId, nodeId }) => {
-            const { flow, droppedEdges } = editFlow(host, flowId, (current) => {
+        ({flowId, nodeId}) => {
+            const {flow, droppedEdges} = editFlow(host, flowId, (current) => {
                 requireNode(current, nodeId);
-                return { ...current, nodes: current.nodes.filter((n) => n.id !== nodeId) };
+                return {...current, nodes: current.nodes.filter((n) => n.id !== nodeId)};
             });
-            return json({ flow: describeFlow(flow), droppedEdges });
+            return json({flow: describeFlow(flow), droppedEdges});
         },
     );
 
@@ -440,8 +440,8 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 to: z.string().describe('Target node id.'),
             },
         },
-        ({ flowId, from, port, to }) => {
-            const { flow } = editFlow(host, flowId, (current) => {
+        ({flowId, from, port, to}) => {
+            const {flow} = editFlow(host, flowId, (current) => {
                 const source = requireNode(current, from);
                 requireNode(current, to);
                 if (from === to) throw new Error('A node cannot connect to itself.');
@@ -462,11 +462,11 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Cut a connection',
             description: 'Remove one edge by id. The nodes it joined stay where they are.',
-            inputSchema: { flowId: flowIdArg, edgeId: z.string() },
-            annotations: { idempotentHint: true },
+            inputSchema: {flowId: flowIdArg, edgeId: z.string()},
+            annotations: {idempotentHint: true},
         },
-        ({ flowId, edgeId }) => {
-            const { flow } = editFlow(host, flowId, (current) => ({
+        ({flowId, edgeId}) => {
+            const {flow} = editFlow(host, flowId, (current) => ({
                 ...current,
                 edges: current.edges.filter((e) => e.id !== edgeId),
             }));
@@ -482,10 +482,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'List skills',
             description:
                 'Both libraries at once — the global shelf and this flow’s own. A Processor or Extractor ticks a global skill as "global:<name>" and one of the flow’s own by its bare name.',
-            inputSchema: { flowId: flowIdArg },
-            annotations: { readOnlyHint: true },
+            inputSchema: {flowId: flowIdArg},
+            annotations: {readOnlyHint: true},
         },
-        ({ flowId }) => json(skillStore.listAllSkills(requireFlow(flowId).id)),
+        ({flowId}) => json(skillStore.listAllSkills(requireFlow(flowId).id)),
     );
 
     server.registerTool(
@@ -493,10 +493,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read a skill',
             description: 'The whole SKILL.md, frontmatter included.',
-            inputSchema: { scope: scopeArg, name: z.string(), flowId: z.string().optional() },
-            annotations: { readOnlyHint: true },
+            inputSchema: {scope: scopeArg, name: z.string(), flowId: z.string().optional()},
+            annotations: {readOnlyHint: true},
         },
-        ({ scope, name, flowId }) => {
+        ({scope, name, flowId}) => {
             const skill = skillStore.getSkill(scope, libraryOf(scope, flowId), name);
             if (!skill) throw new Error(`There is no ${scope} skill "${name}".`);
             return json(skill);
@@ -516,9 +516,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 flowId: z.string().optional(),
             },
         },
-        ({ scope, name, content, flowId }) => {
+        ({scope, name, content, flowId}) => {
             const summary = skillStore.saveSkill(scope, libraryOf(scope, flowId), name, content);
-            host.changed({ flows: false, skills: true });
+            host.changed({flows: false, skills: true});
             const front = skillStore.parseFrontmatter(content);
             return json({
                 ...summary,
@@ -536,12 +536,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'Delete a skill',
             description:
                 'Remove a skill folder. A global one goes for every flow in this install, and any node still ticking it then names a skill that is not there.',
-            inputSchema: { scope: scopeArg, name: z.string(), flowId: z.string().optional() },
-            annotations: { destructiveHint: true, idempotentHint: true },
+            inputSchema: {scope: scopeArg, name: z.string(), flowId: z.string().optional()},
+            annotations: {destructiveHint: true, idempotentHint: true},
         },
-        ({ scope, name, flowId }) => {
+        ({scope, name, flowId}) => {
             skillStore.removeSkill(scope, libraryOf(scope, flowId), name);
-            host.changed({ flows: false, skills: true });
+            host.changed({flows: false, skills: true});
             return text(`Deleted the ${scope} skill "${name}".`);
         },
     );
@@ -566,7 +566,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 flowId: z.string().optional(),
             },
         },
-        ({ scope, dir, names, flowId }) => {
+        ({scope, dir, names, flowId}) => {
             const library = libraryOf(scope, flowId);
             const from = absoluteDir(dir);
             if (existsSync(join(from, 'SKILL.md'))) {
@@ -576,7 +576,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             }
             const before = new Set(skillStore.listSkills(scope, library).map((s) => s.name));
             const imported = skillStore.importSkillsFrom(scope, library, from, names);
-            host.changed({ flows: false, skills: true });
+            host.changed({flows: false, skills: true});
             const missing = names?.filter((name) => !imported.includes(name)) ?? [];
             return json({
                 imported,
@@ -600,10 +600,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 folders: z.array(z.string()).describe('Absolute paths, highest first.'),
             },
         },
-        ({ folders }) => {
+        ({folders}) => {
             const shelf = skillStore.setGlobalFolders(folders.map(absoluteDir));
             rewatch();
-            host.changed({ flows: false, skills: true });
+            host.changed({flows: false, skills: true});
             return json(
                 shelf.map((folder) => ({
                     folder: folder.workspace ? 'app workspace' : folder.path,
@@ -628,9 +628,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 name: z.string(),
                 to: scopeArg.describe('The library it goes to. It comes from the other one.'),
             },
-            annotations: { destructiveHint: true },
+            annotations: {destructiveHint: true},
         },
-        ({ flowId, name, to }) => {
+        ({flowId, name, to}) => {
             const flow = requireFlow(flowId);
             const from: SkillScope = to === 'global' ? 'flow' : 'global';
             const replaced = skillStore.getSkill(to, flow.id, name) !== null;
@@ -640,7 +640,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const after = skillRef(to, name);
             const reticked = retickSkill(flow, before, after);
             if (reticked !== flow) flowStore.saveFlow(reticked);
-            host.changed({ flows: reticked !== flow, skills: true });
+            host.changed({flows: reticked !== flow, skills: true});
 
             // Only a skill leaving the shelf strands anyone: a flow's own library
             // was never tickable from another flow.
@@ -649,7 +649,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     ? flowStore
                         .listFlows()
                         .filter((other) => other.id !== flow.id && ticksSkill(other, before))
-                        .map((other) => ({ id: other.id, name: other.name }))
+                        .map((other) => ({id: other.id, name: other.name}))
                     : [];
             return json({
                 ...moved,
@@ -672,7 +672,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'List Outlook accounts',
             description: 'The accounts the desktop Outlook client on this machine is signed in to.',
             inputSchema: {},
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
         async () => json(await outlook.getAccounts()),
     );
@@ -683,10 +683,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'List mailbox folders',
             description:
                 'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders`, and the Inbox itself is the empty string.',
-            inputSchema: { account: z.string() },
-            annotations: { readOnlyHint: true },
+            inputSchema: {account: z.string()},
+            annotations: {readOnlyHint: true},
         },
-        async ({ account }) => json(await outlook.listFolders(account)),
+        async ({account}) => json(await outlook.listFolders(account)),
     );
 
     server.registerTool(
@@ -705,10 +705,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     ),
                 limit: z.number().int().min(1).max(50).optional(),
             },
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
-        async ({ account, folders, limit }) => {
-            const emails = await outlook.readScope({ account, folders: folders ?? [''] }, LOOKBACK_DAYS, limit ?? 20);
+        async ({account, folders, limit}) => {
+            const emails = await outlook.readScope({account, folders: folders ?? ['']}, LOOKBACK_DAYS, limit ?? 20);
             return json(emails.map(describeEmail));
         },
     );
@@ -722,7 +722,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             description:
                 'Which flows are switched on, which of their triggers are polled, when it last polled and what is running now.',
             inputSchema: {},
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
         () => json(host.watcher().status()),
     );
@@ -733,9 +733,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'Start watching a flow',
             description:
                 'Switch one flow on. Every trigger in it that names a mailbox starts polling it, and mail that arrives starts real runs that cost real money. Refused while polling is off in Settings, and for a flow with no trigger that names a mailbox.',
-            inputSchema: { flowId: flowIdArg },
+            inputSchema: {flowId: flowIdArg},
         },
-        ({ flowId }) => json(host.watcher().start(requireFlow(flowId).id)),
+        ({flowId}) => json(host.watcher().start(requireFlow(flowId).id)),
     );
 
     server.registerTool(
@@ -743,10 +743,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Stop watching a flow',
             description: 'Switch one flow off. A run of it already under way is left to finish.',
-            inputSchema: { flowId: flowIdArg },
-            annotations: { idempotentHint: true },
+            inputSchema: {flowId: flowIdArg},
+            annotations: {idempotentHint: true},
         },
-        ({ flowId }) => json(host.watcher().stop(flowId)),
+        ({flowId}) => json(host.watcher().stop(flowId)),
     );
 
     server.registerTool(
@@ -761,7 +761,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 entryId: z.string().optional().describe('From list_recent_emails.'),
             },
         },
-        async ({ flowId, nodeId, entryId }) => {
+        async ({flowId, nodeId, entryId}) => {
             const flow = requireFlow(flowId);
             const node = flow.nodes.find((n) => n.id === nodeId);
             const config = triggerConfig(node);
@@ -795,10 +795,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'Cancel a run',
             description:
                 'Abort a run under way, keeping its trace up to that point — or take one out of the queue before it starts, which leaves no trace at all.',
-            inputSchema: { runId: z.string() },
-            annotations: { idempotentHint: true },
+            inputSchema: {runId: z.string()},
+            annotations: {idempotentHint: true},
         },
-        ({ runId }) => {
+        ({runId}) => {
             const waiting = host.watcher().queued().find((q) => q.runId === runId);
             switch (host.watcher().cancel(runId)) {
                 case 'stopping':
@@ -828,9 +828,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 limit: z.number().int().min(1).max(200).optional().describe('Finished runs to include. Default 20.'),
                 flowId: z.string().optional().describe('Only runs of this flow.'),
             },
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
-        ({ limit, flowId }) => {
+        ({limit, flowId}) => {
             const wanted = limit ?? 20;
             const mine = (run: { flowId: string }): boolean => !flowId || run.flowId === flowId;
             // Filtered after the walk, so a flow that has not run lately still costs
@@ -865,9 +865,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     .optional()
                     .describe('Default true. False keeps the passes and their outcomes but drops the detail.'),
             },
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
-        ({ runId, includeEvents }) => {
+        ({runId, includeEvents}) => {
             const run = traceStore.getRun(runId);
             if (run) return json(describeRun(run, includeEvents !== false));
             // A queued run has an id before it has a file.
@@ -907,9 +907,9 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 day: z.string().optional().describe('YYYY-MM-DD, local time.'),
                 limit: z.number().int().min(1).max(500).optional().describe('Default 100.'),
             },
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
-        ({ level, source, runId, afterSeq, day, limit }) => {
+        ({level, source, runId, afterSeq, day, limit}) => {
             const floor = LOG_LEVELS.indexOf(level ?? 'info');
             const matching = (day ? logEntriesOn(day) : logEntries()).filter(
                 (entry) =>
@@ -921,7 +921,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const shown = matching.slice(-(limit ?? 100));
             return json({
                 entries: shown.map((entry) =>
-                    entry.detail === undefined ? entry : { ...entry, detail: truncate(entry.detail, MAX_DETAIL_CHARS) },
+                    entry.detail === undefined ? entry : {...entry, detail: truncate(entry.detail, MAX_DETAIL_CHARS)},
                 ),
                 olderNotShown: matching.length - shown.length,
             });
@@ -937,14 +937,14 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             description:
                 'App settings, with the agent-control token withheld. There is no tool that writes these: the Claude and agy executables and the MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
             inputSchema: {},
-            annotations: { readOnlyHint: true },
+            annotations: {readOnlyHint: true},
         },
         () => {
             const settings = getSettings();
             return json({
                 appVersion: app.getVersion(),
                 ...settings,
-                agentControl: { ...settings.agentControl, token: '(withheld)' },
+                agentControl: {...settings.agentControl, token: '(withheld)'},
             });
         },
     );
@@ -955,12 +955,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             title: 'List an MCP server’s tools',
             description:
                 'The tools one of the MCP servers in Settings offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
-            inputSchema: { server: z.string().describe('The server’s name, as get_settings lists it.') },
-            annotations: { readOnlyHint: true },
+            inputSchema: {server: z.string().describe('The server’s name, as get_settings lists it.')},
+            annotations: {readOnlyHint: true},
         },
-        async ({ server: name }) => {
+        async ({server: name}) => {
             const tools = await listServerTools(name);
-            return json(tools.map((t) => ({ ref: `mcp__${name}__${t.name}`, description: t.description })));
+            return json(tools.map((t) => ({ref: `mcp__${name}__${t.name}`, description: t.description})));
         },
     );
 }

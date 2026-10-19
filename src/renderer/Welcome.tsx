@@ -43,7 +43,7 @@ function notWatchedWhy(flow: Flow, status: EngineStatus | null): string {
 }
 
 /** A flow opened in place is only taken off the list: its file and folder are the user's. */
-function removal({ flow, file, inPlace }: FlowEntry): Question {
+function removal({flow, file, inPlace}: FlowEntry): Question {
     return inPlace
         ? {
             title: 'Remove from list',
@@ -61,7 +61,7 @@ function removal({ flow, file, inPlace }: FlowEntry): Question {
  * A flow's path on one line, truncating the parent folders first so its own
  * folder always shows. Hovering shows the whole path in a panel below.
  */
-function Where({ path }: { path: string }): JSX.Element {
+function Where({path}: { path: string }): JSX.Element {
     // The separator stays with the kept half, so a cut path still reads as one.
     const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
     return (
@@ -84,7 +84,7 @@ export function Welcome(): JSX.Element {
     const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
-    const { error, attempt } = useErrorBanner();
+    const {error, attempt} = useErrorBanner();
     const [theme, setTheme] = useTheme();
     const rows = useRef(new Map<string, HTMLDivElement>());
 
@@ -219,21 +219,21 @@ export function Welcome(): JSX.Element {
 
     /** The actions for one flow, shown in its row's context menu. */
     const actions = (entry: FlowEntry): MenuItem[] => [
-        { label: 'Open', onSelect: () => void open(entry.flow) },
+        {label: 'Open', onSelect: () => void open(entry.flow)},
         {
             label: entry.inPlace ? 'Show file in folder' : 'Open folder',
             onSelect: () => void window.api.flows.revealFolder(entry.flow.id),
         },
         status?.flowIds.includes(entry.flow.id) === true
-            ? { label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false) }
-            : { label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true) },
-        { label: 'Rename…', separator: true, onSelect: () => setDialog({ kind: 'rename', entry }) },
-        { label: 'Duplicate…', onSelect: () => setDialog({ kind: 'duplicate', entry }) },
+            ? {label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false)}
+            : {label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true)},
+        {label: 'Rename…', separator: true, onSelect: () => setDialog({kind: 'rename', entry})},
+        {label: 'Duplicate…', onSelect: () => setDialog({kind: 'duplicate', entry})},
         {
             label: entry.inPlace ? 'Remove from list' : 'Delete',
             separator: true,
             danger: !entry.inPlace,
-            onSelect: () => setDialog({ kind: 'delete', entry }),
+            onSelect: () => setDialog({kind: 'delete', entry}),
         },
     ];
 
@@ -262,7 +262,7 @@ export function Welcome(): JSX.Element {
                         </p>
                     </div>
 
-                    <button className="primary wide" onClick={() => setDialog({ kind: 'new' })}>
+                    <button className="primary wide" onClick={() => setDialog({kind: 'new'})}>
                         ＋ New flow
                     </button>
                     <button
@@ -416,7 +416,7 @@ export function Welcome(): JSX.Element {
                     current={dialog.current}
                     onCancel={() => setDialog(null)}
                     onChoose={(where) => {
-                        const { flow } = dialog;
+                        const {flow} = dialog;
                         setDialog(null);
                         void window.api.window.openFlow(flow.id, where);
                     }}
@@ -431,7 +431,7 @@ export function Welcome(): JSX.Element {
                     note="The skills belonging to this flow come with it."
                     onCancel={() => setDialog(null)}
                     onConfirm={(name, location) => {
-                        const { entry } = dialog;
+                        const {entry} = dialog;
                         setDialog(null);
                         void duplicate(entry, name, location);
                     }}
@@ -445,7 +445,7 @@ export function Welcome(): JSX.Element {
                     path={dialog.entry.inPlace ? dialog.entry.file : dialog.entry.path}
                     onCancel={() => setDialog(null)}
                     onConfirm={(result) => {
-                        const { entry } = dialog;
+                        const {entry} = dialog;
                         setDialog(null);
                         void rename(entry, result);
                     }}
@@ -457,7 +457,7 @@ export function Welcome(): JSX.Element {
                     {...removal(dialog.entry)}
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
-                        const { entry } = dialog;
+                        const {entry} = dialog;
                         setDialog(null);
                         void remove(entry);
                     }}

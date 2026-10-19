@@ -50,15 +50,15 @@ export function agentsInOrder(stored: unknown): AgentSetting[] {
     const listed: AgentSetting[] = [];
     for (const a of Array.isArray(stored) ? stored : []) {
         if (AGENT_IDS.includes(a?.id) && !listed.some((l) => l.id === a.id)) {
-            listed.push({ id: a.id, enabled: a.enabled !== false });
+            listed.push({id: a.id, enabled: a.enabled !== false});
         }
     }
     const missing = AGENT_IDS.filter((id) => !listed.some((a) => a.id === id));
-    return [...listed, ...missing.map((id) => ({ id, enabled: true }))];
+    return [...listed, ...missing.map((id) => ({id, enabled: true}))];
 }
 
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
-export const CONCURRENT_RUNS_RANGE = { min: 1, max: 8 } as const;
+export const CONCURRENT_RUNS_RANGE = {min: 1, max: 8} as const;
 
 /** Which releases the app updates itself to: published ones, or a build of each day's changes. */
 export type UpdateChannel = 'stable' | 'nightly';
@@ -105,7 +105,7 @@ export function defaultSettings(): Settings {
         mcpServers: [],
         pollingEnabled: true,
         maxConcurrentRuns: 3,
-        agentControl: { enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: '' },
+        agentControl: {enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: ''},
         flowLocation: '',
         updateChannel: 'stable',
     };

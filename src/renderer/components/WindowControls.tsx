@@ -12,7 +12,7 @@ const ICON = {
     close: 'M1.5 1.5 L10.5 10.5 M10.5 1.5 L1.5 10.5',
 } as const;
 
-function Glyph({ d }: { d: string }): JSX.Element {
+function Glyph({d}: { d: string }): JSX.Element {
     return (
         <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
             <path d={d} fill="none" stroke="currentColor" strokeWidth="1"/>
@@ -25,7 +25,7 @@ interface Props {
     maximize?: boolean;
 }
 
-export function WindowControls({ maximize = true }: Props): JSX.Element {
+export function WindowControls({maximize = true}: Props): JSX.Element {
     const [maximized, setMaximized] = useState(false);
 
     // The window can be maximised without these buttons (edge drag, Win+Up), so

@@ -31,7 +31,7 @@ email being processed.
 /** Marks a drag as one of ours, and carries the name being dragged. */
 const DRAG_TYPE = 'application/patchbay-skill';
 
-const SCOPE_LABEL = { global: 'Global', flow: 'This flow' } as const;
+const SCOPE_LABEL = {global: 'Global', flow: 'This flow'} as const;
 
 const otherScope = (scope: SkillScope): SkillScope => (scope === 'global' ? 'flow' : 'global');
 
@@ -89,8 +89,8 @@ interface ShelfProps {
  * they are created, imported, moved and deleted. Editing happens in the system's
  * app for `.md` files; the list follows the folder.
  */
-export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element {
-    const { flowId, flowName, skills, otherFlowCount, onRefresh, onMoved } = library;
+export function SkillShelf({library, picked, onPick}: ShelfProps): JSX.Element {
+    const {flowId, flowName, skills, otherFlowCount, onRefresh, onMoved} = library;
     /** One slot for both outcomes; `bad` is the difference between them. */
     const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
     /** The library a new skill is being named for, while the dialog is up. */
@@ -110,8 +110,8 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
 
     const libraryName = (which: SkillScope): string =>
         which === 'global' ? 'the global library' : `“${flowName}”`;
-    const say = (text: string): void => setMessage({ text, bad: false });
-    const failed = (e: unknown): void => setMessage({ text: (e as Error).message, bad: true });
+    const say = (text: string): void => setMessage({text, bad: false});
+    const failed = (e: unknown): void => setMessage({text: (e as Error).message, bad: true});
 
     const toggle = (ref: string, on: boolean): void => {
         if (!picked || !onPick) return;
@@ -127,7 +127,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
     const missing = picked?.filter((ref) => !offered.has(ref)) ?? [];
 
     /** Whether moving `skill` to the other library needs a question first. */
-    const moveWarnings = ({ scope, name }: SkillKey): string[] => {
+    const moveWarnings = ({scope, name}: SkillKey): string[] => {
         const to = otherScope(scope);
         const warnings: string[] = [];
         if (skills.some((s) => s.scope === to && s.name === name)) {
@@ -143,7 +143,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
         return warnings;
     };
 
-    const move = async ({ scope, name }: SkillKey): Promise<void> => {
+    const move = async ({scope, name}: SkillKey): Promise<void> => {
         const to = otherScope(scope);
         setMessage(null);
         try {
@@ -167,7 +167,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
      * Open its SKILL.md in the system's app for it, or show its folder. One gone
      * since the list was read is refused by name, and the list catches up.
      */
-    const handOff = async (how: 'open' | 'reveal', { scope, name }: SkillKey): Promise<void> => {
+    const handOff = async (how: 'open' | 'reveal', {scope, name}: SkillKey): Promise<void> => {
         setMessage(null);
         try {
             await window.api.skills[how](scope, flowId, name);
@@ -199,7 +199,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
         }
     };
 
-    const remove = async ({ scope, name }: SkillKey): Promise<void> => {
+    const remove = async ({scope, name}: SkillKey): Promise<void> => {
         setMessage(null);
         try {
             await window.api.skills.remove(scope, flowId, name);
@@ -210,7 +210,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
         void onRefresh();
     };
 
-    const deleteQuestion = ({ scope, name }: SkillKey): string => {
+    const deleteQuestion = ({scope, name}: SkillKey): string => {
         if (scope === 'flow') return `Delete
         “
         ${name}
@@ -228,9 +228,9 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
     };
 
     const menuItems = (skill: SkillKey): MenuItem[] => [
-        { label: 'Edit SKILL.md', onSelect: () => void handOff('open', skill) },
-        { label: 'Show in folder', onSelect: () => void handOff('reveal', skill) },
-        { label: 'Delete…', separator: true, danger: true, onSelect: () => setDeleting(skill) },
+        {label: 'Edit SKILL.md', onSelect: () => void handOff('open', skill)},
+        {label: 'Show in folder', onSelect: () => void handOff('reveal', skill)},
+        {label: 'Delete…', separator: true, danger: true, onSelect: () => setDeleting(skill)},
     ];
 
     const importSkills = async (scope: SkillScope): Promise<void> => {
@@ -326,7 +326,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                     onDragStart={(e) => {
                                         e.dataTransfer.setData(DRAG_TYPE, skill.name);
                                         e.dataTransfer.effectAllowed = 'move';
-                                        setDragging({ scope, name: skill.name });
+                                        setDragging({scope, name: skill.name});
                                     }}
                                     onDragEnd={() => {
                                         setDragging(null);
@@ -334,7 +334,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                     }}
                                     onContextMenu={(e) => {
                                         e.preventDefault();
-                                        setMenu({ scope, name: skill.name, x: e.clientX, y: e.clientY });
+                                        setMenu({scope, name: skill.name, x: e.clientX, y: e.clientY});
                                     }}
                                 >
                                     {picked ? (
@@ -355,7 +355,7 @@ export function SkillShelf({ library, picked, onPick }: ShelfProps): JSX.Element
                                     <button
                                         className="ghost compact"
                                         title="Open its SKILL.md in the app your system opens .md files with. Right-click for more."
-                                        onClick={() => void handOff('open', { scope, name: skill.name })}
+                                        onClick={() => void handOff('open', {scope, name: skill.name})}
                                     >
                                         Edit
                                     </button>

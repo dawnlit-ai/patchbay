@@ -22,7 +22,7 @@ interface Props {
     onRun(nodeId: string, email: EmailEnvelope): void;
 }
 
-export function TestRunDialog({ flow, onClose, onRun }: Props): JSX.Element {
+export function TestRunDialog({flow, onClose, onRun}: Props): JSX.Element {
     const triggers = useMemo(() => findTriggers(flow), [flow]);
     // The choice is held rather than derived: a save landing behind the dialog
     // rebuilds the flow object, and that must not reset which trigger is picked.
@@ -30,7 +30,7 @@ export function TestRunDialog({ flow, onClose, onRun }: Props): JSX.Element {
     const [selected, setSelected] = useState<string | null>(null);
 
     const trigger = triggers.find((t) => t.id === triggerId);
-    const { emails, loading, blocked, error } = useRecentMail(trigger, DAYS, LIMIT);
+    const {emails, loading, blocked, error} = useRecentMail(trigger, DAYS, LIMIT);
 
     const chosen = emails.find((e) => e.ref.entryId === selected);
 

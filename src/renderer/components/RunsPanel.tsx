@@ -16,7 +16,7 @@ function statusBadge(status: string): JSX.Element {
     return <span className={`badge ${cls}`}>{status}</span>;
 }
 
-function EventRow({ event }: { event: TraceEvent }): JSX.Element {
+function EventRow({event}: { event: TraceEvent }): JSX.Element {
     const [open, setOpen] = useState(false);
     const expandable = Boolean(event.detail);
     return (
@@ -34,7 +34,7 @@ function EventRow({ event }: { event: TraceEvent }): JSX.Element {
 }
 
 /** What the agent is writing now, kept scrolled to its newest line. */
-function LiveRow({ live }: { live: LiveText }): JSX.Element {
+function LiveRow({live}: { live: LiveText }): JSX.Element {
     const box = useRef<HTMLPreElement>(null);
     useLayoutEffect(() => {
         if (box.current) box.current.scrollTop = box.current.scrollHeight;
@@ -60,7 +60,7 @@ function LiveRow({ live }: { live: LiveText }): JSX.Element {
  * One node's pass, finished or under way. The one under way starts open, and
  * keeps its card when it finishes, so what was being watched stays in view.
  */
-function PassCard({ pass }: { pass: Pass | PassUnderWay }): JSX.Element {
+function PassCard({pass}: { pass: Pass | PassUnderWay }): JSX.Element {
     const done = 'status' in pass;
     const live = done ? undefined : pass.live;
     const [open, setOpen] = useState(!done);
@@ -152,10 +152,10 @@ export function RunsPanel({
     /** A run under way can only be stopped; one that has ended can run again, or go. */
     const actions = (run: RunSummary): MenuItem[] =>
         run.status === 'running'
-            ? [{ label: 'Cancel run', danger: true, onSelect: () => onCancel(run.id) }]
+            ? [{label: 'Cancel run', danger: true, onSelect: () => onCancel(run.id)}]
             : [
-                { label: 'Run this email again', onSelect: () => onRerun(run.id) },
-                { label: 'Delete run', separator: true, danger: true, onSelect: () => onRemove(run.id) },
+                {label: 'Run this email again', onSelect: () => onRerun(run.id)},
+                {label: 'Delete run', separator: true, danger: true, onSelect: () => onRemove(run.id)},
             ];
 
     return (
@@ -182,7 +182,7 @@ export function RunsPanel({
                         onClick={() => onSelect(run.id)}
                         onContextMenu={(e) => {
                             e.preventDefault();
-                            setMenu({ run, x: e.clientX, y: e.clientY });
+                            setMenu({run, x: e.clientX, y: e.clientY});
                         }}
                     >
                         <div className="subject">{run.subject || '(no subject)'}</div>
@@ -222,7 +222,8 @@ export function RunsPanel({
                                     Cancel
                                 </button>
                             ) : (
-                                <button className="ghost" onClick={() => onRemove(selected.id)} title="Delete this run">
+                                <button className="ghost" onClick={() => onRemove(selected.id)}
+                                        title="Delete this run">
                                     Delete
                                 </button>
                             )}

@@ -26,7 +26,7 @@ interface Props {
     onConfirm(result: RenameResult): void;
 }
 
-export function RenameFlowDialog({ name, folder, path, onCancel, onConfirm }: Props): JSX.Element {
+export function RenameFlowDialog({name, folder, path, onCancel, onConfirm}: Props): JSX.Element {
     const [value, setValue] = useState(name);
     // Ticked when the folder is still what the name gave it. A folder someone has
     // since renamed by hand is one they chose, so it is left alone by default.
@@ -46,7 +46,7 @@ export function RenameFlowDialog({ name, folder, path, onCancel, onConfirm }: Pr
     const moving = moveFolder && resolved !== folder;
 
     const submit = (): void => {
-        if (trimmed) onConfirm({ name: trimmed, folder: moveFolder ? resolved : null });
+        if (trimmed) onConfirm({name: trimmed, folder: moveFolder ? resolved : null});
     };
 
     const onEnter = (e: { key: string }): void => {

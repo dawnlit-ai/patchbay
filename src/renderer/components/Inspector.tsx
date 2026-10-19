@@ -55,7 +55,7 @@ function Field({
 }
 
 /** The same heading, for a group of controls that is not one input. */
-function Legend({ label, hint }: { label: string; hint?: string }): JSX.Element {
+function Legend({label, hint}: { label: string; hint?: string }): JSX.Element {
     return (
         <div className="field">
             <span>{label}</span>
@@ -99,7 +99,7 @@ function useModels(): Models {
         };
     }, []);
 
-    return { models, error, off };
+    return {models, error, off};
 }
 
 /** The list's entry for a node's model: by its own name, or a pinned id an alias stands for today. */
@@ -245,7 +245,7 @@ function ModelsField({
     }, [movedTo]);
 
     const replace = (index: number, choice: Partial<ModelChoice>): void =>
-        onChange(value.map((c, j) => (j === index ? { ...c, ...choice } : c)));
+        onChange(value.map((c, j) => (j === index ? {...c, ...choice} : c)));
     const move = (from: number, gap: number): void => onChange(moveTo(value, from, gap));
     const on = value.filter((c) => c.enabled).length;
     let turn = 0;
@@ -347,7 +347,7 @@ function ModelsField({
                                         type="checkbox"
                                         checked={choice.enabled}
                                         disabled={last}
-                                        onChange={(e) => replace(i, { enabled: e.target.checked })}
+                                        onChange={(e) => replace(i, {enabled: e.target.checked})}
                                     />
                                     {role}
                                 </label>
@@ -366,21 +366,21 @@ function ModelsField({
                                     {...listing}
                                     value={choice.model}
                                     onChange={(model) =>
-                                        replace(i, { model, effort: effortAfter(listing.models, model, choice.effort) })
+                                        replace(i, {model, effort: effortAfter(listing.models, model, choice.effort)})
                                     }
                                 />
                                 <EffortField
                                     value={choice.effort}
                                     model={findModel(listing.models, choice.model)}
                                     loading={!listing.models && !listing.error}
-                                    onChange={(effort) => replace(i, { effort })}
+                                    onChange={(effort) => replace(i, {effort})}
                                 />
                             </div>
                         </div>
                     );
                 })}
             </div>
-            <button onClick={() => onChange([...value, { ...startingModel(listing.models, ''), enabled: true }])}>
+            <button onClick={() => onChange([...value, {...startingModel(listing.models, ''), enabled: true}])}>
                 + Add a model
             </button>
         </>
@@ -393,7 +393,7 @@ interface Section<C> {
     patch(partial: Partial<C>): void;
 }
 
-function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
+function TriggerFields({config, patch}: Section<TriggerConfig>): JSX.Element {
     const [accounts, setAccounts] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -418,7 +418,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
         };
     }, []);
 
-    const { account } = config;
+    const {account} = config;
     // Tagged with the account they were listed for, so another mailbox's folders are never ticked.
     const [folders, setFolders] = useState<{ account: string; list: InboxFolderOption[] } | null>(null);
     const [folderError, setFolderError] = useState<{ account: string; message: string } | null>(null);
@@ -429,10 +429,10 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
         setFolderError(null);
         window.api.outlook.folders(account).then(
             (list) => {
-                if (!cancelled) setFolders({ account, list });
+                if (!cancelled) setFolders({account, list});
             },
             (e: Error) => {
-                if (!cancelled) setFolderError({ account, message: e.message });
+                if (!cancelled) setFolderError({account, message: e.message});
             },
         );
         return () => {
@@ -450,7 +450,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                 label="Mailbox"
                 hint={loading ? 'Asking Outlook…' : 'Accounts come from the Outlook client on this machine.'}
             >
-                <select value={config.account} onChange={(e) => patch({ account: e.target.value })}>
+                <select value={config.account} onChange={(e) => patch({account: e.target.value})}>
                     <option value="">— choose an account —</option>
                     {accounts.map((a) => (
                         <option key={a} value={a}>
@@ -484,7 +484,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                         type="number"
                         min={15}
                         value={config.pollSeconds}
-                        onChange={(e) => patch({ pollSeconds: Math.max(15, Number(e.target.value) || 60) })}
+                        onChange={(e) => patch({pollSeconds: Math.max(15, Number(e.target.value) || 60)})}
                     />
                 </Field>
                 <Field label="Look back (days)">
@@ -492,7 +492,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                         type="number"
                         min={0}
                         value={config.lookbackDays}
-                        onChange={(e) => patch({ lookbackDays: Math.max(0, Number(e.target.value) || 1) })}
+                        onChange={(e) => patch({lookbackDays: Math.max(0, Number(e.target.value) || 1)})}
                     />
                 </Field>
                 <Field label="Max / poll">
@@ -500,7 +500,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                         type="number"
                         min={1}
                         value={config.maxPerPoll}
-                        onChange={(e) => patch({ maxPerPoll: Math.max(1, Number(e.target.value) || 10) })}
+                        onChange={(e) => patch({maxPerPoll: Math.max(1, Number(e.target.value) || 10)})}
                     />
                 </Field>
             </div>
@@ -509,7 +509,7 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
                 <input
                     type="checkbox"
                     checked={config.processBacklogOnStart}
-                    onChange={(e) => patch({ processBacklogOnStart: e.target.checked })}
+                    onChange={(e) => patch({processBacklogOnStart: e.target.checked})}
                 />
                 Process mail already in its folders when watching starts
             </label>
@@ -517,10 +517,10 @@ function TriggerFields({ config, patch }: Section<TriggerConfig>): JSX.Element {
     );
 }
 
-function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.Element {
-    const { categories } = config;
+function CategorizerFields({config, patch}: Section<CategorizerConfig>): JSX.Element {
+    const {categories} = config;
     const replace = (index: number, category: Partial<CategorizerConfig['categories'][number]>): void =>
-        patch({ categories: categories.map((c, j) => (j === index ? { ...c, ...category } : c)) });
+        patch({categories: categories.map((c, j) => (j === index ? {...c, ...category} : c))});
 
     return (
         <>
@@ -535,11 +535,11 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                         <input
                             value={cat.label}
                             placeholder="Label"
-                            onChange={(e) => replace(i, { label: e.target.value })}
+                            onChange={(e) => replace(i, {label: e.target.value})}
                         />
                         <button
                             className="danger fixed"
-                            onClick={() => patch({ categories: categories.filter((_, j) => j !== i) })}
+                            onClick={() => patch({categories: categories.filter((_, j) => j !== i)})}
                         >
                             Remove
                         </button>
@@ -548,7 +548,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                         rows={3}
                         placeholder="Which emails belong in this branch?"
                         value={cat.description}
-                        onChange={(e) => replace(i, { description: e.target.value })}
+                        onChange={(e) => replace(i, {description: e.target.value})}
                     />
                 </div>
             ))}
@@ -558,7 +558,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                     patch({
                         categories: [
                             ...categories,
-                            { id: shortId(), label: 'New category', description: '' },
+                            {id: shortId(), label: 'New category', description: ''},
                         ],
                     })
                 }
@@ -568,14 +568,14 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
 
             <div className="gap"/>
 
-            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
+            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="gap"/>
             <label className="check">
                 <input
                     type="checkbox"
                     checked={config.includeBody}
-                    onChange={(e) => patch({ includeBody: e.target.checked })}
+                    onChange={(e) => patch({includeBody: e.target.checked})}
                 />
                 Read the full body before classifying
             </label>
@@ -586,7 +586,7 @@ function CategorizerFields({ config, patch }: Section<CategorizerConfig>): JSX.E
                         type="number"
                         min={500}
                         value={config.bodyMaxChars}
-                        onChange={(e) => patch({ bodyMaxChars: Math.max(500, Number(e.target.value) || 8_000) })}
+                        onChange={(e) => patch({bodyMaxChars: Math.max(500, Number(e.target.value) || 8_000)})}
                     />
                 </Field>
             )}
@@ -630,7 +630,7 @@ function OutputFields({
                 return;
             }
             setSchemaError(null);
-            patch({ schema: parsed as Record<string, unknown> });
+            patch({schema: parsed as Record<string, unknown>});
         } catch (e) {
             setSchemaError((e as Error).message);
         }
@@ -644,7 +644,7 @@ function OutputFields({
                     placeholder={optional ? '(hands nothing on)' : undefined}
                     onChange={(e) => {
                         setOutput(e.target.value);
-                        if (!problem(e.target.value)) patch({ output: e.target.value });
+                        if (!problem(e.target.value)) patch({output: e.target.value});
                     }}
                 />
             </Field>
@@ -694,7 +694,7 @@ function ExtractorFields({
                 <textarea
                     rows={3}
                     value={config.instruction}
-                    onChange={(e) => patch({ instruction: e.target.value })}
+                    onChange={(e) => patch({instruction: e.target.value})}
                 />
             </Field>
 
@@ -702,12 +702,12 @@ function ExtractorFields({
                 <input
                     type="checkbox"
                     checked={config.includeAttachments}
-                    onChange={(e) => patch({ includeAttachments: e.target.checked })}
+                    onChange={(e) => patch({includeAttachments: e.target.checked})}
                 />
                 Read the attachments too, not just the body
             </label>
 
-            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
+            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="gap"/>
             <McpToolsField
@@ -726,14 +726,14 @@ function ExtractorFields({
 }
 
 /** The skills a node may invoke, ticked from either library — and the libraries themselves, kept from here. */
-function SkillsField({ config, patch, library }: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
+function SkillsField({config, patch, library}: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
     return (
         <>
             <Legend
                 label="Skills"
                 hint="Claude may invoke any skill you tick, and nothing else. Drag one onto the other library to move it there."
             />
-            <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({ skills })}/>
+            <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({skills})}/>
             <div className="gap"/>
         </>
     );
@@ -757,7 +757,7 @@ function ProcessorFields({
                 <textarea
                     rows={5}
                     value={config.instruction}
-                    onChange={(e) => patch({ instruction: e.target.value })}
+                    onChange={(e) => patch({instruction: e.target.value})}
                 />
             </Field>
 
@@ -768,7 +768,7 @@ function ProcessorFields({
                 hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
             />
 
-            <ModelsField value={config.models} onChange={(models) => patch({ models })}/>
+            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="section-title">What this node may do</div>
             <label className="check" title={config.readEmail ? undefined : 'Needs the email ticked under Reads.'}>
@@ -776,7 +776,7 @@ function ProcessorFields({
                     type="checkbox"
                     disabled={!config.readEmail}
                     checked={config.readEmail && config.allowSaveAttachments}
-                    onChange={(e) => patch({ allowSaveAttachments: e.target.checked })}
+                    onChange={(e) => patch({allowSaveAttachments: e.target.checked})}
                 />
                 Save attachments to the run folder
             </label>
@@ -784,7 +784,7 @@ function ProcessorFields({
                 <input
                     type="checkbox"
                     checked={config.allowFileSystem}
-                    onChange={(e) => patch({ allowFileSystem: e.target.checked })}
+                    onChange={(e) => patch({allowFileSystem: e.target.checked})}
                 />
                 Read and write files anywhere, and run commands (Read, Write, Edit, Bash)
             </label>
@@ -797,7 +797,7 @@ function ProcessorFields({
                 <input
                     type="checkbox"
                     checked={config.allowDraftReply}
-                    onChange={(e) => patch({ allowDraftReply: e.target.checked })}
+                    onChange={(e) => patch({allowDraftReply: e.target.checked})}
                 />
                 Leave a reply as an unsent draft
             </label>
@@ -805,7 +805,7 @@ function ProcessorFields({
                 <input
                     type="checkbox"
                     checked={config.allowMoveEmail}
-                    onChange={(e) => patch({ allowMoveEmail: e.target.checked })}
+                    onChange={(e) => patch({allowMoveEmail: e.target.checked})}
                 />
                 Move the email to another folder
             </label>
@@ -842,16 +842,16 @@ function McpToolsField({
     useEffect(() => {
         let cancelled = false;
         const update = (name: string, change: Partial<ServerListing>): void => {
-            if (!cancelled) setServers((all) => all?.map((s) => (s.name === name ? { ...s, ...change } : s)) ?? null);
+            if (!cancelled) setServers((all) => all?.map((s) => (s.name === name ? {...s, ...change} : s)) ?? null);
         };
         void window.api.settings.get().then((settings) => {
             if (cancelled) return;
             const names = settings.mcpServers.filter((s) => s.enabled && s.name.trim()).map((s) => s.name);
-            setServers(names.map((name) => ({ name, tools: null, error: null })));
+            setServers(names.map((name) => ({name, tools: null, error: null})));
             for (const name of names) {
                 window.api.settings.serverTools(name).then(
-                    (tools) => update(name, { tools }),
-                    (e: Error) => update(name, { error: e.message }),
+                    (tools) => update(name, {tools}),
+                    (e: Error) => update(name, {error: e.message}),
                 );
             }
         });
@@ -862,7 +862,7 @@ function McpToolsField({
 
     const picked = config.mcpTools;
     const set = (ref: string, on: boolean): void =>
-        patch({ mcpTools: on ? [...picked, ref] : picked.filter((t) => t !== ref) });
+        patch({mcpTools: on ? [...picked, ref] : picked.filter((t) => t !== ref)});
     const offered = new Set(
         (servers ?? []).flatMap((s) => [`mcp__${s.name}`, ...(s.tools ?? []).map((t) => `mcp__${s.name}__${t.name}`)]),
     );
@@ -967,7 +967,7 @@ function InputsField({
     // Ticked but not sure to arrive: shown, so the tick can be taken off.
     const stranded = config.inputs.filter((name) => !offered.includes(name));
     const toggle = (name: string, on: boolean): void =>
-        patch({ inputs: on ? [...config.inputs, name] : config.inputs.filter((n) => n !== name) });
+        patch({inputs: on ? [...config.inputs, name] : config.inputs.filter((n) => n !== name)});
 
     let hint: string;
     if (!available) hint = 'Connect this node to a trigger to see which data reaches it.';
@@ -983,7 +983,7 @@ function InputsField({
                     type="checkbox"
                     disabled={config.readEmail === undefined}
                     checked={config.readEmail ?? true}
-                    onChange={(e) => patch({ readEmail: e.target.checked })}
+                    onChange={(e) => patch({readEmail: e.target.checked})}
                 />
                 The email — its body, and its attachments if allowed below
             </label>
@@ -1003,12 +1003,12 @@ function InputsField({
     );
 }
 
-function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element {
+function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
     return (
         <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
             <select
                 value={config.disposition}
-                onChange={(e) => patch({ disposition: e.target.value as Disposition })}
+                onChange={(e) => patch({disposition: e.target.value as Disposition})}
             >
                 {DISPOSITIONS.map((v) => (
                     <option key={v}>{v}</option>
@@ -1019,7 +1019,7 @@ function TerminalFields({ config, patch }: Section<TerminalConfig>): JSX.Element
 }
 
 /** One slot as a row: its name in its colour, and its type or why there is none. */
-function SlotRow({ name, token, type, problem }: {
+function SlotRow({name, token, type, problem}: {
     name: string;
     token?: string;
     type?: string;
@@ -1034,7 +1034,7 @@ function SlotRow({ name, token, type, problem }: {
 }
 
 /** What the node reads, what reaches it, and what leaves by each port. */
-function DataSection({ node, available, tokens }: {
+function DataSection({node, available, tokens}: {
     node: FlowNode;
     available: Available | undefined;
     tokens: DataTokens
@@ -1121,7 +1121,7 @@ interface Props {
     onDelete(nodeId: string): void;
 }
 
-export function Inspector({ node, library, available, issues, tokens, onChange, onDelete }: Props): JSX.Element {
+export function Inspector({node, library, available, issues, tokens, onChange, onDelete}: Props): JSX.Element {
     if (!node) {
         return (
             <div>
@@ -1143,7 +1143,7 @@ export function Inspector({ node, library, available, issues, tokens, onChange, 
     const meta = NODE_KIND_META[node.kind];
     const config = node.config;
     const patch = (partial: Partial<NodeConfig>): void =>
-        onChange({ ...node, config: { ...config, ...partial } as NodeConfig });
+        onChange({...node, config: {...config, ...partial} as NodeConfig});
 
     return (
         <div>
@@ -1157,16 +1157,18 @@ export function Inspector({ node, library, available, issues, tokens, onChange, 
             ))}
 
             <Field label="Name">
-                <input value={node.name} onChange={(e) => onChange({ ...node, name: e.target.value })}/>
+                <input value={node.name} onChange={(e) => onChange({...node, name: e.target.value})}/>
             </Field>
 
             {config.kind === 'trigger.outlook' && <TriggerFields key={node.id} config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'extractor' && (
-                <ExtractorFields key={node.id} config={config} patch={patch} library={library} available={available}/>
+                <ExtractorFields key={node.id} config={config} patch={patch} library={library}
+                                 available={available}/>
             )}
             {config.kind === 'processor' && (
-                <ProcessorFields key={node.id} config={config} patch={patch} library={library} available={available}/>
+                <ProcessorFields key={node.id} config={config} patch={patch} library={library}
+                                 available={available}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

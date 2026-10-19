@@ -13,13 +13,13 @@ let root: string | null = null;
 export function workspaceRoot(): string {
     if (!root) {
         root = join(app.getPath('userData'), 'workspace');
-        mkdirSync(root, { recursive: true });
+        mkdirSync(root, {recursive: true});
     }
     return root;
 }
 
 function ensureAt(path: string): string {
-    mkdirSync(path, { recursive: true });
+    mkdirSync(path, {recursive: true});
     return path;
 }
 
@@ -80,9 +80,9 @@ function scanHomes(): Map<string, FlowHome> {
     // A copied file carries the same id; the first one found wins.
     const add = (file: string, inPlace: boolean): void => {
         const id = readId(file);
-        if (id !== null && !found.has(id)) found.set(id, { file, inPlace });
+        if (id !== null && !found.has(id)) found.set(id, {file, inPlace});
     };
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
         if (entry.isDirectory()) add(join(dir, entry.name, FLOW_FILE), false);
     }
     for (const file of openedFlowFiles()) add(file, true);
@@ -101,7 +101,7 @@ export function flowHome(flowId: string): FlowHome {
     if (cached && existsSync(cached.file)) return cached;
     // An id with no file is one about to be given one — a flow mid-creation, or a
     // test run built in memory. Its own id names a directory in the workspace.
-    return flowHomes().get(flowId) ?? { file: join(flowDirAt(flowId), FLOW_FILE), inPlace: false };
+    return flowHomes().get(flowId) ?? {file: join(flowDirAt(flowId), FLOW_FILE), inPlace: false};
 }
 
 /** Called by whatever creates, renames or removes a flow directory. */

@@ -29,7 +29,7 @@ function prune(dir: string): void {
     const cutoff = dayStamp(new Date(Date.now() - KEEP_DAYS * 86_400_000));
     for (const name of readdirSync(dir)) {
         const day = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(name)?.[1];
-        if (day && day < cutoff) rmSync(join(dir, name), { force: true });
+        if (day && day < cutoff) rmSync(join(dir, name), {force: true});
     }
 }
 
@@ -54,7 +54,7 @@ interface Extra {
 }
 
 function record(level: LogLevel, source: LogSource, message: string, extra: Extra = {}): void {
-    const entry: LogEntry = { seq: ++seq, at: new Date().toISOString(), level, source, message, ...extra };
+    const entry: LogEntry = {seq: ++seq, at: new Date().toISOString(), level, source, message, ...extra};
     buffer.push(entry);
     if (buffer.length > BUFFER_LIMIT) buffer.splice(0, buffer.length - BUFFER_LIMIT);
     write(entry);

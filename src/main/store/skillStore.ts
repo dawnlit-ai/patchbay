@@ -66,7 +66,7 @@ function removeTree(path: string): void {
 function ensureManifest(pluginDir: string): void {
     const manifest = join(pluginDir, '.claude-plugin', 'plugin.json');
     if (existsSync(manifest)) return;
-    mkdirSync(join(pluginDir, '.claude-plugin'), { recursive: true });
+    mkdirSync(join(pluginDir, '.claude-plugin'), {recursive: true});
     const content = {
         name: GLOBAL_SKILL_PLUGIN,
         description: 'Skills shared by every flow in this Patchbay workspace.',
@@ -78,14 +78,14 @@ function ensureManifest(pluginDir: string): void {
 function globalFolders(): { path: string; workspace: boolean }[] {
     ensureManifest(globalPluginDir());
     return [
-        ...getSettings().globalSkillFolders.map((path) => ({ path, workspace: false })),
-        { path: globalSkillsDir(), workspace: true },
+        ...getSettings().globalSkillFolders.map((path) => ({path, workspace: false})),
+        {path: globalSkillsDir(), workspace: true},
     ];
 }
 
 /** The folder holding the copy of a global skill in use: the first to have one. */
 function globalHome(name: string): string | null {
-    for (const { path } of globalFolders()) if (existsSync(join(path, name, 'SKILL.md'))) return path;
+    for (const {path} of globalFolders()) if (existsSync(join(path, name, 'SKILL.md'))) return path;
     return null;
 }
 
@@ -103,13 +103,13 @@ function readDir(scope: SkillScope, flowId: string, name: string): string {
 /** Every folder the global library reads, with what each holds — what Settings lists. */
 export function globalShelf(): GlobalSkillFolder[] {
     const taken = new Set<string>();
-    return globalFolders().map(({ path, workspace }) => {
+    return globalFolders().map(({path, workspace}) => {
         const missing = !existsSync(path);
         const skills = missing
             ? []
-            : readLibrary('global', path).map((skill) => ({ ...skill, shadowed: taken.has(skill.name) }));
+            : readLibrary('global', path).map((skill) => ({...skill, shadowed: taken.has(skill.name)}));
         for (const skill of skills) taken.add(skill.name);
-        return { path, workspace, missing, skills };
+        return {path, workspace, missing, skills};
     });
 }
 
@@ -135,7 +135,7 @@ export function setGlobalFolders(paths: string[]): GlobalSkillFolder[] {
         seen.add(target);
         return target;
     });
-    saveSettings({ ...getSettings(), globalSkillFolders: next });
+    saveSettings({...getSettings(), globalSkillFolders: next});
     return globalShelf();
 }
 
@@ -166,7 +166,7 @@ export function globalPluginFor(names: string[]): { path: string; dispose(): voi
         const home = isValidSkillName(name) ? globalHome(name) : null;
         if (!home) continue;
         // Dereferenced, so a link inside a skill is copied as content, not as a way back into the folder.
-        cpSync(join(home, name), join(root, 'skills', name), { recursive: true, dereference: true });
+        cpSync(join(home, name), join(root, 'skills', name), {recursive: true, dereference: true});
     }
     const dispose = (): void => {
         try {
@@ -175,7 +175,7 @@ export function globalPluginFor(names: string[]): { path: string; dispose(): voi
             // A copy left in the temp folder is harmless; failing a finished run over it is not.
         }
     };
-    return { path: root, dispose };
+    return {path: root, dispose};
 }
 
 interface Frontmatter {
@@ -227,7 +227,7 @@ function summarize(scope: SkillScope, name: string, content: string, file: strin
 function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
     let entries;
     try {
-        entries = readdirSync(dir, { withFileTypes: true });
+        entries = readdirSync(dir, {withFileTypes: true});
     } catch {
         return [];
     }
@@ -249,7 +249,7 @@ export function listSkills(scope: SkillScope, flowId: string): SkillSummary[] {
     if (scope === 'flow') return readLibrary(scope, flowSkillsDirAt(flowId));
     return globalShelf()
         .flatMap((folder) => folder.skills.filter((skill) => !skill.shadowed))
-        .map(({ shadowed: _, ...skill }) => skill)
+        .map(({shadowed: _, ...skill}) => skill)
         .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -263,7 +263,7 @@ export function getSkill(scope: SkillScope, flowId: string, name: string): Skill
     const file = skillFile(scope, flowId, name);
     if (!existsSync(file)) return null;
     const content = readFileSync(file, 'utf8');
-    return { ...summarize(scope, name, content, file), content };
+    return {...summarize(scope, name, content, file), content};
 }
 
 /** Where a library is named in a message. */
@@ -313,7 +313,7 @@ export function saveSkill(
             `Invalid skill name "${name}". Use lowercase letters, digits and hyphens — the name becomes both a folder and a Claude skill identifier.`,
         );
     }
-    mkdirSync(join(writeDir(scope, flowId, name), name), { recursive: true });
+    mkdirSync(join(writeDir(scope, flowId, name), name), {recursive: true});
     const file = skillFile(scope, flowId, name);
     writeFileSync(file, content, 'utf8');
     return summarize(scope, name, content, file);
@@ -359,7 +359,7 @@ export function moveSkill(
         } catch (e) {
             // A global folder can be on another drive, which a rename cannot cross.
             if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
-            cpSync(source, target, { recursive: true });
+            cpSync(source, target, {recursive: true});
             removeTree(source);
         }
     } catch (e) {
@@ -374,13 +374,13 @@ export function moveSkill(
 export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string, only?: string[]): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
     const imported: string[] = [];
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
         if (!entry.isDirectory()) continue;
         if (only && !only.includes(entry.name)) continue;
         const source = join(dir, entry.name);
         if (!existsSync(join(source, 'SKILL.md'))) continue;
         if (!isValidSkillName(entry.name)) continue;
-        cpSync(source, join(writeDir(scope, flowId, entry.name), entry.name), { recursive: true });
+        cpSync(source, join(writeDir(scope, flowId, entry.name), entry.name), {recursive: true});
         imported.push(entry.name);
     }
     return imported;
@@ -417,11 +417,11 @@ export function importSkillFiles(
                 skipped.push(`${name} (already in the library)`);
                 continue;
             }
-            cpSync(source, target, { recursive: true });
+            cpSync(source, target, {recursive: true});
         }
         imported.push(name);
     }
-    return { imported, skipped };
+    return {imported, skipped};
 }
 
 const STARTER_SKILL_NAME = 'summarize-and-file';

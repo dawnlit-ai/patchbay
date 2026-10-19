@@ -56,11 +56,11 @@ export function FolderTree({
             depth: f.depth,
             itemCount: f.depth > 0 ? f.itemCount : undefined,
         })),
-        ...missing.map((path) => ({ path, name: path || 'Inbox', depth: 0, missing: true })),
+        ...missing.map((path) => ({path, name: path || 'Inbox', depth: 0, missing: true})),
     ];
 
     const ticked = (path: string): boolean => readsFolder(choice, path);
-    const write = (tick: (path: string) => boolean): void => onChange({ folders: [...paths, ...missing].filter(tick) });
+    const write = (tick: (path: string) => boolean): void => onChange({folders: [...paths, ...missing].filter(tick)});
 
     /** Ticking takes the folder alone; unticking takes the folders inside it too — for the Inbox, every one. */
     const toggle = (path: string): void => {
@@ -101,12 +101,14 @@ export function FolderTree({
                         <div
                             key={row.missing ? `missing:${row.path}` : row.path || '(inbox)'}
                             className="pick-row folder-row"
-                            style={{ paddingLeft: searching ? 0 : row.depth * 14 }}
+                            style={{paddingLeft: searching ? 0 : row.depth * 14}}
                         >
                             <label className="check" title={row.path ? `Inbox\\${row.path}` : 'Inbox'}>
-                                <input type="checkbox" checked={ticked(row.path)} onChange={() => toggle(row.path)}/>
+                                <input type="checkbox" checked={ticked(row.path)}
+                                       onChange={() => toggle(row.path)}/>
                                 <span className="folder-name">{searching ? row.path || 'Inbox' : row.name}</span>
-                                {row.itemCount !== undefined && <span className="folder-note">{row.itemCount}</span>}
+                                {row.itemCount !== undefined &&
+                                    <span className="folder-note">{row.itemCount}</span>}
                                 {row.missing && <span className="folder-note">not in this mailbox</span>}
                             </label>
                             {tickable && (

@@ -17,7 +17,7 @@ interface Props {
     onClose(): void;
 }
 
-export function Modal({ title, wide = false, footer, children, onClose }: Props): JSX.Element {
+export function Modal({title, wide = false, footer, children, onClose}: Props): JSX.Element {
     return (
         <div className="modal-backdrop" onClick={onClose}>
             <div

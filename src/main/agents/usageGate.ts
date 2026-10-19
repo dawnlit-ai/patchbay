@@ -30,7 +30,7 @@ export interface UsageLimit {
 /** The usage limit an error reports, or null when it is some other failure. */
 export function usageLimit(error: string, now = Date.now()): UsageLimit | null {
     if (!LIMIT.test(error)) return null;
-    return { until: resetTime(error, now) ?? now + FALLBACK_MS };
+    return {until: resetTime(error, now) ?? now + FALLBACK_MS};
 }
 
 /** Holds every call until `limit.until`. True when that moves the hold later, which is worth saying once. */
@@ -69,7 +69,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
             signal?.removeEventListener('abort', abort);
             resolve();
         }, ms);
-        signal?.addEventListener('abort', abort, { once: true });
+        signal?.addEventListener('abort', abort, {once: true});
     });
 }
 

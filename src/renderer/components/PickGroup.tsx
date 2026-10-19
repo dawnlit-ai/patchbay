@@ -95,7 +95,8 @@ export function PickGroup<T>({
             {!note && open && !needle && items.length === 0 && empty && (
                 <div className="hint pick-note">{empty}</div>
             )}
-            {needle && items.length > 0 && shown.length === 0 && <div className="hint pick-note">Nothing matches.</div>}
+            {needle && items.length > 0 && shown.length === 0 &&
+                <div className="hint pick-note">Nothing matches.</div>}
 
             {shown.length > 0 && (
                 // Scrolls in place, so a long group never pushes the next one out of reach.

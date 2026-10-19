@@ -92,7 +92,8 @@ export function NewFlowDialog({
                 </div>
                 {where !== '' && (
                     <div className="hint">
-                        Makes <code>{`${where}${separator}${toFolderName(trimmed)}`}</code>, numbered if that is taken,
+                        Makes <code>{`${where}${separator}${toFolderName(trimmed)}`}</code>, numbered if that is
+                        taken,
                         and saves the flow there as <code>flow.json</code>. Its runs work in that folder and its own
                         skills live in it.{note && ` ${note}`}
                     </div>

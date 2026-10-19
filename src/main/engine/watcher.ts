@@ -71,7 +71,7 @@ interface WatchedTrigger {
 function triggersOf(flow: Flow): WatchedTrigger[] {
     return findTriggers(flow).flatMap((node) => {
         const config = triggerConfig(node);
-        return config ? [{ flow, node, config }] : [];
+        return config ? [{flow, node, config}] : [];
     });
 }
 
@@ -159,7 +159,7 @@ export class Watcher {
         // A fixed tick; each trigger's own pollSeconds decides when its turn comes.
         this.timer ??= setInterval(() => void this.poll(), 15_000);
         log.info('watcher', `Started watching ${flow.name}: ${polled.length} mailbox(es)`);
-        for (const { node } of triggers.filter((t) => !namesMailbox(t))) {
+        for (const {node} of triggers.filter((t) => !namesMailbox(t))) {
             log.warn('watcher', `${where(flow, node)} names no mailbox, so it is not polled`);
         }
         void this.poll();
@@ -187,7 +187,7 @@ export class Watcher {
     }
 
     status(): EngineStatus {
-        const watching = this.watchedTriggers().map(({ flow, node, config }) => ({
+        const watching = this.watchedTriggers().map(({flow, node, config}) => ({
             flowId: flow.id,
             flowName: flow.name,
             nodeId: node.id,
@@ -240,8 +240,8 @@ export class Watcher {
         // A polled email was marked seen when queued, so it won't come back: a warning, as in `dropQueued`.
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const detail = `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`;
-        if (item.trigger === 'poll') log.warn('watcher', `Cancelled before it started, not run: ${subject}`, { detail });
-        else log.info('run', `Cancelled before it started: ${subject} (test)`, { detail });
+        if (item.trigger === 'poll') log.warn('watcher', `Cancelled before it started, not run: ${subject}`, {detail});
+        else log.info('run', `Cancelled before it started: ${subject} (test)`, {detail});
         this.onStatus();
         return 'dequeued';
     }
@@ -288,7 +288,7 @@ export class Watcher {
         const node = flow.nodes.find((n) => n.id === nodeId);
         if (!triggerConfig(node)) throw new Error(`No trigger ${nodeId} in ${flow.name}`);
         const runId = randomUUID();
-        this.queue.push({ runId, flow, startNodeId: nodeId, email, trigger: 'manual' });
+        this.queue.push({runId, flow, startNodeId: nodeId, email, trigger: 'manual'});
         this.pump();
         return runId;
     }
@@ -341,7 +341,7 @@ export class Watcher {
             }
 
             for (const trigger of triggers) {
-                const { flow, node, config } = trigger;
+                const {flow, node, config} = trigger;
                 if (!this.flowIds.has(flow.id) || !namesMailbox(trigger)) continue;
                 const key = markKey(flow.id, node.id);
 
@@ -361,7 +361,7 @@ export class Watcher {
                 // Switched off while Outlook answered: left unmarked, for when it is back on.
                 if (!this.flowIds.has(flow.id)) continue;
 
-                const mark: Watermark = marks[key] ?? { seen: [], primed: false };
+                const mark: Watermark = marks[key] ?? {seen: [], primed: false};
                 const keyedBy = keyedByFor(config);
                 const idOf = (email: EmailEnvelope): string => mailKey(email, keyedBy);
                 const seen = new Set(mark.seen);
@@ -385,7 +385,7 @@ export class Watcher {
                     log.info(
                         'watcher',
                         `${where(flow, node)}: ${why}, so the ${emails.length} email(s) already there are marked seen and not run`,
-                        { detail: emails.map((e) => `${e.receivedTime}  ${e.subject}`).join('\n') || undefined },
+                        {detail: emails.map((e) => `${e.receivedTime}  ${e.subject}`).join('\n') || undefined},
                     );
                     continue;
                 }
@@ -445,7 +445,7 @@ export class Watcher {
 
     /** How many runs may be under way at once: the Settings cap, clamped to its range. */
     private limit(): number {
-        const { min, max } = CONCURRENT_RUNS_RANGE;
+        const {min, max} = CONCURRENT_RUNS_RANGE;
         const wanted = Math.trunc(getSettings().maxConcurrentRuns);
         return Number.isFinite(wanted) ? Math.min(max, Math.max(min, wanted)) : min;
     }
@@ -470,7 +470,7 @@ export class Watcher {
             const controller = new AbortController();
             // Registered here rather than inside `execute`, so the next turn of
             // this loop counts the run and the cap holds.
-            this.active.set(item.runId, { controller, flowId: item.flow.id });
+            this.active.set(item.runId, {controller, flowId: item.flow.id});
             void this.execute(item, controller);
             started = true;
         }
@@ -482,7 +482,7 @@ export class Watcher {
         const runId = item.runId;
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const test = item.trigger === 'manual' ? ' (test)' : '';
-        log.info('run', `Started ${subject} in ${item.flow.name}${test}`, { runId });
+        log.info('run', `Started ${subject} in ${item.flow.name}${test}`, {runId});
         try {
             const run = await executeRun({
                 runId,
@@ -509,7 +509,7 @@ export class Watcher {
             }
         } catch (e) {
             this.lastError = e instanceof Error ? e.message : String(e);
-            log.error('run', `${subject} could not run: ${this.lastError}`, { runId });
+            log.error('run', `${subject} could not run: ${this.lastError}`, {runId});
         } finally {
             this.active.delete(runId);
             this.onStatus();

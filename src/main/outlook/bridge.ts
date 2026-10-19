@@ -70,9 +70,9 @@ export async function getAccounts(): Promise<string[]> {
 export async function listFolders(account: string): Promise<InboxFolderOption[]> {
     const b = await bridge();
     const folders: InboxFolderInfo[] = await serialize(`List folders in ${account}`, () =>
-        b.listInboxFolders(account, { maxDepth: 10 }),
+        b.listInboxFolders(account, {maxDepth: 10}),
     );
-    const options: InboxFolderOption[] = [{ folderPath: '', relativePath: '', name: 'Inbox', depth: 0, itemCount: 0 }];
+    const options: InboxFolderOption[] = [{folderPath: '', relativePath: '', name: 'Inbox', depth: 0, itemCount: 0}];
     for (const f of folders) {
         options.push({
             folderPath: f.folderPath,
@@ -136,7 +136,7 @@ export async function readInbox(
 ): Promise<EmailEnvelope[]> {
     const b = await bridge();
     const emails = await serialize(`Read ${account}${folder ? `\\${folder}` : ' Inbox'}`, () =>
-        b.readInboxEmails(account, { folder: folder || undefined, daysBack: lookbackDays, limit }),
+        b.readInboxEmails(account, {folder: folder || undefined, daysBack: lookbackDays, limit}),
     );
     return emails.map((e) => toEnvelope(account, e));
 }
@@ -147,7 +147,7 @@ export async function readInbox(
  * no preview.
  */
 export async function readScope(scope: MailScope, lookbackDays: number, limit: number): Promise<EmailEnvelope[]> {
-    const { account } = scope;
+    const {account} = scope;
     const sole = soleFolder(scope);
     if (sole !== null) return readInbox(account, sole, lookbackDays, limit);
     if (scope.folders.length === 0) throw new Error(`No folder of ${account} is ticked, so there is nothing to read.`);
@@ -157,7 +157,7 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
     const names = [...new Set(scope.folders.map((f) => f.slice(f.lastIndexOf('\\') + 1) || 'Inbox'))];
     const b = await bridge();
     const matches = await serialize(`Read ${account} ${folderLabel(scope)}`, () =>
-        b.searchInboxByFilter(account, { daysBack: lookbackDays, includeBody: false, includeFolders: names }),
+        b.searchInboxByFilter(account, {daysBack: lookbackDays, includeBody: false, includeFolders: names}),
     );
     return matches
         .filter((m) => {
@@ -166,7 +166,7 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
         })
         .toSorted((x, y) => y.receivedTime.localeCompare(x.receivedTime))
         .slice(0, limit)
-        .map((m) => toEnvelope(account, { ...m, bodyPreview: '' }));
+        .map((m) => toEnvelope(account, {...m, bodyPreview: ''}));
 }
 
 /** Letters and digits only, lower-cased: what survives of a subject in a file name or a column of text. */
@@ -238,7 +238,7 @@ async function readSelection(): Promise<SelectedEmail> {
 async function inMailbox(account: string, selected: SelectedEmail): Promise<EmailEnvelope> {
     const bodyPreview = selected.body.slice(0, 600);
     if (mailboxOf(selected.folderPath).toLowerCase() === account.toLowerCase()) {
-        return toEnvelope(account, { ...selected, bodyPreview });
+        return toEnvelope(account, {...selected, bodyPreview});
     }
 
     // A profile can open a mailbox under a display name rather than its address,
@@ -259,7 +259,7 @@ async function inMailbox(account: string, selected: SelectedEmail): Promise<Emai
             `"${subject}" from ${selected.senderEmail} ${where ? `is in ${where}, not` : "isn't in"} ${account} — the mailbox this trigger watches.`,
         );
     }
-    return toEnvelope(account, { ...found, bodyPreview });
+    return toEnvelope(account, {...found, bodyPreview});
 }
 
 /**
@@ -269,10 +269,10 @@ async function inMailbox(account: string, selected: SelectedEmail): Promise<Emai
  * read afresh, like any other envelope's.
  */
 export async function refind(email: EmailEnvelope): Promise<EmailEnvelope> {
-    const { ref } = email;
+    const {ref} = email;
     try {
         await readBody(ref, 1);
-        return toEnvelope(ref.account, { ...email, ...ref });
+        return toEnvelope(ref.account, {...email, ...ref});
     } catch {
         // Moved, deleted, or Outlook not answering: the search below says which.
     }
@@ -292,14 +292,14 @@ export async function refind(email: EmailEnvelope): Promise<EmailEnvelope> {
             `"${email.subject || '(no subject)'}" from ${email.senderEmail} is no longer in ${ref.account}'s Inbox or its folders.`,
         );
     }
-    return toEnvelope(ref.account, { ...found, bodyPreview: email.bodyPreview });
+    return toEnvelope(ref.account, {...found, bodyPreview: email.bodyPreview});
 }
 
 /** The sender's own text, plus the quoted thread below it with `includeQuoted`, each held to `maxChars`. */
 export async function readBody(ref: EmailRef, maxChars: number, includeQuoted = false): Promise<EmailBodyResult> {
     const b = await bridge();
     return serialize(`Read a body in ${ref.account}`, () =>
-        b.readEmailBody(ref, { maxChars, includeQuoted, maxQuotedChars: maxChars }),
+        b.readEmailBody(ref, {maxChars, includeQuoted, maxQuotedChars: maxChars}),
     );
 }
 
@@ -310,14 +310,14 @@ export async function saveAttachments(
 ): Promise<SavedAttachment[]> {
     const b = await bridge();
     return serialize(`Save ${names.length} attachment(s)`, () =>
-        b.saveEmailAttachments(ref, names, { destDir }),
+        b.saveEmailAttachments(ref, names, {destDir}),
     );
 }
 
 export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmailsResult> {
     const b = await bridge();
     return serialize(`Move an email to ${folder}`, () =>
-        b.moveOutlookEmails(ref.account, [ref.entryId], folder, { createIfMissing: true }),
+        b.moveOutlookEmails(ref.account, [ref.entryId], folder, {createIfMissing: true}),
     );
 }
 

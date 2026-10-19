@@ -17,7 +17,7 @@ interface Props {
     onConfirm(value: string): void;
 }
 
-export function NameDialog({ title, label, initial, confirmLabel, hint, onCancel, onConfirm }: Props): JSX.Element {
+export function NameDialog({title, label, initial, confirmLabel, hint, onCancel, onConfirm}: Props): JSX.Element {
     const [value, setValue] = useState(initial);
     const input = useRef<HTMLInputElement>(null);
 

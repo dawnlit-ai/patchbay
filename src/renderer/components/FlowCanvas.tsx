@@ -79,8 +79,8 @@ interface EdgeData extends Record<string, unknown> {
     onRemove(edgeId: string): void;
 }
 
-function NodeCard({ data, selected }: NodeProps): JSX.Element {
-    const { flowNode, pass, working, drop, issues, available, tokens } = data as NodeData;
+function NodeCard({data, selected}: NodeProps): JSX.Element {
+    const {flowNode, pass, working, drop, issues, available, tokens} = data as NodeData;
     const reads = requires(flowNode);
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
@@ -242,7 +242,7 @@ function Wire({
         targetY,
         targetPosition,
     });
-    const { onRemove } = data as EdgeData;
+    const {onRemove} = data as EdgeData;
 
     return (
         <>
@@ -270,8 +270,8 @@ function Wire({
     );
 }
 
-const nodeTypes = { card: NodeCard };
-const edgeTypes = { wire: Wire };
+const nodeTypes = {card: NodeCard};
+const edgeTypes = {wire: Wire};
 
 /**
  * React Flow takes plain colour strings rather than CSS variables, so read the
@@ -368,7 +368,7 @@ export function FlowCanvas({
     );
 
     const removeEdge = useCallback(
-        (edgeId: string) => onChange({ ...flow, edges: flow.edges.filter((e) => e.id !== edgeId) }),
+        (edgeId: string) => onChange({...flow, edges: flow.edges.filter((e) => e.id !== edgeId)}),
         [flow, onChange],
     );
 
@@ -387,7 +387,7 @@ export function FlowCanvas({
                     source && tint(wireToken(source, e.sourceHandle, slots?.available.get(e.source), tokens)),
                     highlight && (highlight.takenEdges.has(e.id) ? 'taken' : 'untaken'),
                 ),
-                data: { onRemove: removeEdge } satisfies EdgeData,
+                data: {onRemove: removeEdge} satisfies EdgeData,
             };
         });
     }, [flow.nodes, flow.edges, highlight, removeEdge, slots, tokens]);
@@ -403,8 +403,8 @@ export function FlowCanvas({
                 if (change.type === 'dimensions' && change.dimensions) {
                     sized.set(change.id, change.dimensions);
                 } else if (change.type === 'position' && change.position) {
-                    const { position } = change;
-                    nodes = nodes.map((n) => (n.id === change.id ? { ...n, position } : n));
+                    const {position} = change;
+                    nodes = nodes.map((n) => (n.id === change.id ? {...n, position} : n));
                     touched = true;
                 } else if (change.type === 'remove') {
                     nodes = nodes.filter((n) => n.id !== change.id);
@@ -421,7 +421,7 @@ export function FlowCanvas({
                         : new Map([...prev, ...sized]),
                 );
             }
-            if (touched) onChange({ ...flow, nodes, edges });
+            if (touched) onChange({...flow, nodes, edges});
         },
         [flow, onChange, onSelect, selectedNodeId],
     );
@@ -432,7 +432,7 @@ export function FlowCanvas({
                 changes.filter((c): c is EdgeChange & { id: string } => c.type === 'remove').map((c) => c.id),
             );
             if (removed.size === 0) return;
-            onChange({ ...flow, edges: flow.edges.filter((e) => !removed.has(e.id)) });
+            onChange({...flow, edges: flow.edges.filter((e) => !removed.has(e.id))});
         },
         [flow, onChange],
     );
@@ -459,7 +459,7 @@ export function FlowCanvas({
     const onDragOver = useCallback(
         (event: React.DragEvent) => {
             event.preventDefault();
-            const { types } = event.dataTransfer;
+            const {types} = event.dataTransfer;
             if (types.includes(NODE_DRAG_TYPE)) {
                 event.dataTransfer.dropEffect = 'move';
                 return;
@@ -477,7 +477,7 @@ export function FlowCanvas({
     const onDrop = useCallback(
         (event: React.DragEvent) => {
             event.preventDefault();
-            const { dataTransfer } = event;
+            const {dataTransfer} = event;
             if (!dataTransfer.types.includes(NODE_DRAG_TYPE)) {
                 setDropTarget(null);
                 setMailDrag(false);
@@ -501,10 +501,10 @@ export function FlowCanvas({
             const node = makeNode(
                 kind,
                 id,
-                { x: event.clientX - bounds.left - 116, y: event.clientY - bounds.top - 40 },
+                {x: event.clientX - bounds.left - 116, y: event.clientY - bounds.top - 40},
                 offered.current,
             );
-            onChange({ ...flow, nodes: [...flow.nodes, node] });
+            onChange({...flow, nodes: [...flow.nodes, node]});
             onSelect(id);
         },
         [flow, onChange, onSelect, onRunOutlookDrag, triggerAt],
@@ -522,10 +522,10 @@ export function FlowCanvas({
                 onConnect={onConnect}
                 onNodeClick={(_e, node) => onSelect(node.id)}
                 onNodeContextMenu={(e, node) => {
-                    const { flowNode } = node.data as NodeData;
+                    const {flowNode} = node.data as NodeData;
                     if (flowNode.kind !== 'trigger.outlook') return;
                     e.preventDefault();
-                    setMenu({ node: flowNode, x: e.clientX, y: e.clientY });
+                    setMenu({node: flowNode, x: e.clientX, y: e.clientY});
                 }}
                 onPaneClick={() => onSelect(null)}
                 onDrop={onDrop}
@@ -538,14 +538,14 @@ export function FlowCanvas({
                     setMailDrag(false);
                 }}
                 fitView
-                fitViewOptions={{ maxZoom: 1 }}
+                fitViewOptions={{maxZoom: 1}}
                 minZoom={0.2}
                 maxZoom={2.5}
                 // Delete alongside Backspace, for whichever key the keyboard has. React
                 // Flow ignores both while a field has focus, so the inspector is safe.
                 deleteKeyCode={['Backspace', 'Delete']}
                 // A wire is thin; this is the invisible width that catches the pointer.
-                defaultEdgeOptions={{ animated: false, interactionWidth: 24 }}
+                defaultEdgeOptions={{animated: false, interactionWidth: 24}}
             >
                 <Background variant={BackgroundVariant.Dots} gap={22} size={1} color={cssVar('--grid')}/>
                 <Controls showInteractive={false}/>

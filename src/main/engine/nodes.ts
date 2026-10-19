@@ -67,11 +67,11 @@ function slotContext(ctx: NodeContext, names: string[]): string[] {
 }
 
 /** A step's models as the agents take them: the first one on, and the others on to go to in turn. */
-function modelsFor({ models }: { models: ModelChoice[] }): Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks'> {
-    const [first, ...fallbacks] = modelsInTurn(models).map(({ model, effort }) => ({ model, effort }));
+function modelsFor({models}: { models: ModelChoice[] }): Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks'> {
+    const [first, ...fallbacks] = modelsInTurn(models).map(({model, effort}) => ({model, effort}));
     // parseFlow keeps one on, so only a node built by hand gets here without one.
     if (!first) throw new Error('The node has no model turned on.');
-    return { ...first, fallbacks };
+    return {...first, fallbacks};
 }
 
 /**
@@ -88,10 +88,10 @@ function settingsServers(mcpTools: string[]): { servers: Record<string, AgentMcp
         // written to steer the agent cannot reach a tool the step never needed.
         const granted = mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
         if (granted.length === 0) continue;
-        servers[extra.name] = { type: 'stdio', command: extra.command, args: extra.args };
+        servers[extra.name] = {type: 'stdio', command: extra.command, args: extra.args};
         allowed.push(...granted);
     }
-    return { servers, allowed };
+    return {servers, allowed};
 }
 
 /**
@@ -120,21 +120,21 @@ function lostSkills(ctx: NodeContext, skills: string[]): NodeOutcome | null {
     const message =
         `${missing.map((ref) => `“${ref}”`).join(', ')} ${one ? 'is' : 'are'} ticked but no longer in the library, ` +
         `deleted or renamed outside the app. Put ${one ? 'it' : 'them'} back, or untick ${one ? 'it' : 'them'}.`;
-    return { outPort: 'error', summary: message, error: message };
+    return {outPort: 'error', summary: message, error: message};
 }
 
 // ── Trigger ──────────────────────────────────────────────────────────────
 // The email is already in hand; this pass just starts the trace at the trigger.
 
 function runTrigger(email: EmailEnvelope): NodeOutcome {
-    return { outPort: 'out', summary: `Received in ${email.ref.folderPath.replace(/^\\+/, '')}` };
+    return {outPort: 'out', summary: `Received in ${email.ref.folderPath.replace(/^\\+/, '')}`};
 }
 
 // ── Categorizer ──────────────────────────────────────────────────────────
 
 async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Promise<NodeOutcome> {
     if (config.categories.length === 0) {
-        return { outPort: UNMATCHED_PORT, summary: 'No categories defined — sent to Unmatched.' };
+        return {outPort: UNMATCHED_PORT, summary: 'No categories defined — sent to Unmatched.'};
     }
 
     let body: string | undefined;
@@ -191,9 +191,9 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         jsonSchema: {
             type: 'object',
             properties: {
-                category: { type: 'string', enum: [...ids, UNMATCHED_PORT] },
-                confidence: { type: 'number', minimum: 0, maximum: 1 },
-                reason: { type: 'string' },
+                category: {type: 'string', enum: [...ids, UNMATCHED_PORT]},
+                confidence: {type: 'number', minimum: 0, maximum: 1},
+                reason: {type: 'string'},
             },
             required: ['category', 'confidence', 'reason'],
             additionalProperties: false,
@@ -244,7 +244,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
             const result = await outlook.readBody(ctx.email.ref, EXTRACT_BODY_CHARS);
             body = result.body;
             if (!result.truncated) ctx.email.body = result.body;
-            ctx.onEvent({ at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)` });
+            ctx.onEvent({at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)`});
         } catch (e) {
             return {
                 outPort: 'error',
@@ -260,7 +260,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
     } catch (e) {
         const message = `The schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
-        return { outPort: 'error', summary: message, error: message };
+        return {outPort: 'error', summary: message, error: message};
     }
 
     const capabilities = {
@@ -329,7 +329,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         // Read for the attachments it saves.
         tools: [...(ticked ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
         allowedTools,
-        mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
+        mcpServers: {[EMAIL_SERVER_NAME]: server, ...extra.servers},
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
@@ -340,10 +340,10 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
                 data: config.schema,
                 missing: {
                     type: 'array',
-                    items: { type: 'string' },
+                    items: {type: 'string'},
                     description: 'Path of every field the email did not give.',
                 },
-                note: { type: 'string', description: 'Anything a person should know about this extraction.' },
+                note: {type: 'string', description: 'Anything a person should know about this extraction.'},
             },
             required: ['data', 'missing', 'note'],
             additionalProperties: false,
@@ -351,7 +351,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
     }).finally(library.dispose);
 
     if (!result.ok) {
-        return { outPort: 'error', summary: result.error ?? 'Extraction failed', error: result.error };
+        return {outPort: 'error', summary: result.error ?? 'Extraction failed', error: result.error};
     }
 
     const answer = (result.structured ?? {}) as { data?: unknown; missing?: string[]; note?: string };
@@ -373,21 +373,21 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
     ];
     const note = answer.note?.trim() ? ` — ${answer.note.trim()}` : '';
     if (problems.length > 0) {
-        return { outPort: 'invalid', summary: `${config.output} incomplete: ${problems.join('; ')}${note}` };
+        return {outPort: 'invalid', summary: `${config.output} incomplete: ${problems.join('; ')}${note}`};
     }
     const optional = missing.length - needed.length;
     const leftOut = optional > 0 ? ` · ${optional} optional field${optional === 1 ? '' : 's'} not in the email` : '';
     return {
         outPort: 'valid',
         summary: `${config.output} extracted${leftOut}${note}`,
-        provided: { [config.output]: answer.data },
+        provided: {[config.output]: answer.data},
     };
 }
 
 // ── Processor ────────────────────────────────────────────────────────────
 
 /** How each outcome the agent may report leaves the node. */
-const PORT_FOR_OUTCOME: Record<string, string> = { done: 'done', 'needs-review': 'review', failed: 'error' };
+const PORT_FOR_OUTCOME: Record<string, string> = {done: 'done', 'needs-review': 'review', failed: 'error'};
 
 async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
     const lost = lostSkills(ctx, config.skills);
@@ -400,7 +400,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
         } catch (e) {
             const message = `The schema of ${config.output} cannot be used: ${e instanceof Error ? e.message : String(e)}`;
-            return { outPort: 'error', summary: message, error: message };
+            return {outPort: 'error', summary: message, error: message};
         }
     }
 
@@ -479,7 +479,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         // which `dontAsk` allows; the shell goes, since `dontAsk` would let its
         // read-only commands through too, and "read-only" is the shell's own guess.
         disallowedTools: config.allowFileSystem ? undefined : ['Bash', 'PowerShell'],
-        mcpServers: { [EMAIL_SERVER_NAME]: server, ...extra.servers },
+        mcpServers: {[EMAIL_SERVER_NAME]: server, ...extra.servers},
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,
         onEvent: ctx.onEvent,
@@ -493,11 +493,11 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
                     description:
                         'done: handled, nothing left for a person. needs-review: a person has to decide or check something — say what in the summary. failed: something broke.',
                 },
-                summary: { type: 'string' },
-                actions: { type: 'array', items: { type: 'string' } },
+                summary: {type: 'string'},
+                actions: {type: 'array', items: {type: 'string'}},
                 // Optional in the shape, since a run that stops for review has
                 // nothing to hand on; Done without it is caught below.
-                ...(config.output ? { data: config.schema } : {}),
+                ...(config.output ? {data: config.schema} : {}),
             },
             required: ['outcome', 'summary', 'actions'],
             additionalProperties: false,
@@ -525,7 +525,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     const summary = `${answer.summary ?? 'Processed'}${performed}${stated ? ` — ${stated}` : ''}`;
     const outPort = PORT_FOR_OUTCOME[answer.outcome ?? ''] ?? 'done';
 
-    if (!validator) return { outPort, summary };
+    if (!validator) return {outPort, summary};
 
     if (answer.data !== undefined) {
         ctx.onEvent({
@@ -535,7 +535,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             detail: JSON.stringify(answer.data, null, 2),
         });
     }
-    if (outPort !== 'done') return { outPort, summary };
+    if (outPort !== 'done') return {outPort, summary};
 
     // The nodes after Done read this slot unconditionally, so a result that
     // doesn't match is a broken run rather than a thinner one.
@@ -545,15 +545,15 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             ? checked.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')
             : 'it returned none';
         const message = `Finished as done, but ${config.output} does not match its schema: ${problems}`;
-        return { outPort: 'error', summary: `${message} — ${summary}`, error: message };
+        return {outPort: 'error', summary: `${message} — ${summary}`, error: message};
     }
-    return { outPort, summary, provided: { [config.output]: answer.data } };
+    return {outPort, summary, provided: {[config.output]: answer.data}};
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────
 
 function runTerminal(config: TerminalConfig): NodeOutcome {
-    return { outPort: null, disposition: config.disposition, summary: config.disposition };
+    return {outPort: null, disposition: config.disposition, summary: config.disposition};
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {

@@ -7,5 +7,5 @@ export const agents = createAgents({
     claudeExecutable: () => getSettings().claudeExecutablePath.trim() || undefined,
     agyExecutable: () => getSettings().agyExecutablePath.trim() || undefined,
     agents: () => getSettings().agents,
-    warn: (message, detail) => log.warn('run', message, { detail }),
+    warn: (message, detail) => log.warn('run', message, {detail}),
 });

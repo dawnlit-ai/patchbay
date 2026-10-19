@@ -106,7 +106,7 @@ export class Updates {
      * A copy that cannot update still shows the channel chosen.
      */
     channelChanged(): void {
-        this.set({ channel: getSettings().updateChannel });
+        this.set({channel: getSettings().updateChannel});
         if (this.current.state !== 'unavailable') void this.check();
     }
 
@@ -122,7 +122,7 @@ export class Updates {
     }
 
     private set(partial: Partial<UpdateStatus>): void {
-        this.current = { ...this.current, ...partial };
+        this.current = {...this.current, ...partial};
         this.changed();
     }
 
@@ -131,12 +131,12 @@ export class Updates {
         // One is waiting already, from the channel still chosen: nothing to look for until it is used.
         if (this.pending?.channel === channel) return this.current;
         this.pending = null;
-        this.set({ channel, state: 'checking', available: undefined, progress: undefined, detail: undefined });
+        this.set({channel, state: 'checking', available: undefined, progress: undefined, detail: undefined});
         try {
             const updates = manager(channel);
             const info = await updates.checkForUpdatesAsync();
             if (!info) {
-                this.set({ state: 'current', checkedAt: new Date().toISOString() });
+                this.set({state: 'current', checkedAt: new Date().toISOString()});
                 return this.current;
             }
             const version = info.TargetFullRelease.Version;
@@ -144,17 +144,17 @@ export class Updates {
             log.info('app', `Downloading Patchbay ${version}`, {
                 detail: deltas > 0 ? `${deltas} delta package(s)` : 'the full package',
             });
-            this.set({ state: 'downloading', available: version, progress: 0, checkedAt: new Date().toISOString() });
+            this.set({state: 'downloading', available: version, progress: 0, checkedAt: new Date().toISOString()});
             await updates.downloadUpdateAsync(info, (progress) => {
-                if (progress !== this.current.progress) this.set({ progress });
+                if (progress !== this.current.progress) this.set({progress});
             });
             // Switched channel while it came down: it is no longer the one wanted.
             if (getSettings().updateChannel !== channel) return this.run();
-            this.pending = { info, channel, updates };
+            this.pending = {info, channel, updates};
             log.info('app', `Patchbay ${version} is ready. Restart to use it, or it goes in next time Patchbay starts.`);
-            this.set({ state: 'ready', progress: undefined });
+            this.set({state: 'ready', progress: undefined});
         } catch (e) {
-            log.warn('app', 'Could not check for updates', { detail: message(e) });
+            log.warn('app', 'Could not check for updates', {detail: message(e)});
             this.set({
                 state: 'failed',
                 available: undefined,
@@ -173,7 +173,7 @@ export class Updates {
  */
 export async function offerApplicationsFolder(): Promise<void> {
     if (process.platform !== 'darwin' || !app.isPackaged || app.isInApplicationsFolder()) return;
-    const { response } = await dialog.showMessageBox({
+    const {response} = await dialog.showMessageBox({
         type: 'question',
         buttons: ['Move to Applications', 'Not now'],
         defaultId: 0,
@@ -185,6 +185,6 @@ export async function offerApplicationsFolder(): Promise<void> {
     try {
         app.moveToApplicationsFolder();
     } catch (e) {
-        log.warn('app', 'Could not move Patchbay to Applications', { detail: message(e) });
+        log.warn('app', 'Could not move Patchbay to Applications', {detail: message(e)});
     }
 }

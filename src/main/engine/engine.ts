@@ -45,7 +45,7 @@ export interface RunRequest {
 }
 
 export async function executeRun(request: RunRequest): Promise<Run> {
-    const { runId, flow, startNodeId, email, trigger, signal } = request;
+    const {runId, flow, startNodeId, email, trigger, signal} = request;
     const run: Run = {
         id: runId,
         flowId: flow.id,
@@ -124,7 +124,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         const unfilled = requires(node).filter((name) => name !== EMAIL_SLOT.name && !(name in data));
         if (unfilled.length > 0) {
             const message = `${node.name} reads ${unfilled.map((n) => `"${n}"`).join(', ')}, which no node on this path filled.`;
-            run.passes.push(record({ status: 'error', outPort: null, summary: message, error: message }));
+            run.passes.push(record({status: 'error', outPort: null, summary: message, error: message}));
             run.path.push(node.id);
             return finish('failed', message);
         }

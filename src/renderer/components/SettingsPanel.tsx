@@ -42,12 +42,12 @@ interface Props {
 type Page = 'agents' | 'skills' | 'runs' | 'servers' | 'agent' | 'updates';
 
 const PAGES: { id: Page; label: string }[] = [
-    { id: 'agents', label: 'Agents' },
-    { id: 'skills', label: 'Global skills' },
-    { id: 'runs', label: 'Runs' },
-    { id: 'servers', label: 'MCP servers' },
-    { id: 'agent', label: 'Agent control' },
-    { id: 'updates', label: 'Updates' },
+    {id: 'agents', label: 'Agents'},
+    {id: 'skills', label: 'Global skills'},
+    {id: 'runs', label: 'Runs'},
+    {id: 'servers', label: 'MCP servers'},
+    {id: 'agent', label: 'Agent control'},
+    {id: 'updates', label: 'Updates'},
 ];
 
 /**
@@ -63,7 +63,7 @@ const EDITS: Record<Page, (s: Settings) => unknown> = {
     updates: (s) => s.updateChannel,
 };
 
-const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: 'Stable', nightly: 'Nightly' };
+const CHANNEL_LABELS: Record<UpdateChannel, string> = {stable: 'Stable', nightly: 'Nightly'};
 
 /** The updater's state in a sentence. */
 function updateLine(status: UpdateStatus): string {
@@ -94,7 +94,7 @@ const onShelf = (folders: GlobalSkillFolder[]): SkillSummary[] =>
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 const RUN_COUNTS = Array.from(
-    { length: CONCURRENT_RUNS_RANGE.max - CONCURRENT_RUNS_RANGE.min + 1 },
+    {length: CONCURRENT_RUNS_RANGE.max - CONCURRENT_RUNS_RANGE.min + 1},
     (_, i) => CONCURRENT_RUNS_RANGE.min + i,
 );
 
@@ -152,7 +152,7 @@ function Row({
 }
 
 /** A plan's limits as bars: how much of each is used, and when it resets. */
-function Usage({ usage }: { usage: UsageWindow[] }): JSX.Element | null {
+function Usage({usage}: { usage: UsageWindow[] }): JSX.Element | null {
     if (usage.length === 0) return null;
     return (
         <div className="usage">
@@ -169,7 +169,7 @@ function Usage({ usage }: { usage: UsageWindow[] }): JSX.Element | null {
                     >
                         <span
                             className={`usage-fill${u.percentUsed >= 90 ? ' high' : u.percentUsed >= 70 ? ' mid' : ''}`}
-                            style={{ width: `${Math.min(100, u.percentUsed)}%` }}
+                            style={{width: `${Math.min(100, u.percentUsed)}%`}}
                         />
                     </span>
                     <span className="usage-pct">{u.percentUsed}% used</span>
@@ -233,7 +233,7 @@ function AgentState({
     );
 }
 
-function PageHead({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+function PageHead({title, children}: { title: string; children: ReactNode }): JSX.Element {
     return (
         <header className="set-head">
             <h1>{title}</h1>
@@ -273,21 +273,21 @@ export function SettingsPanel({
 
     // Each from the draft as it stands when React applies it, not as this render
     // saw it, so two edits landing before a re-render both survive.
-    const patch = (partial: Partial<Settings>): void => setDraft((d) => ({ ...d, ...partial }));
+    const patch = (partial: Partial<Settings>): void => setDraft((d) => ({...d, ...partial}));
 
     const patchServer = (index: number, partial: Partial<McpServerSetting>): void =>
         setDraft((d) => ({
             ...d,
-            mcpServers: d.mcpServers.map((s, j) => (j === index ? { ...s, ...partial } : s)),
+            mcpServers: d.mcpServers.map((s, j) => (j === index ? {...s, ...partial} : s)),
         }));
 
     const removeServer = (index: number): void =>
-        setDraft((d) => ({ ...d, mcpServers: d.mcpServers.filter((_, j) => j !== index) }));
+        setDraft((d) => ({...d, mcpServers: d.mcpServers.filter((_, j) => j !== index)}));
 
     const addServer = (): void =>
         setDraft((d) => ({
             ...d,
-            mcpServers: [...d.mcpServers, { name: '', command: '', args: [], enabled: true }],
+            mcpServers: [...d.mcpServers, {name: '', command: '', args: [], enabled: true}],
         }));
 
     /**
@@ -302,12 +302,12 @@ export function SettingsPanel({
         const mine = (agentChecks.current[id] ?? 0) + 1;
         agentChecks.current[id] = mine;
         const latest = (): boolean => agentChecks.current[id] === mine;
-        setChecking((c) => ({ ...c, [id]: true }));
+        setChecking((c) => ({...c, [id]: true}));
         try {
             const status = await window.api.agents.status(id);
-            if (latest()) setAgentStates((states) => ({ ...states, [id]: status }));
+            if (latest()) setAgentStates((states) => ({...states, [id]: status}));
         } finally {
-            if (latest()) setChecking((c) => ({ ...c, [id]: false }));
+            if (latest()) setChecking((c) => ({...c, [id]: false}));
         }
     };
     // Only the ones switched on as saved: one switched off may well not be installed.
@@ -319,7 +319,7 @@ export function SettingsPanel({
     useEffect(() => {
         for (const id of AGENT_IDS) {
             void window.api.agents.lastStatus(id).then((last) => {
-                if (last) setAgentStates((states) => (states[id] ? states : { ...states, [id]: last }));
+                if (last) setAgentStates((states) => (states[id] ? states : {...states, [id]: last}));
             });
         }
     }, []);
@@ -331,14 +331,14 @@ export function SettingsPanel({
             const agents = [...d.agents];
             const [agent] = agents.splice(from, 1);
             agents.splice(to, 0, agent!);
-            return { ...d, agents };
+            return {...d, agents};
         });
 
     const switchAgent = (index: number, enabled: boolean): void =>
-        setDraft((d) => ({ ...d, agents: d.agents.map((a, j) => (j === index ? { ...a, enabled } : a)) }));
+        setDraft((d) => ({...d, agents: d.agents.map((a, j) => (j === index ? {...a, enabled} : a))}));
 
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
-        setDraft((d) => ({ ...d, agentControl: { ...d.agentControl, ...partial } }));
+        setDraft((d) => ({...d, agentControl: {...d.agentControl, ...partial}}));
 
     const refreshSkills = async (): Promise<void> => {
         setFolders(await window.api.skills.folders());
@@ -361,9 +361,9 @@ export function SettingsPanel({
         setSkillsMessage(null);
         try {
             const text = await act();
-            if (text) setSkillsMessage({ text, bad: false });
+            if (text) setSkillsMessage({text, bad: false});
         } catch (e) {
-            setSkillsMessage({ text: e instanceof Error ? e.message : String(e), bad: true });
+            setSkillsMessage({text: e instanceof Error ? e.message : String(e), bad: true});
         }
     };
 
@@ -513,7 +513,7 @@ export function SettingsPanel({
     return (
         <div className="settings">
             <nav className="set-rail" aria-label="Settings pages">
-                {PAGES.map(({ id, label }) => (
+                {PAGES.map(({id, label}) => (
                     <button
                         key={id}
                         className={`set-nav${page === id ? ' active' : ''}`}
@@ -553,7 +553,7 @@ export function SettingsPanel({
                                 <div className="agent-list" role="list" aria-label="Agents, in order">
                                     {draft.agents.map((agent, i) => {
                                         const name = AGENT_NAMES[agent.id];
-                                        const { key, marker, label, description } = AGENT_EXECUTABLES[agent.id];
+                                        const {key, marker, label, description} = AGENT_EXECUTABLES[agent.id];
                                         const on = draft.agents.filter((a) => a.enabled);
                                         const above = draft.agents.slice(0, i).filter((a) => a.enabled).at(-1);
                                         const last = agent.enabled && on.length === 1;
@@ -620,7 +620,7 @@ export function SettingsPanel({
                                                                 aria-label={label}
                                                                 value={draft[key]}
                                                                 placeholder="Found automatically"
-                                                                onChange={(e) => patch({ [key]: e.target.value })}
+                                                                onChange={(e) => patch({[key]: e.target.value})}
                                                             />
                                                             <AgentState
                                                                 status={agentStates[agent.id]}
@@ -818,7 +818,7 @@ export function SettingsPanel({
                                                 aria-label="Seed the global library from"
                                                 value={draft.skillSeedPath}
                                                 placeholder="Found automatically"
-                                                onChange={(e) => patch({ skillSeedPath: e.target.value })}
+                                                onChange={(e) => patch({skillSeedPath: e.target.value})}
                                             />
                                         }
                                     />
@@ -846,7 +846,7 @@ export function SettingsPanel({
                                             <Switch
                                                 on={draft.pollingEnabled}
                                                 label="Watch mailboxes"
-                                                onChange={(on) => patch({ pollingEnabled: on })}
+                                                onChange={(on) => patch({pollingEnabled: on})}
                                             />
                                         }
                                     />
@@ -860,7 +860,7 @@ export function SettingsPanel({
                                                         key={n}
                                                         role="radio"
                                                         aria-checked={draft.maxConcurrentRuns === n}
-                                                        onClick={() => patch({ maxConcurrentRuns: n })}
+                                                        onClick={() => patch({maxConcurrentRuns: n})}
                                                     >
                                                         {n}
                                                     </button>
@@ -893,7 +893,7 @@ export function SettingsPanel({
                                                     aria-label="Server name"
                                                     placeholder="Name"
                                                     value={server.name}
-                                                    onChange={(e) => patchServer(i, { name: e.target.value })}
+                                                    onChange={(e) => patchServer(i, {name: e.target.value})}
                                                 />
                                                 <div className="set-desc">
                                                     Its tools arrive as{' '}
@@ -904,7 +904,7 @@ export function SettingsPanel({
                                                 <Switch
                                                     on={server.enabled}
                                                     label={`Use ${server.name || 'this server'}`}
-                                                    onChange={(on) => patchServer(i, { enabled: on })}
+                                                    onChange={(on) => patchServer(i, {enabled: on})}
                                                 />
                                                 <button className="ghost danger" onClick={() => removeServer(i)}>
                                                     Remove
@@ -917,7 +917,7 @@ export function SettingsPanel({
                                                         className="mono"
                                                         placeholder="node"
                                                         value={server.command}
-                                                        onChange={(e) => patchServer(i, { command: e.target.value })}
+                                                        onChange={(e) => patchServer(i, {command: e.target.value})}
                                                     />
                                                 </label>
                                                 <label>
@@ -927,7 +927,7 @@ export function SettingsPanel({
                                                         placeholder="path/to/server.js --flag"
                                                         value={server.args.join(' ')}
                                                         onChange={(e) =>
-                                                            patchServer(i, { args: e.target.value.split(' ').filter(Boolean) })
+                                                            patchServer(i, {args: e.target.value.split(' ').filter(Boolean)})
                                                         }
                                                     />
                                                 </label>
@@ -962,7 +962,7 @@ export function SettingsPanel({
                                             <Switch
                                                 on={draft.agentControl.enabled}
                                                 label="Let an agent drive this app"
-                                                onChange={(on) => patchAgent({ enabled: on })}
+                                                onChange={(on) => patchAgent({enabled: on})}
                                             />
                                         }
                                     />
@@ -977,7 +977,7 @@ export function SettingsPanel({
                                                 min={1024}
                                                 max={65535}
                                                 value={draft.agentControl.port}
-                                                onChange={(e) => patchAgent({ port: Number(e.target.value) })}
+                                                onChange={(e) => patchAgent({port: Number(e.target.value)})}
                                             />
                                         }
                                     />
@@ -1081,7 +1081,7 @@ export function SettingsPanel({
                                                         key={channel}
                                                         role="radio"
                                                         aria-checked={draft.updateChannel === channel}
-                                                        onClick={() => patch({ updateChannel: channel })}
+                                                        onClick={() => patch({updateChannel: channel})}
                                                     >
                                                         {CHANNEL_LABELS[channel]}
                                                     </button>

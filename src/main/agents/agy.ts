@@ -56,7 +56,7 @@ interface Attempt {
 }
 
 /** Why an attempt failed for reasons outside the step, if it did: worth asking again. */
-function outageIn({ result, exited, spawnError }: Attempt): string | null {
+function outageIn({result, exited, spawnError}: Attempt): string | null {
     if (spawnError || result?.status === 'SUCCESS') return null;
     const message = `${result?.error ?? ''} ${exited?.stderr ?? ''}`;
     // A used-up quota lasts hours, so asking again in seconds is no use.
@@ -145,13 +145,13 @@ function runAgyCommand(
         const child = spawn(exe, args, {
             cwd: options.cwd,
             signal: options.signal,
-            env: { ...process.env, [HOOK_EXE_ENV]: process.execPath },
+            env: {...process.env, [HOOK_EXE_ENV]: process.execPath},
         });
         let stderr = '';
-        createInterface({ input: child.stdout }).on('line', (line) => options.onLine?.(line));
+        createInterface({input: child.stdout}).on('line', (line) => options.onLine?.(line));
         child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
         child.on('error', reject);
-        child.on('close', (code) => resolve({ code, stderr }));
+        child.on('close', (code) => resolve({code, stderr}));
         // On stdin rather than in the arguments, which Windows caps near 32,000 characters.
         child.stdin.end(options.input ?? '');
     });
@@ -162,14 +162,14 @@ const MODELS_TTL_MS = 10 * 60_000;
 let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | null = null;
 
 /** What agy said went wrong: its last line, without the "Error:" in front. */
-function complaint({ code, stderr }: Exited): string {
+function complaint({code, stderr}: Exited): string {
     return stderr.trim().split('\n').at(-1)?.replace(/^Error:\s*/, '').trim() || `agy exited with ${code}.`;
 }
 
 /** The models agy offers, or what agy says is in the way — not signed in, say. */
 async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOption[]> {
     const lines: string[] = [];
-    const exited = await runAgyCommand(exe, ['models'], { signal, onLine: (line) => lines.push(line) });
+    const exited = await runAgyCommand(exe, ['models'], {signal, onLine: (line) => lines.push(line)});
     if (exited.code !== 0) throw new Error(complaint(exited));
     // One entry per model, with the levels agy lists it at as its effort levels.
     const models = new Map<string, { name: string; levels: string[] }>();
@@ -187,7 +187,7 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
         if (level) entry.levels.push(level);
         models.set(model, entry);
     }
-    return [...models].map(([id, { name, levels }]) => ({
+    return [...models].map(([id, {name, levels}]) => ({
         value: `${AGY_MODEL_PREFIX}${id}`,
         displayName: `${name} · agy`,
         description:
@@ -201,7 +201,7 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
 /** The models agy offers. Empty when agy is not installed or not signed in, never a failure. */
 function listAgyModels(exe: string): Promise<ModelOption[]> {
     if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
-    const asked = { exe, at: Date.now(), list: askForModels(exe).catch(() => []) };
+    const asked = {exe, at: Date.now(), list: askForModels(exe).catch(() => [])};
     modelsAsked = asked;
     return asked.list;
 }
@@ -310,13 +310,13 @@ async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindo
 /** What `agy --version` says. */
 async function askForVersion(exe: string, signal: AbortSignal): Promise<string | null> {
     const said: string[] = [];
-    await runAgyCommand(exe, ['--version'], { signal, onLine: (line) => said.push(line) });
+    await runAgyCommand(exe, ['--version'], {signal, onLine: (line) => said.push(line)});
     return said[0]?.trim() || null;
 }
 
 /** The binary a run would start, its version, whether it is signed in, and its quota. */
 async function agyStatus(exe: string): Promise<AgentStatus> {
-    const base = { id: 'agy', name: 'Antigravity CLI', executable: exe };
+    const base = {id: 'agy', name: 'Antigravity CLI', executable: exe};
     const timeout = AbortSignal.timeout(STATUS_TIMEOUT_MS);
     // All three at once, as each takes a second or two. Only a signed-in agy lists
     // its models, and the quota is asked before that is known, so a model list that
@@ -328,7 +328,7 @@ async function agyStatus(exe: string): Promise<AgentStatus> {
     try {
         const [said, offered] = await Promise.all([version, models]);
         const count = `${offered.length} model${offered.length === 1 ? '' : 's'} on offer`;
-        return { ...base, version: said, ready: true, detail: `Signed in · ${count}`, usage: await usage };
+        return {...base, version: said, ready: true, detail: `Signed in · ${count}`, usage: await usage};
     } catch (e) {
         signedOut.abort();
         return {
@@ -355,11 +355,11 @@ async function pluginServers(
             if (server.type === 'sdk') {
                 const hosted = await serveOnLoopback(server.instance);
                 closers.push(hosted.close);
-                config[name] = { serverUrl: hosted.url };
+                config[name] = {serverUrl: hosted.url};
             } else {
                 config[name] = {
                     command: server.command,
-                    args: server.args ?? [], ...(server.env ? { env: server.env } : {})
+                    args: server.args ?? [], ...(server.env ? {env: server.env} : {})
                 };
             }
         }
@@ -367,7 +367,7 @@ async function pluginServers(
         await close();
         throw e;
     }
-    return { config, close };
+    return {config, close};
 }
 
 /** `mcp__server__tool` and `mcp__server` entries of an allowlist, as agy's `server/tool` and `server/*`. */
@@ -382,7 +382,7 @@ function mcpGrants(allowedTools: string[], servers: string[]): string[] {
 /** A skill as Claude names it: `<plugin>:<name>` for a plugin's, a bare name for the working directory's. */
 function skillRef(ref: string): { plugin?: string; name: string } {
     const colon = ref.indexOf(':');
-    return colon < 0 ? { name: ref } : { plugin: ref.slice(0, colon), name: ref.slice(colon + 1) };
+    return colon < 0 ? {name: ref} : {plugin: ref.slice(0, colon), name: ref.slice(colon + 1)};
 }
 
 /**
@@ -393,12 +393,12 @@ function skillRef(ref: string): { plugin?: string; name: string } {
 async function copySkills(request: AgentRunRequest, workspace: string): Promise<string[]> {
     const copied: string[] = [];
     for (const ref of request.skills ?? []) {
-        const { plugin, name } = skillRef(ref);
+        const {plugin, name} = skillRef(ref);
         const from = plugin
             ? request.skillPlugins?.map((p) => join(p, 'skills', name)).find((p) => existsSync(p))
             : join(request.cwd, '.claude', 'skills', name);
         if (!from || !existsSync(from)) continue;
-        await cp(from, join(workspace, '.agents', 'skills', name), { recursive: true, dereference: true });
+        await cp(from, join(workspace, '.agents', 'skills', name), {recursive: true, dereference: true});
         copied.push(name);
     }
     return copied;
@@ -462,14 +462,14 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
     mcp?: string;
 } {
     // agy adds these for its own UI.
-    const { toolAction: _a, toolSummary: _s, ...params } = info.parameters ?? {};
+    const {toolAction: _a, toolSummary: _s, ...params} = info.parameters ?? {};
     if (info.name === 'call_mcp_tool') {
         const server = String(params.ServerName ?? '');
         const tool = String(params.ToolName ?? '');
         const bare = server.startsWith(`${PLUGIN}_`) ? server.slice(PLUGIN.length + 1) : server;
-        return { label: `mcp__${bare}__${tool}`, input: params.Arguments ?? {}, mcp: `${server}/${tool}` };
+        return {label: `mcp__${bare}__${tool}`, input: params.Arguments ?? {}, mcp: `${server}/${tool}`};
     }
-    return { label: info.name ?? 'tool', input: params };
+    return {label: info.name ?? 'tool', input: params};
 }
 
 async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunResult> {
@@ -477,8 +477,8 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
     // The id `agy models` lists this model at this level by.
     const shown = request.effort ? `${model}-${request.effort}` : model;
     const fail = (error: string): AgentRunResult => {
-        request.onEvent({ at: now(), type: 'error', label: error });
-        return { ok: false, error };
+        request.onEvent({at: now(), type: 'error', label: error});
+        return {ok: false, error};
     };
 
     if (request.allowedTools.some((t) => FILE_SYSTEM_TOOLS.includes(t))) {
@@ -504,9 +504,9 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         const granted = mcpGrants(request.allowedTools, serverNames);
         const repeatable = mcpGrants(request.repeatableTools ?? [], serverNames);
 
-        await mkdir(plugin, { recursive: true });
-        await writeFile(join(plugin, 'plugin.json'), JSON.stringify({ name: PLUGIN }));
-        await writeFile(join(plugin, 'mcp_config.json'), JSON.stringify({ mcpServers: servers.config }));
+        await mkdir(plugin, {recursive: true});
+        await writeFile(join(plugin, 'plugin.json'), JSON.stringify({name: PLUGIN}));
+        await writeFile(join(plugin, 'mcp_config.json'), JSON.stringify({mcpServers: servers.config}));
         await writeFile(join(plugin, 'hook.cjs'), HOOK);
         if (process.platform === 'win32') await writeFile(join(plugin, 'hook.cmd'), HOOK_LAUNCHER);
         await writeFile(
@@ -526,7 +526,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
                 [PLUGIN]: {
                     PreToolUse: [{
                         matcher: '*',
-                        hooks: [{ type: 'command', command: hookCommand() }]
+                        hooks: [{type: 'command', command: hookCommand()}]
                     }]
                 }
             }),
@@ -553,7 +553,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         const once = async (): Promise<Attempt> => {
             const tools = new Map<number, ReturnType<typeof describeTool>>();
             const texts = new Map<number, string>();
-            const attempt: Attempt = { grants: new Set(), acted: false };
+            const attempt: Attempt = {grants: new Set(), acted: false};
 
             const onLine = (raw: string): void => {
                 let line: StreamLine;
@@ -586,7 +586,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
                     const text = (texts.get(step.step_index) ?? '') + (step.text_delta ?? '');
                     texts.set(step.step_index, text);
                     if (step.state !== 'DONE') {
-                        if (step.text_delta) request.onLive?.({ type: 'assistant', label: '', text });
+                        if (step.text_delta) request.onLive?.({type: 'assistant', label: '', text});
                         return;
                     }
                     request.onLive?.(null);
@@ -658,7 +658,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
                 type: 'error',
                 label: `agy failed (${outage}), so it is asked again in ${wait / 1000}s`
             });
-            await sleep(wait, undefined, { signal: request.signal });
+            await sleep(wait, undefined, {signal: request.signal});
         }
 
         /** The run's result, and why another model should take the step if agy could not. */
@@ -670,11 +670,11 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             else if (outage) unavailable = `agy could not be reached (${outage})`;
             // A run agy finished failed on the step's own account.
             else if (!attempt.spawnError && attempt.result?.status !== 'SUCCESS') unavailable = await usedUp(attempt);
-            return unavailable ? { ...result, unavailable } : result;
+            return unavailable ? {...result, unavailable} : result;
         }
 
         /** Whether the run failed because the model's quota is used up, asked of `/usage` whatever agy said. */
-        async function usedUp({ result, exited }: Attempt): Promise<string | null> {
+        async function usedUp({result, exited}: Attempt): Promise<string | null> {
             const asking = [AbortSignal.timeout(QUOTA_TIMEOUT_MS), ...(request.signal ? [request.signal] : [])];
             await askForQuota(exe, AbortSignal.any(asking)).catch(() => []);
             const group = groupOf(quotaGroups, request.model);
@@ -684,7 +684,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             return QUOTA.test(`${result?.error ?? ''} ${exited?.stderr ?? ''}`) ? `${named} is used up` : null;
         }
 
-        function settle({ result, exited, spawnError, grants }: Attempt): AgentRunResult {
+        function settle({result, exited, spawnError, grants}: Attempt): AgentRunResult {
             if (spawnError?.code === 'ENOENT') {
                 return fail(`agy is not installed, or not at ${exe}. Set where it is under Settings → Agents.`);
             }
@@ -714,13 +714,13 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             if (request.jsonSchema && result.structured_output === undefined) {
                 return fail('agy returned no structured output for the requested schema.');
             }
-            return { ok: true, structured: result.structured_output };
+            return {ok: true, structured: result.structured_output};
         }
     } catch (e) {
         return fail(e instanceof Error ? e.message : String(e));
     } finally {
         await servers?.close();
-        await rm(workspace, { recursive: true, force: true });
+        await rm(workspace, {recursive: true, force: true});
     }
 }
 

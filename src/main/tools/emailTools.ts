@@ -34,11 +34,11 @@ export interface EmailToolContext {
 }
 
 function ok(text: string) {
-    return { content: [{ type: 'text' as const, text }] };
+    return {content: [{type: 'text' as const, text}]};
 }
 
 function fail(text: string) {
-    return { content: [{ type: 'text' as const, text }], isError: true };
+    return {content: [{type: 'text' as const, text}], isError: true};
 }
 
 /**
@@ -69,7 +69,7 @@ async function renameTypeable(path: string): Promise<string> {
 async function withCsv(path: string): Promise<string[]> {
     if (!WORKBOOK_EXTENSIONS.includes(extname(path).toLowerCase())) return [path];
     try {
-        const { sheets, hidden } = await saveWorkbookAsCsv(path);
+        const {sheets, hidden} = await saveWorkbookAsCsv(path);
         const left = hidden.length > 0 ? [`  hidden, so left out: ${hidden.map((h) => `"${h}"`).join(', ')}`] : [];
         if (sheets.length === 0) return [`${path} — a workbook with no visible sheet to read`, ...left];
         return [
@@ -87,10 +87,10 @@ async function withCsv(path: string): Promise<string[]> {
 }
 
 export function createEmailToolServer(ctx: EmailToolContext) {
-    const { email, config } = ctx;
+    const {email, config} = ctx;
 
     const log = (label: string, detail?: string): void => {
-        ctx.onEvent({ at: now(), type: 'outlook', label, detail });
+        ctx.onEvent({at: now(), type: 'outlook', label, detail});
     };
 
     const readEmail = tool(
@@ -100,7 +100,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             maxChars: z.number().int().min(500).max(200_000).optional(),
             includeQuoted: z.boolean().optional(),
         },
-        async ({ maxChars, includeQuoted }) => {
+        async ({maxChars, includeQuoted}) => {
             const limit = maxChars ?? 50_000;
             const withQuoted = includeQuoted === true;
             const result = await outlook.readBody(email.ref, limit, withQuoted);
@@ -126,7 +126,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             }
             return ok(lines.join('\n'));
         },
-        { annotations: { readOnlyHint: true } },
+        {annotations: {readOnlyHint: true}},
     );
 
     // Each tool has its own schema type, so the array is annotated rather than
@@ -138,12 +138,12 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tool(
             'record_note',
             'Record a note in this email\'s run trace. Use it to state what you concluded and why, so the decision is readable later without re-running anything.',
-            { note: z.string().min(1) },
-            async ({ note }) => {
-                ctx.onEvent({ at: now(), type: 'note', label: note.slice(0, 160), detail: note });
+            {note: z.string().min(1)},
+            async ({note}) => {
+                ctx.onEvent({at: now(), type: 'note', label: note.slice(0, 160), detail: note});
                 return ok('Noted.');
             },
-            { annotations: { readOnlyHint: true } },
+            {annotations: {readOnlyHint: true}},
         ),
 
         // The one way a node without file-system access writes anything, so the
@@ -151,17 +151,17 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         tool(
             'save_file',
             'Save a text file into this run\'s folder — a report, or anything else worth keeping beside the run — and return its path. Give a bare file name such as "fix-report.md"; saving it again replaces it.',
-            { fileName: z.string().min(1).max(120), content: z.string() },
-            async ({ fileName, content }) => {
+            {fileName: z.string().min(1).max(120), content: z.string()},
+            async ({fileName, content}) => {
                 const name = fileName.trim();
                 if (!/^[^\\/:*?"<>|\0]+$/.test(name) || name.startsWith('.')) {
                     return fail(`"${fileName}" is not a bare file name. Give one such as "fix-report.md".`);
                 }
-                await mkdir(ctx.scratchDir, { recursive: true });
+                await mkdir(ctx.scratchDir, {recursive: true});
                 const path = join(ctx.scratchDir, name);
                 await writeFile(path, content, 'utf8');
                 ctx.actions.push(`saved ${name}`);
-                ctx.onEvent({ at: now(), type: 'note', label: `Saved ${name}`, detail: `${path}\n\n${content}` });
+                ctx.onEvent({at: now(), type: 'note', label: `Saved ${name}`, detail: `${path}\n\n${content}`});
                 return ok(`Saved: ${path}`);
             },
         ),
@@ -172,8 +172,8 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             tool(
                 'save_attachment',
                 'Save one or more of this email\'s attachments into the run folder and return their paths, so they can be read with the Read tool. A workbook (.xlsx, .xlsm), which Read cannot open, is saved as CSV beside it too, one file per sheet: each cell as the sheet shows it (51%, $1,349.00, dates as YYYY-MM-DD), with line N holding row N and every column in its place, so a figure can be traced to its cell.',
-                { fileNames: z.array(z.string().min(1)).min(1) },
-                async ({ fileNames }) => {
+                {fileNames: z.array(z.string().min(1)).min(1)},
+                async ({fileNames}) => {
                     const saved = await outlook.saveAttachments(email.ref, fileNames, ctx.scratchDir);
                     if (saved.length === 0) {
                         return fail(
@@ -181,7 +181,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                         );
                     }
                     const lines: string[] = [];
-                    for (const { path } of saved) lines.push(...(await withCsv(await renameTypeable(path))));
+                    for (const {path} of saved) lines.push(...(await withCsv(await renameTypeable(path))));
                     ctx.actions.push(`saved ${saved.length} attachment(s)`);
                     log('save_attachment', lines.join('\n'));
                     return ok(`Saved:\n${lines.join('\n')}`);
@@ -206,11 +206,11 @@ export function createEmailToolServer(ctx: EmailToolContext) {
                     signatureName: z.string().min(1).optional(),
                     replyAll: z.boolean().optional(),
                 },
-                async ({ replyAll, ...content }) => {
+                async ({replyAll, ...content}) => {
                     if (!content.htmlBody && !content.templateSubject) {
                         return fail('Give the reply a body: `htmlBody`, or a `templateSubject` to reply with.');
                     }
-                    const result = await outlook.draftReply(email.ref, { ...content, replyAll: replyAll === true });
+                    const result = await outlook.draftReply(email.ref, {...content, replyAll: replyAll === true});
                     const from = content.templateSubject
                         ? ` from template ${content.templateSubject}${content.templateSection ? ` [${content.templateSection}]` : ''}`
                         : '';
@@ -232,8 +232,8 @@ export function createEmailToolServer(ctx: EmailToolContext) {
             tool(
                 'move_email',
                 'File this email into an Inbox subfolder, creating the folder if it does not exist. Give a path relative to the Inbox, e.g. "Processed/Invoices".',
-                { folderPath: z.string().min(1) },
-                async ({ folderPath }) => {
+                {folderPath: z.string().min(1)},
+                async ({folderPath}) => {
                     const result = await outlook.moveEmail(email.ref, folderPath);
                     if (result.moved === 0) {
                         return fail(`Outlook refused the move: ${result.failed.map((f) => f.error).join('; ')}`);

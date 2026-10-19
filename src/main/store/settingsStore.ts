@@ -10,14 +10,14 @@ export function getSettings(): Settings {
     // new fields instead of leaving them undefined.
     if (cached) return cached;
     const stored = readJson<Partial<Settings>>(settingsFile(), {});
-    cached = { ...defaultSettings(), ...stored, agents: agentsInOrder(stored.agents) };
+    cached = {...defaultSettings(), ...stored, agents: agentsInOrder(stored.agents)};
     // Someone who downloaded a nightly wants the next one, until they choose otherwise.
     if (!stored.updateChannel && app.getVersion().includes('-nightly')) cached.updateChannel = 'nightly';
     return cached;
 }
 
 export function saveSettings(settings: Settings): Settings {
-    cached = { ...defaultSettings(), ...settings, agents: agentsInOrder(settings.agents) };
+    cached = {...defaultSettings(), ...settings, agents: agentsInOrder(settings.agents)};
     writeJson(settingsFile(), cached);
     return cached;
 }
