@@ -1,6 +1,7 @@
 # A build of master as it stands, each day it has changed, published as a
 # prerelease: copies on the Nightly channel update to it. Run it from the Actions
-# tab to get one now, changed or not.
+# tab to get one now, changed or not. A commit a stable release was tagged on gets
+# no nightly, either way.
 name: Nightly
 
 on:
@@ -33,12 +34,18 @@ jobs:
           # The tags, to see what has been released.
           fetch-depth: 0
 
-      - name: Anything new since the last nightly?
+      - name: Anything new since the last release or nightly?
         id: changes
         run: |
+          # A commit tagged for a stable release is that release already: a nightly of it would
+          # only hand the Nightly channel the same build under a newer version.
+          release=$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
           last=$(gh release list --limit 30 --exclude-drafts --json tagName,isPrerelease \
             --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\.")))][0].tagName // ""')
-          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$GITHUB_SHA" ]; then
+          if [ -n "$release" ]; then
+            echo "::notice::Master is $release, released already."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = schedule ] && [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$GITHUB_SHA" ]; then
             echo "Nothing on master since $last."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else

@@ -8,7 +8,7 @@ published.
 ## Nightly
 
 `nightly.yml` runs every morning and builds master if it has changed since the last nightly; **Run workflow** on the
-Actions tab builds one now. Its version is the one in `package.json`, or the next patch once a release of that is out,
+Actions tab builds one now. Neither builds a commit a stable release was tagged on: that build is out already. Its version is the one in `package.json`, or the next patch once a release of that is out,
 with `-nightly.<UTC date and time>` after it — so a nightly sorts after the release before it and before the one it
 leads up to. It is published as a prerelease, and only the five newest are kept: an installed copy reads GitHub's ten
 newest releases, and the latest stable one has to stay among them.
