@@ -12,7 +12,8 @@
   },
   "allowScripts": {
     "file:../outlook-bridge": false,
-    "esbuild": true
+    "esbuild": true,
+    "fsevents@2.3.3": true
   },
   "scripts": {
     "start": "electron-forge start",
@@ -27,7 +28,7 @@
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",
     "@electron-forge/plugin-vite": "^8.0.1",
-    "@types/node": "^26.6.5",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
