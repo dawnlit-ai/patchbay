@@ -34,6 +34,7 @@ import {
     type OfferedModel,
     outputPorts,
     provides,
+    refName,
     requires,
     type SlotCheck,
     slotTypeLabel,
@@ -188,7 +189,8 @@ function describe(node: FlowNode): string {
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;
         case 'extractor': {
             const fields = Object.keys((c.schema.properties as Record<string, unknown> | undefined) ?? {}).length;
-            return `→ ${c.output} · ${fields} field${fields === 1 ? '' : 's'}${c.includeAttachments ? ' · reads attachments' : ''}`;
+            const shape = refName(c.schema) ?? `${fields} field${fields === 1 ? '' : 's'}`;
+            return `→ ${c.output} · ${shape}${c.includeAttachments ? ' · reads attachments' : ''}`;
         }
         case 'processor':
             return c.skills.length > 0

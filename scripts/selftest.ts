@@ -68,6 +68,7 @@ function buildFlow(account: string): Flow {
             // "unmatched" is deliberately left unconnected, so a run that lands there
             // proves the engine reports a dead end instead of stalling.
         ],
+        schemas: {},
     };
 }
 

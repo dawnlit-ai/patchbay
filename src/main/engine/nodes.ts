@@ -8,6 +8,8 @@ import {
     modelsInTurn,
     needsField,
     type ProcessorConfig,
+    resolveNode,
+    type Schemas,
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
@@ -26,6 +28,8 @@ export interface NodeContext {
     /** The flow being run: its directory holds the skills this node may use. */
     flowId: string;
     node: FlowNode;
+    /** The flow's named schemas, which the node's schema may refer to. */
+    schemas: Schemas;
     email: EmailEnvelope;
     /** Slots earlier nodes on this path filled, by name. */
     data: Readonly<Record<string, unknown>>;
@@ -557,7 +561,14 @@ function runTerminal(config: TerminalConfig): NodeOutcome {
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    const config = ctx.node.config;
+    let config: FlowNode['config'];
+    try {
+        // Filled in once, here, so every step below sees the schema whole.
+        config = resolveNode(ctx.schemas, ctx.node).config;
+    } catch (e) {
+        const message = `The schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+        return {outPort: 'error', summary: message, error: message};
+    }
     switch (config.kind) {
         case 'trigger.outlook':
             return runTrigger(ctx.email);

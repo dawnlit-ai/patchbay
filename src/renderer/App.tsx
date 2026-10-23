@@ -280,6 +280,15 @@ export function App({initialFlowId}: Props): JSX.Element {
         [flow, updateFlow],
     );
 
+    /** A change reaching past one node, as a named schema's is: made from the flow as it stands. */
+    const editFlow = useCallback(
+        (edit: (current: Flow) => Flow) => {
+            if (!flow) return;
+            updateFlow(edit(flow));
+        },
+        [flow, updateFlow],
+    );
+
     /** A skill that moved library changed name (`global:x` ↔ `x`); re-point this flow's nodes. */
     const relabelSkill = useCallback(
         (from: SkillScope, to: SkillScope, name: string) => {
@@ -594,12 +603,14 @@ export function App({initialFlowId}: Props): JSX.Element {
                 <div className="side right">
                     <div className="side-body">
                         <Inspector
+                            flow={flow}
                             node={selectedNode}
                             library={library}
                             available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
                             issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
                             tokens={tokens}
                             onChange={updateNode}
+                            onEditFlow={editFlow}
                             onDelete={deleteNode}
                         />
                     </div>

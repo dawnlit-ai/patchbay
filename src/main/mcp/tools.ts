@@ -7,6 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
     checkSlots,
     connectNodes,
+    deleteSchema,
     type Flow,
     type FlowNode,
     makeNode,
@@ -16,7 +17,9 @@ import {
     type OfferedModel,
     outputPorts,
     parseFlow,
+    renameSchema,
     retickSkill,
+    SLOT_NAME,
     ticksSkill,
     triggerConfig,
 } from '@shared/flow';
@@ -95,6 +98,11 @@ rather than a fan-out. The five node kinds:
 A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.
 
+A schema used in more than one place can be named once for the flow with
+set_schema, then a node's \`schema\` set to {"$ref": "#/schemas/<name>"}. A field
+inside a schema can refer to one the same way, so a named schema can be built
+out of others. get_flow lists the flow's \`schemas\`.
+
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
 rather than stored, so editing a categorizer's categories moves its ports — an
@@ -155,6 +163,7 @@ const describeFlow = (flow: Flow) => {
             slotsOnArrival: available.has(node.id) ? [...available.get(node.id)!.keys()] : undefined,
         })),
         edges: flow.edges,
+        schemas: flow.schemas,
         // Errors keep the flow from being watched; warnings do not.
         slotIssues: issues,
     };
@@ -470,6 +479,68 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 ...current,
                 edges: current.edges.filter((e) => e.id !== edgeId),
             }));
+            return json(describeFlow(flow));
+        },
+    );
+
+    // ── Named schemas ────────────────────────────────────────────────────
+
+    const schemaNameArg = z
+        .string()
+        .regex(SLOT_NAME, 'Letters, digits and _ only, not starting with a digit.')
+        .describe('What nodes refer to it by, as {"$ref": "#/schemas/<name>"}.');
+
+    server.registerTool(
+        'set_schema',
+        {
+            title: 'Name a schema',
+            description:
+                'Add a named schema to a flow, or replace the one of that name. Every node and schema referring to it uses the new one at once. A field may refer to another named schema as {"$ref": "#/schemas/<name>"}.',
+            inputSchema: {
+                flowId: flowIdArg,
+                name: schemaNameArg,
+                schema: z.record(z.string(), z.unknown()).describe('A JSON Schema object.'),
+            },
+        },
+        ({flowId, name, schema}) => {
+            const {flow} = editFlow(host, flowId, (current) => ({
+                ...current,
+                schemas: {...current.schemas, [name]: schema},
+            }));
+            return json(describeFlow(flow));
+        },
+    );
+
+    server.registerTool(
+        'rename_schema',
+        {
+            title: 'Rename a schema',
+            description: 'Rename one of a flow’s named schemas. Every reference to it, in nodes and in other schemas, follows.',
+            inputSchema: {flowId: flowIdArg, name: z.string(), to: schemaNameArg},
+        },
+        ({flowId, name, to}) => {
+            const {flow} = editFlow(host, flowId, (current) => {
+                if (!Object.hasOwn(current.schemas, name)) throw new Error(`"${current.name}" has no schema "${name}".`);
+                if (to !== name && Object.hasOwn(current.schemas, to)) {
+                    throw new Error(`"${current.name}" already has a schema "${to}".`);
+                }
+                return renameSchema(current, name, to);
+            });
+            return json(describeFlow(flow));
+        },
+    );
+
+    server.registerTool(
+        'delete_schema',
+        {
+            title: 'Delete a schema',
+            description:
+                'Remove one of a flow’s named schemas. Each node and schema that referred to it is given a copy of it in its place, so nothing that used it breaks.',
+            inputSchema: {flowId: flowIdArg, name: z.string()},
+            annotations: {idempotentHint: true},
+        },
+        ({flowId, name}) => {
+            const {flow} = editFlow(host, flowId, (current) => deleteSchema(current, name));
             return json(describeFlow(flow));
         },
     );

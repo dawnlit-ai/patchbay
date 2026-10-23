@@ -55,6 +55,39 @@ A slot counts at a node only if **every** path from a trigger to it fills that s
 behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,
 and the flow cannot be watched until that is fixed. A test run of such a flow stops at that node and says why.
 
+### Named schemas
+
+A slot's schema can be one the node keeps to itself, or one **named** for the whole flow, such as `Shipment`, which
+any Extractor or Processor in it can pick. Every node that picks it fills the same shape, and its port and chips name
+the slot's type `Shipment` rather than `JSON · 9 fields`.
+
+The inspector's *Schema* picker offers *This node's own* and each named schema. **New…** names what the node has now
+and switches the node to it. On a named schema, the JSON below it is the shared one, so an edit changes it for every
+node that uses it. **Rename…** renames it and every reference to it. **Delete…** gives each node that used it a copy of
+its own, so nothing breaks. Leaving a named schema for *This node's own* starts from a copy of it. Picking a named
+schema over one of the node's own replaces it, so the app asks first.
+
+Named schemas live in the flow file, under `schemas`, and a node or a field refers to one as
+`{"$ref": "#/schemas/<name>"}`. So one named schema can be built from others, such as `Shipment` holding a `Settings`:
+
+```json
+"schemas": {
+  "Settings": {"type": "object", "properties": {"output_dir": {"type": "string"}}, "required": ["output_dir"]},
+  "Shipment": {
+    "type": "object",
+    "properties": {
+      "bl_no": {"type": "string", "description": "The House B/L number."},
+      "settings": {"$ref": "#/schemas/Settings", "description": "The settings this run works from."}
+    },
+    "required": ["bl_no", "settings"]
+  }
+}
+```
+
+A key beside `$ref`, such as that `description`, wins over the named schema's own. A run fills every reference in
+before the node starts, so Claude only sees the whole schema. A node whose schema names a schema the flow lacks, or
+one that contains itself, is flagged on the canvas and leaves by *Error* if it runs.
+
 ## Flow files
 
 The app opens on a start page listing every flow this install holds — its size, when it was last edited, whether a

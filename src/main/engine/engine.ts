@@ -142,6 +142,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             const outcome = await executeNode({
                 flowId: flow.id,
                 node,
+                schemas: flow.schemas,
                 email,
                 data,
                 scratchDir,

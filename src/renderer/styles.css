@@ -1558,6 +1558,11 @@ button.wide {
     flex: none;
 }
 
+/* The schema picker, over the schema it shows. */
+.schema-pick {
+    margin-bottom: 6px;
+}
+
 /* Pushes whatever follows it to the far end of a flex bar. */
 .spacer {
     flex: 1;
