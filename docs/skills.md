@@ -2,45 +2,41 @@
 
 ## Skills
 
-A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. There are **two libraries**, and
-the inspector lists both, one above the other:
+A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. A workspace has **one library**, in
+its `skills` folder, and every flow in the workspace ticks from it:
 
 ```
-<userData>/workspace/global/skills/<name>/SKILL.md                  shared by every flow
-<folder holding the flow's file>/.claude/skills/<name>/SKILL.md     this flow only
+<workspace>/skills/<name>/SKILL.md
 ```
 
-**Global** is the shared shelf: any flow can tick these, and editing one changes it everywhere. **Flow** skills sit in
-the flow's own folder — the working directory its nodes run in — so only that flow sees them. Two flow files kept in
-one folder share it, and its library with it. The two libraries may hold the same name without either shadowing the
-other: a node stores a global tick as `global:<name>` and its own as the bare name.
+A node stores a tick as the skill's name, so editing a skill changes it for every flow here that ticks it. A flow saved
+while Patchbay had a global library and one per flow ticks the global one's skills as `global:<name>`; those read as the
+plain name now.
 
-The global library is seeded on first run from `skillSeedPath` in Settings, or else `./skills`, falling back to one
-starter skill if neither exists. Seeding runs only while that library is empty, or holds nothing but that starter
-skill, so it never fights an edit you made.
+A new workspace starts with one starter skill. A folder opened as a workspace starts with whatever its `skills` folder
+holds — nothing, if it has none yet.
+
+A run is handed a copy of just the skills its node ticks, as a plugin Claude knows as `workspace`, so a trace shows a
+step loading `workspace:<name>`. A skill saved while a run is under way reaches the next run, not that one.
 
 ### Managing skills
 
 The list sits in a Processor's or Extractor's inspector, where a tick lets the node use a skill, and on its own when no
 node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
 `.md` files, and right-clicking a skill can also show its folder or delete it. **New** writes one from a template,
-ticks it on the node whose list it came from, and opens it.
+ticks it on the node whose list it came from, and opens it. **Import…** copies chosen `SKILL.md` files into the
+library, each with the folder it sits in — which is how skills kept elsewhere, such as `~/.claude/skills`, come in.
 
-The app watches every folder the two libraries read, so a skill saved, renamed or deleted elsewhere — in your editor,
-Finder or Explorer, a `git pull` — shows as it happens. A node still ticking one that has gone lists it on its own, to
-untick, and a run reaching that node leaves by its error port naming the skill.
+The start window's **Skills** tab lists the same library beside the workspace's flows: each skill's description, which
+flows tick it, and when it was last edited, with **New skill** and **Import skills…** in the rail. Double-clicking a
+skill opens its `SKILL.md`; right-clicking it can show its folder or delete it. A skill some flow ticks but the folder
+no longer holds is listed at the bottom, with the flows that tick it.
 
-- **Move** — drag a skill onto the other library. The open flow's ticks are re-pointed as it goes (`global:x` ↔ `x`).
-  A skill leaving the global shelf is one other flows can no longer tick, and one landing on a name already there
-  replaces it, so both are asked about first.
-- **Import…** pulls a folder of existing skills into the library it sits on.
-- **Opening a flow file** that carries skills of its own writes them into `.claude/skills` beside it the first time,
-  and adds any global skill whose name is still free. It never rewrites a skill already there.
+The app watches the workspace's `skills` folder, so a skill saved, renamed or deleted elsewhere — in your editor, Finder
+or Explorer, a `git pull` — shows as it happens. A node still ticking one that has gone lists it on its own, to untick,
+and a run reaching that node leaves by its error port naming the skill.
 
-**Settings → Global skills** links folders of skills on the machine — `~/.claude/skills`, say — into the global
-library, which reads and writes them in place, copying nothing. The app workspace's own folder is always read too, and
-is where new skills are saved. The linked folders are ordered: when two hold a skill of the same name the higher one's
-is used, the workspace's comes last, and the others are shown as hidden. Unlinking a folder deletes nothing.
+Importing a flow file that carries skills of its own writes them into the library, never over a skill already there.
 
 ## MCP servers
 
@@ -81,6 +77,7 @@ id, so a record a skill writes elsewhere can link back to the message it came fr
 ## File access
 
 A Processor's own file access is a separate switch, *Read and write files anywhere, and run commands*, and it starts
-off. Off, Claude reads the run folder — the saved attachments — and the flow's folder, writes only through `save_file`,
-and has no shell at all. That is what a node reading mail from outside should get: an email written to steer the agent
-reading it can then reach nothing beyond its own run. Switch it on only for a skill that has to run a script.
+off. Off, Claude reads the run folder — the saved attachments — and the workspace's folder, writes only through
+`save_file`, and has no shell at all. That is what a node reading mail from outside should get: an email written to
+steer the agent reading it can then reach nothing outside the workspace and change nothing in it. Keep anything a step
+should not read out of the workspace's folder, and switch file access on only for a skill that has to run a script.

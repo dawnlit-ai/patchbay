@@ -1,12 +1,19 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { execFile } from 'node:child_process';
-import { dirname, join } from 'node:path';
-import { type InboxFolderOption, IPC, type OpenWhere, type OutlookDrag, type WorkspaceChange } from '@shared/ipc';
+import {
+    type InboxFolderOption,
+    IPC,
+    type OpenWhere,
+    type OutlookDrag,
+    type WorkspaceChange,
+    type WorkspaceInfo,
+} from '@shared/ipc';
 import { type Flow, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { AboutInfo, Settings, SkillScope } from '@shared/settings';
+import type { AboutInfo, Settings } from '@shared/settings';
 import * as flowStore from './store/flowStore';
 import * as skillStore from './store/skillStore';
+import * as workspaceStore from './store/workspaceStore';
 import { rewatch, watchSkills } from './store/skillWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
@@ -15,8 +22,8 @@ import { agents } from './agentHost';
 import { listServerTools } from './tools/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
-import { logsDir, runsDir, workspaceRoot } from './paths';
-import { openFlow, openFlows, showSettings, showWelcome } from './windows';
+import { dataRoot, logsDir, runsDir, workspaceRoot } from './paths';
+import { closeCanvases, openFlow, openFlows, showSettings, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 import { Updates } from './updates';
 
@@ -107,6 +114,30 @@ function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: 
 }
 
 /**
+ * Make another folder the open workspace. Refused while a run is under way or
+ * waiting: it works in the workspace's folder, with its skills. Otherwise every
+ * flow stops being watched and every canvas closes, since they are the old
+ * workspace's. Opening the one already open changes nothing.
+ */
+function switchWorkspace(path: string | null, open: () => WorkspaceInfo): WorkspaceInfo {
+    if (path !== null && workspaceStore.isCurrentWorkspace(path)) return open();
+    const watcher = getWatcher();
+    const {activeRunIds, queuedRunIds} = watcher.status();
+    if (activeRunIds.length > 0 || queuedRunIds.length > 0) {
+        throw new Error(
+            'Runs of this workspace’s flows are under way or waiting. Let them finish, or cancel them, before opening another workspace.',
+        );
+    }
+    // First, so a folder that has gone leaves everything as it was.
+    const opened = open();
+    watcher.stopAll();
+    closeCanvases();
+    rewatch();
+    broadcast(IPC.evtWorkspaceChanged, {flows: true, skills: true});
+    return opened;
+}
+
+/**
  * A canvas save, refused if something else wrote the flow since the edit was
  * made. Tracked per sending window, so a window's own earlier saves don't count.
  */
@@ -154,9 +185,10 @@ async function openInEditor(file: string): Promise<void> {
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
-/** Where New flow offers to put a flow's folder: where the last one went, else a folder of the app's own in Documents. */
-function flowLocationOffered(): string {
-    return getSettings().flowLocation || join(app.getPath('documents'), 'Patchbay');
+function requireFlow(id: string): Flow {
+    const flow = flowStore.getFlow(id);
+    if (!flow) throw new Error('That flow is no longer in the workspace.');
+    return flow;
 }
 
 const FLOW_FILTERS = [
@@ -172,75 +204,72 @@ export function registerIpc(): void {
             version: app.getVersion(),
             developer: 'Dawnlit',
             license: 'AGPL-3.0-or-later',
-            workspace: workspaceRoot(),
+            dataDir: dataRoot(),
         }),
     );
     handle(IPC.openDeveloperSite, () => shell.openExternal(DEVELOPER_URL));
-    handle(IPC.revealWorkspace, () => shell.openPath(workspaceRoot()));
     handle(IPC.copyText, (text: string) => clipboard.writeText(text));
 
-    handle(IPC.flowsEntries, () => flowStore.listFlowEntries());
-    handleCanvasSave();
-    handle(IPC.flowsLocation, () => flowLocationOffered());
-    handle(IPC.flowsPickLocation, async (current: string) => {
+    handle(IPC.workspaceCurrent, () => workspaceStore.currentWorkspaceInfo());
+    handle(IPC.workspaceRecent, () => workspaceStore.recentWorkspaces());
+    handle(IPC.workspaceOpen, (path: string) => switchWorkspace(path, () => workspaceStore.openWorkspace(path)));
+    handle(IPC.workspacePickAndOpen, async () => {
         const picked = await dialog.showOpenDialog({
-            title: 'Choose where the flow’s folder goes',
-            defaultPath: current || flowLocationOffered(),
+            title: 'Open a folder as the workspace',
+            defaultPath: workspaceStore.currentWorkspaceInfo()?.path ?? workspaceStore.workspaceLocation(),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        const path = picked.filePaths[0];
+        if (picked.canceled || !path) return null;
+        return switchWorkspace(path, () => workspaceStore.openWorkspace(path));
+    });
+    handle(IPC.workspaceCreate, (name: string, location: string) =>
+        switchWorkspace(null, () => workspaceStore.createWorkspace(name, location)),
+    );
+    handle(IPC.workspaceLocation, () => workspaceStore.workspaceLocation());
+    handle(IPC.workspacePickLocation, async (current: string) => {
+        const picked = await dialog.showOpenDialog({
+            title: 'Choose where the workspace’s folder goes',
+            defaultPath: current || workspaceStore.workspaceLocation(),
             properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
         });
         return picked.canceled ? null : (picked.filePaths[0] ?? null);
     });
-    handleFlowWrite(IPC.flowsCreate, (name: string, location: string) => {
-        const flow = flowStore.createFlow(name, location);
-        saveSettings({...getSettings(), flowLocation: location});
-        return flow;
+    handle(IPC.workspaceForget, (path: string) => workspaceStore.forgetWorkspace(path));
+    handle(IPC.workspaceReveal, async () => {
+        // openPath reports failure as a message rather than throwing: the folder may be gone.
+        const failure = await shell.openPath(workspaceRoot());
+        if (failure) throw new Error(failure);
     });
-    handleFlowWrite(IPC.flowsDuplicate, (source: Flow, name: string, location: string) => {
-        const copy = flowStore.duplicateFlow(source, name, location);
-        saveSettings({...getSettings(), flowLocation: location});
-        return copy;
-    });
+
+    handle(IPC.flowsEntries, () => (workspaceStore.currentWorkspaceInfo() ? flowStore.listFlowEntries() : []));
+    handleCanvasSave();
+    handleFlowWrite(IPC.flowsCreate, (name: string) => flowStore.createFlow(name));
+    handleFlowWrite(IPC.flowsDuplicate, (source: Flow, name: string) => flowStore.duplicateFlow(source, name));
     handleFlowWrite(IPC.flowsRename, (id: string, name: string) => flowStore.renameFlow(id, name));
     handleFlowWrite(IPC.flowsRemove, (id: string) => {
         getWatcher().clearForRemoval(id);
         flowStore.removeFlow(id);
     });
-    handleFlowWrite(IPC.flowsSetFolder, (id: string, folder: string) => {
-        // The folder is the cwd of this flow's runs; moving it mid-run would pull
-        // it out from under the agent.
-        if (getWatcher().isFlowRunning(id)) {
-            throw new Error(
-                'A run of this flow is in progress. That folder is the directory it is running in, so it cannot be renamed until the run finishes.',
-            );
-        }
-        return flowStore.setFlowFolder(id, folder);
-    });
-    handle(IPC.flowsReveal, async (id: string) => {
-        const {file, inPlace} = flowStore.flowLocation(id);
-        // A folder opened in place may hold more than this flow, so the file is picked out in it.
-        if (inPlace) shell.showItemInFolder(file);
-        else await shell.openPath(dirname(file));
-    });
-    handleFlowWrite(IPC.flowsPickAndOpen, async () => {
+    handleFlowWrite(IPC.flowsSetFileName, (id: string, fileName: string) => flowStore.setFlowFileName(id, fileName));
+    handle(IPC.flowsReveal, (id: string) => shell.showItemInFolder(flowStore.entryFor(requireFlow(id)).file));
+    handleFlowWrite(IPC.flowsPickAndImport, async () => {
         const picked = await dialog.showOpenDialog({
-            title: 'Open a flow',
+            title: 'Import a flow into this workspace',
             filters: FLOW_FILTERS,
             properties: ['openFile'],
         });
         const path = picked.filePaths[0];
         if (picked.canceled || !path) return null;
-        return flowStore.openFlowFile(path);
+        return flowStore.importFlowFile(path);
     });
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsServerTools, (server: string) => listServerTools(server));
     handle(IPC.settingsSave, (settings: Settings) => {
-        // Keep the stored token, skill folders and flow location: a panel opened before a
-        // regeneration, a folder change or a new flow would send the old ones back.
-        const {globalSkillFolders, agentControl, flowLocation, updateChannel} = getSettings();
+        // Keep the stored token: a panel opened before a regeneration would send the old one back.
+        const {agentControl, updateChannel} = getSettings();
         const saved = saveSettings({
             ...settings,
-            globalSkillFolders,
-            flowLocation,
             agentControl: {...settings.agentControl, token: agentControl.token},
         });
         // Carries out a change to the agent-control server's switch or port.
@@ -274,58 +303,30 @@ export function registerIpc(): void {
     // Skills are edited in other apps, so main watches their folders and every
     // window re-reads its list on a change, whoever made it.
     watchSkills(() => broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: true}));
-    handle(IPC.skillsList, (flowId: string) => {
+    handle(IPC.skillsList, () => {
+        if (!workspaceStore.currentWorkspaceInfo()) return [];
         rewatch();
-        return skillStore.listAllSkills(flowId);
+        return skillStore.listSkills();
     });
-    handle(IPC.skillsCreate, (scope: SkillScope, flowId: string, name: string, content: string) =>
-        skillStore.createSkill(scope, flowId, name, content),
-    );
-    handle(IPC.skillsOpen, (scope: SkillScope, flowId: string, name: string) =>
-        openInEditor(skillStore.locateSkill(scope, flowId, name)),
-    );
-    handle(IPC.skillsReveal, (scope: SkillScope, flowId: string, name: string) =>
-        shell.showItemInFolder(skillStore.locateSkill(scope, flowId, name)),
-    );
-    handle(IPC.skillsRemove, (scope: SkillScope, flowId: string, name: string) =>
-        skillStore.removeSkill(scope, flowId, name),
-    );
-    handle(IPC.skillsMove, (from: SkillScope, to: SkillScope, flowId: string, name: string) =>
-        skillStore.moveSkill(from, to, flowId, name),
-    );
-    handle(IPC.skillsPickAndImport, async (scope: SkillScope, flowId: string) => {
+    handle(IPC.skillsCreate, (name: string, content: string) => {
+        const created = skillStore.createSkill(name, content);
+        // The library's folder may be new, and only a folder that is there can be watched.
+        rewatch();
+        return created;
+    });
+    handle(IPC.skillsOpen, (name: string) => openInEditor(skillStore.locateSkill(name)));
+    handle(IPC.skillsReveal, (name: string) => shell.showItemInFolder(skillStore.locateSkill(name)));
+    handle(IPC.skillsRemove, (name: string) => skillStore.removeSkill(name));
+    handle(IPC.skillsPickAndImport, async () => {
         const picked = await dialog.showOpenDialog({
-            title:
-                scope === 'global'
-                    ? 'Choose SKILL.md files to add to every flow'
-                    : 'Choose SKILL.md files to add to this flow',
+            title: 'Choose SKILL.md files to add to this workspace',
             filters: [{name: 'Skills', extensions: ['md']}],
             properties: ['openFile', 'multiSelections'],
         });
         if (picked.canceled || picked.filePaths.length === 0) return null;
-        return skillStore.importSkillFiles(scope, flowId, picked.filePaths);
-    });
-    handle(IPC.skillsFolders, () => {
+        const result = skillStore.importSkillFiles(picked.filePaths);
         rewatch();
-        return skillStore.globalShelf();
-    });
-    // Every flow's global skills change at once, so every window re-reads them.
-    handleWrite({flows: false, skills: true}, IPC.skillsSetFolders, (paths: string[]) => {
-        const shelf = skillStore.setGlobalFolders(paths);
-        rewatch();
-        return shelf;
-    });
-    handle(IPC.skillsPickFolder, async () => {
-        const picked = await dialog.showOpenDialog({
-            title: 'Choose a folder of skills to link for every flow to use in place',
-            properties: ['openDirectory'],
-        });
-        return picked.canceled ? null : (picked.filePaths[0] ?? null);
-    });
-    handle(IPC.skillsRevealFolder, async (path: string) => {
-        // openPath reports failure as a message rather than throwing: the folder may be gone.
-        const failure = await shell.openPath(skillStore.globalFolderPath(path));
-        if (failure) throw new Error(failure);
+        return result;
     });
 
     handle(IPC.engineStart, (flowId: string) => getWatcher().start(flowId));
@@ -351,7 +352,7 @@ export function registerIpc(): void {
         (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,
     );
 
-    handle(IPC.runsList, (limit: number) => traceStore.listRuns(limit));
+    handle(IPC.runsList, (limit: number) => (workspaceStore.currentWorkspaceInfo() ? traceStore.listRuns(limit) : []));
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));
     handle(IPC.runsClear, () => traceStore.clearRuns());
     handle(IPC.runsRemove, (id: string) => {

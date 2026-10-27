@@ -103,7 +103,7 @@ export interface ExtractorConfig {
 }
 
 export interface ProcessorConfig {
-    /** Ticked skills: `global:<name>` from the global library, a bare name from the flow's own. */
+    /** Ticked skills, by name, from the workspace's library. */
     skills: string[];
     /** Free-text instruction prepended to the email context. */
     instruction: string;
@@ -781,32 +781,6 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
     };
 }
 
-/**
- * Re-point every node ticking `before` at `after`, as when a skill changes
- * library. Returns the same flow object when nothing changed.
- */
-export function retickSkill(flow: Flow, before: string, after: string): Flow {
-    let changed = false;
-    const nodes = flow.nodes.map((node) => {
-        const config = node.config;
-        if (config.kind !== 'processor' && config.kind !== 'extractor') return node;
-        if (!config.skills.includes(before)) return node;
-        changed = true;
-        // Through a Set: a node ticking both libraries' copies would otherwise
-        // end up ticking the survivor twice.
-        const skills = [...new Set(config.skills.map((s) => (s === before ? after : s)))];
-        return {...node, config: {...config, skills}};
-    });
-    return changed ? {...flow, nodes} : flow;
-}
-
-/** Whether any node in the flow ticks this skill. */
-export function ticksSkill(flow: Flow, ref: string): boolean {
-    return flow.nodes.some(
-        ({config}) => (config.kind === 'processor' || config.kind === 'extractor') && config.skills.includes(ref),
-    );
-}
-
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
     return {id, name, nodes: [], edges: [], schemas: {}, updatedAt: new Date().toISOString()};
@@ -832,6 +806,15 @@ const bool = (value: unknown, fallback: boolean): boolean =>
 /** A list of strings, keeping only the entries that are strings. */
 const strings = (value: unknown, fallback: string[]): string[] =>
     (Array.isArray(value) ? value : fallback).filter((s): s is string => typeof s === 'string');
+
+/**
+ * Ticked skills, each once. A flow saved while skills came from two libraries
+ * ticks the shared one's as `global:<name>`; the workspace's library is that
+ * one now, so it reads as the bare name.
+ */
+const skillTicks = (value: unknown, fallback: string[]): string[] => [
+    ...new Set(strings(value, fallback).map((s) => s.replace(/^global:/, ''))),
+];
 
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
@@ -908,7 +891,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
                 schema: isObject(from.schema) ? from.schema : base.schema,
                 instruction: str(from.instruction, base.instruction),
-                skills: strings(from.skills, base.skills),
+                skills: skillTicks(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
                 models: modelsOf(from.models, base.models),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
@@ -919,7 +902,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             const output = str(from.output, '');
             return {
                 ...base,
-                skills: strings(from.skills, base.skills),
+                skills: skillTicks(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
                 readEmail: bool(from.readEmail, base.readEmail),
                 inputs: strings(from.inputs, base.inputs),

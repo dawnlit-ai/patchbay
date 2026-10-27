@@ -1,21 +1,14 @@
 import { existsSync, type FSWatcher, watch } from 'node:fs';
-import { flowsDir, globalSkillsDir, openedFlowSkillDirs } from '../paths';
-import { getSettings } from './settingsStore';
+import { join } from 'node:path';
+import { currentWorkspace } from '../paths';
 
 /**
- * Skills are edited and deleted outside the app, so their folders are watched and
- * a change is passed on once it settles.
+ * Skills are edited and deleted outside the app, so the open workspace's library
+ * is watched and a change is passed on once it settles.
  */
 
 /** An editor's save is several events — a temp file, a rename — and one re-read covers them. */
 const SETTLE_MS = 250;
-
-interface Root {
-    path: string;
-
-    /** Whether a change to this file, relative to the root, is one to a skill. */
-    concerns(file: string): boolean;
-}
 
 const watchers = new Map<string, FSWatcher>();
 let onChange: (() => void) | null = null;
@@ -30,19 +23,12 @@ function changed(): void {
 }
 
 /**
- * What to watch. `flows` as a whole rather than each flow's library, which comes
- * and goes, and on Windows would block renaming the flow's folder. Only changes
- * under a `.claude` count. A flow opened in place has its library watched on its
- * own, once it has one: watching the folder above it could mean all of Documents.
+ * What to watch: the open workspace's `skills` folder alone. Watching the
+ * workspace as a whole could mean a repository's `node_modules`.
  */
-function roots(): Root[] {
-    const everything = (): boolean => true;
-    return [
-        ...getSettings().globalSkillFolders.map((path) => ({path, concerns: everything})),
-        {path: globalSkillsDir(), concerns: everything},
-        {path: flowsDir(), concerns: (file: string) => file.split(/[\\/]/).includes('.claude')},
-        ...openedFlowSkillDirs().map((path) => ({path, concerns: everything})),
-    ];
+function roots(): string[] {
+    const root = currentWorkspace();
+    return root ? [join(root, 'skills')] : [];
 }
 
 /** Start watching, and call `listener` whenever a skill may have changed on disk. */
@@ -52,26 +38,23 @@ export function watchSkills(listener: () => void): void {
 }
 
 /**
- * Bring the watchers in line with the folders the libraries read: drop one no
- * longer linked or no longer there, and start one on a folder that is — a drive
- * plugged back in, say. Cheap when nothing moved, so every listing calls it.
+ * Bring the watcher in line with the library: drop it for a workspace no longer
+ * open or a folder no longer there, and start one on a folder that is — made
+ * since, say. Cheap when nothing moved, so every listing calls it.
  */
 export function rewatch(): void {
     if (!onChange) return;
     const wanted = roots();
     for (const [path, watcher] of watchers) {
-        if (wanted.some((root) => root.path === path) && existsSync(path)) continue;
+        if (wanted.includes(path) && existsSync(path)) continue;
         watcher.close();
         watchers.delete(path);
     }
-    for (const {path, concerns} of wanted) {
+    for (const path of wanted) {
         if (watchers.has(path) || !existsSync(path)) continue;
         try {
             // Not persistent: a watch is no reason to keep the process alive.
-            const watcher = watch(path, {recursive: true, persistent: false}, (_event, file) => {
-                // Some platforms leave the name out; a spare re-read is harmless.
-                if (!file || concerns(file)) changed();
-            });
+            const watcher = watch(path, {recursive: true, persistent: false}, changed);
             // The folder went, or the drive did. Unhandled, this would throw in main.
             watcher.on('error', () => {
                 watcher.close();

@@ -18,13 +18,10 @@ import {
     outputPorts,
     parseFlow,
     renameSchema,
-    retickSkill,
     SLOT_NAME,
-    ticksSkill,
     triggerConfig,
 } from '@shared/flow';
 import { LOG_LEVELS, LOG_SOURCES } from '@shared/log';
-import { SKILL_SCOPES, skillRef, type SkillScope } from '@shared/settings';
 import type { WorkspaceChange } from '@shared/ipc';
 import { type EmailEnvelope, type Pass, type Run, toSummary, truncate } from '@shared/trace';
 import type { QueuedRun, Watcher } from '../engine/watcher';
@@ -33,6 +30,7 @@ import * as outlook from '../outlook/bridge';
 import * as flowStore from '../store/flowStore';
 import * as skillStore from '../store/skillStore';
 import { rewatch } from '../store/skillWatch';
+import { flowsDirAt, skillsDirAt, workspaceRoot } from '../paths';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
 import { listServerTools } from '../tools/serverTools';
@@ -66,6 +64,10 @@ const MAX_DETAIL_CHARS = 4_000;
 
 export const INSTRUCTIONS = `Patchbay wires email-processing flows on a canvas.
 
+Everything here is in the workspace open in the app: a folder holding its flows
+in flows/ and the skills they share in skills/. Every step of every flow works in
+that folder. get_workspace says which it is; only the person can open another.
+
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
 rather than a fan-out. The five node kinds:
@@ -84,7 +86,8 @@ rather than a fan-out. The five node kinds:
                     Like a processor it ticks \`skills\`, reads \`inputs\`
                     and gets the \`mcpTools\` it names, but it cannot draft
                     a reply, move the email or run commands.
-- processor       — runs Claude with the skills it ticks, scoped to one email.
+- processor       — runs Claude with the skills it ticks, by name, from the
+                    workspace's library, scoped to one email.
                     Ports: "done", "review" (it needs a person) and "error".
                     With \`output\` and \`schema\` set, its result fills that
                     slot on "done" — how one step hands its work to the next.
@@ -124,7 +127,7 @@ const json = (value: unknown) => text(JSON.stringify(value, null, 2));
 
 function requireFlow(flowId: string): Flow {
     const flow = flowStore.getFlow(flowId);
-    if (!flow) throw new Error(`There is no flow "${flowId}". list_flows gives the ids this install holds.`);
+    if (!flow) throw new Error(`There is no flow "${flowId}". list_flows gives the ids this workspace holds.`);
     return flow;
 }
 
@@ -226,13 +229,6 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     return {flow, droppedEdges: edited.edges.length - flow.edges.length};
 }
 
-/** `flowId` is read only for a flow's own library; the global one is shared. */
-function libraryOf(scope: SkillScope, flowId?: string): string {
-    if (scope === 'global') return '';
-    if (!flowId) throw new Error('A flow-scoped skill needs the flowId of the flow whose library holds it.');
-    return requireFlow(flowId).id;
-}
-
 /** A folder an agent named, with `~` expanded. Relative paths are refused: the agent can't know the app's cwd. */
 function absoluteDir(dir: string): string {
     const path = dir === '~' || /^~[\\/]/.test(dir) ? join(homedir(), dir.slice(1)) : dir;
@@ -244,12 +240,25 @@ function absoluteDir(dir: string): string {
 
 const flowIdArg = z.string().describe('Flow id, from list_flows.');
 
-const scopeArg = z
-    .enum(SKILL_SCOPES)
-    .describe('"global" is the shelf every flow can tick; "flow" belongs to one flow and travels with it.');
-
 /** Registers every tool on a server. Called once per request, on a fresh one. */
 export function registerAgentTools(server: McpServer, host: AgentHost): void {
+    // ── The workspace ────────────────────────────────────────────────────
+
+    server.registerTool(
+        'get_workspace',
+        {
+            title: 'Get the workspace',
+            description:
+                'The workspace open in the app: its folder, which every step of every flow works in, and the folders its flows and skills are kept in. There is no tool that opens another: switching closes the person’s canvases.',
+            inputSchema: {},
+            annotations: {readOnlyHint: true},
+        },
+        () => {
+            const path = workspaceRoot();
+            return json({name: basename(path), path, flows: flowsDirAt(), skills: skillsDirAt()});
+        },
+    );
+
     // ── Flows ────────────────────────────────────────────────────────────
 
     server.registerTool(
@@ -257,24 +266,24 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List flows',
             description:
-                'Every flow in this install, with its id, its size, when it was last written, its file and the directory it lives in — which is the working directory its nodes run in. `inPlace` marks a flow file opened from elsewhere on disk: it is saved where it is, and its folder is the person’s own.',
+                'Every flow in the workspace, with its id, its size, when it was last written and its file in the workspace’s flows folder.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },
-        () =>
-            json(
-                flowStore.listFlowEntries().map(({flow, folder, path, file, inPlace}) => ({
+        () => {
+            // Asked first, so with none open the agent hears that rather than of no flows.
+            workspaceRoot();
+            return json(
+                flowStore.listFlowEntries().map(({flow, file}) => ({
                     id: flow.id,
                     name: flow.name,
                     updatedAt: flow.updatedAt,
                     nodeCount: flow.nodes.length,
                     edgeCount: flow.edges.length,
-                    folder,
-                    path,
                     file,
-                    inPlace,
                 })),
-            ),
+            );
+        },
     );
 
     server.registerTool(
@@ -294,17 +303,11 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Create a flow',
             description:
-                'Start an empty flow. Nodes go on it with add_node. Given a location, it gets a folder of its own there, named after it, as New flow does in the app; without one, it goes in the app workspace.',
-            inputSchema: {
-                name: z.string().min(1),
-                location: z
-                    .string()
-                    .optional()
-                    .describe('Absolute path of the folder to make the flow’s own folder in. Made if missing.'),
-            },
+                'Start an empty flow in the workspace, in a file of its own named after it. Nodes go on it with add_node.',
+            inputSchema: {name: z.string().min(1)},
         },
-        ({name, location}) => {
-            const flow = flowStore.createFlow(name, location === undefined ? undefined : absoluteDir(location));
+        ({name}) => {
+            const flow = flowStore.createFlow(name);
             host.changed({flows: true, skills: false});
             return json(describeFlow(flow));
         },
@@ -314,7 +317,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'rename_flow',
         {
             title: 'Rename a flow',
-            description: 'Change what a flow is called. Its id, its graph and its skills are untouched.',
+            description: 'Change what a flow is called. Its id, its graph and its file are untouched.',
             inputSchema: {flowId: flowIdArg, name: z.string().min(1)},
         },
         ({flowId, name}) => json(describeFlow(editFlow(host, flowId, (flow) => ({...flow, name})).flow)),
@@ -325,20 +328,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a flow',
             description:
-                'Delete a flow, the skill library belonging to it and the watcher marks that go with it. A flow opened in place is only taken off the list, its file and folder left as they are. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
+                'Delete a flow’s file and the watcher marks that go with it. The skills it ticks stay: they are the workspace’s. Refused while a run of it is under way; runs of it still queued are cancelled. Nothing in the app undoes this, so ask the person first.',
             inputSchema: {flowId: flowIdArg},
             annotations: {destructiveHint: true, idempotentHint: true},
         },
         ({flowId}) => {
             const flow = requireFlow(flowId);
-            const {inPlace, file} = flowStore.entryFor(flow);
+            const {file} = flowStore.entryFor(flow);
             const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
-            host.changed({flows: true, skills: true});
+            host.changed({flows: true, skills: false});
             return text(
-                (inPlace
-                    ? `Removed "${flow.name}" from the list. Its file is still at ${file}.`
-                    : `Deleted "${flow.name}".`) +
+                `Deleted "${flow.name}", ${file}.` +
                 (cancelled > 0 ? ` ${cancelled} queued run(s) of it were cancelled first.` : ''),
             );
         },
@@ -552,11 +553,11 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List skills',
             description:
-                'Both libraries at once — the global shelf and this flow’s own. A Processor or Extractor ticks a global skill as "global:<name>" and one of the flow’s own by its bare name.',
-            inputSchema: {flowId: flowIdArg},
+                'The workspace’s library, which every flow in it shares. A Processor or Extractor ticks a skill by its name.',
+            inputSchema: {},
             annotations: {readOnlyHint: true},
         },
-        ({flowId}) => json(skillStore.listAllSkills(requireFlow(flowId).id)),
+        () => json(skillStore.listSkills()),
     );
 
     server.registerTool(
@@ -564,12 +565,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read a skill',
             description: 'The whole SKILL.md, frontmatter included.',
-            inputSchema: {scope: scopeArg, name: z.string(), flowId: z.string().optional()},
+            inputSchema: {name: z.string()},
             annotations: {readOnlyHint: true},
         },
-        ({scope, name, flowId}) => {
-            const skill = skillStore.getSkill(scope, libraryOf(scope, flowId), name);
-            if (!skill) throw new Error(`There is no ${scope} skill "${name}".`);
+        ({name}) => {
+            const skill = skillStore.getSkill(name);
+            if (!skill) throw new Error(`The workspace has no skill "${name}". list_skills gives the ones it has.`);
             return json(skill);
         },
     );
@@ -579,16 +580,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Write a skill',
             description:
-                'Create or replace a SKILL.md in one of the libraries. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a Claude skill identifier.',
-            inputSchema: {
-                scope: scopeArg,
-                name: z.string(),
-                content: z.string().min(1),
-                flowId: z.string().optional(),
-            },
+                'Create or replace a SKILL.md in the workspace’s library. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a Claude skill identifier. Every flow in the workspace that ticks it gets the change.',
+            inputSchema: {name: z.string(), content: z.string().min(1)},
         },
-        ({scope, name, content, flowId}) => {
-            const summary = skillStore.saveSkill(scope, libraryOf(scope, flowId), name, content);
+        ({name, content}) => {
+            const summary = skillStore.saveSkill(name, content);
+            rewatch();
             host.changed({flows: false, skills: true});
             const front = skillStore.parseFrontmatter(content);
             return json({
@@ -606,14 +603,26 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a skill',
             description:
-                'Remove a skill folder. A global one goes for every flow in this install, and any node still ticking it then names a skill that is not there.',
-            inputSchema: {scope: scopeArg, name: z.string(), flowId: z.string().optional()},
+                'Remove a skill folder from the workspace. Every node in every flow here that still ticks it then names a skill that is not there, and leaves by its error port when it runs.',
+            inputSchema: {name: z.string()},
             annotations: {destructiveHint: true, idempotentHint: true},
         },
-        ({scope, name, flowId}) => {
-            skillStore.removeSkill(scope, libraryOf(scope, flowId), name);
+        ({name}) => {
+            skillStore.removeSkill(name);
             host.changed({flows: false, skills: true});
-            return text(`Deleted the ${scope} skill "${name}".`);
+            const tickedBy = flowStore
+                .listFlows()
+                .filter((flow) =>
+                    flow.nodes.some(
+                        ({config}) =>
+                            (config.kind === 'processor' || config.kind === 'extractor') && config.skills.includes(name),
+                    ),
+                )
+                .map((flow) => flow.name);
+            return text(
+                `Deleted the skill "${name}".` +
+                (tickedBy.length > 0 ? ` Still ticked in: ${tickedBy.join(', ')}. Untick it there, or put it back.` : ''),
+            );
         },
     );
 
@@ -622,9 +631,8 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Import skills from a folder',
             description:
-                'Copy skills from a folder on this machine into one of the libraries, each skill folder whole — its SKILL.md and whatever sits beside it, scripts and references included. What write_skill cannot carry. A skill of the same name already in the library is replaced; the result names those.',
+                'Copy skills from a folder on this machine into the workspace’s library, each skill folder whole — its SKILL.md and whatever sits beside it, scripts and references included. What write_skill cannot carry. A skill of the same name already in the library is replaced; the result names those.',
             inputSchema: {
-                scope: scopeArg,
                 dir: z
                     .string()
                     .describe(
@@ -634,19 +642,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                     .array(z.string())
                     .optional()
                     .describe('Only these skills from the folder. Default: every one it holds.'),
-                flowId: z.string().optional(),
             },
         },
-        ({scope, dir, names, flowId}) => {
-            const library = libraryOf(scope, flowId);
+        ({dir, names}) => {
             const from = absoluteDir(dir);
             if (existsSync(join(from, 'SKILL.md'))) {
                 throw new Error(
                     `"${dir}" is a skill itself. Pass the folder it sits in as dir, and "${basename(from)}" in names.`,
                 );
             }
-            const before = new Set(skillStore.listSkills(scope, library).map((s) => s.name));
-            const imported = skillStore.importSkillsFrom(scope, library, from, names);
+            const before = new Set(skillStore.listSkills().map((s) => s.name));
+            const imported = skillStore.importSkillsFrom(from, names);
+            rewatch();
             host.changed({flows: false, skills: true});
             const missing = names?.filter((name) => !imported.includes(name)) ?? [];
             return json({
@@ -656,80 +663,6 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 note:
                     missing.length > 0
                         ? 'A name is imported only when the folder has a subfolder of that name holding a SKILL.md, and the name is lowercase letters, digits and hyphens.'
-                        : undefined,
-            });
-        },
-    );
-
-    server.registerTool(
-        'set_global_skill_folders',
-        {
-            title: 'Set the folders linked into the global library',
-            description:
-                'Replace the folders linked into the global shelf, highest first. Each is an absolute path to a folder whose subfolders hold a SKILL.md — ~/.claude/skills, say — read and written in place. The app workspace’s own folder is always read, after them, and takes new skills. When two folders hold a skill of the same name, the higher one’s is used. write_skill, delete_skill, import_skills and move_skill change the copy in use. A folder left off keeps its skills; they are just not offered. An empty list unlinks them all.',
-            inputSchema: {
-                folders: z.array(z.string()).describe('Absolute paths, highest first.'),
-            },
-        },
-        ({folders}) => {
-            const shelf = skillStore.setGlobalFolders(folders.map(absoluteDir));
-            rewatch();
-            host.changed({flows: false, skills: true});
-            return json(
-                shelf.map((folder) => ({
-                    folder: folder.workspace ? 'app workspace' : folder.path,
-                    missing: folder.missing || undefined,
-                    skills: folder.skills.filter((s) => !s.shadowed).map((s) => s.name),
-                    shadowed: folder.skills.some((s) => s.shadowed)
-                        ? folder.skills.filter((s) => s.shadowed).map((s) => s.name)
-                        : undefined,
-                })),
-            );
-        },
-    );
-
-    server.registerTool(
-        'move_skill',
-        {
-            title: 'Move a skill to the other library',
-            description:
-                'Move a skill, folder and all, between the global shelf and one flow’s own library — what dragging it onto the other tab does. This flow’s Processors and Extractors are re-pointed as it goes ("global:<name>" ↔ "<name>"). Ask the person first when the result could surprise them: a skill leaving the global shelf is one other flows can no longer tick, and one landing on a name already there replaces it.',
-            inputSchema: {
-                flowId: z.string().describe('The flow whose own library is one end of the move.'),
-                name: z.string(),
-                to: scopeArg.describe('The library it goes to. It comes from the other one.'),
-            },
-            annotations: {destructiveHint: true},
-        },
-        ({flowId, name, to}) => {
-            const flow = requireFlow(flowId);
-            const from: SkillScope = to === 'global' ? 'flow' : 'global';
-            const replaced = skillStore.getSkill(to, flow.id, name) !== null;
-            const moved = skillStore.moveSkill(from, to, flow.id, name);
-
-            const before = skillRef(from, name);
-            const after = skillRef(to, name);
-            const reticked = retickSkill(flow, before, after);
-            if (reticked !== flow) flowStore.saveFlow(reticked);
-            host.changed({flows: reticked !== flow, skills: true});
-
-            // Only a skill leaving the shelf strands anyone: a flow's own library
-            // was never tickable from another flow.
-            const stranded =
-                from === 'global'
-                    ? flowStore
-                        .listFlows()
-                        .filter((other) => other.id !== flow.id && ticksSkill(other, before))
-                        .map((other) => ({id: other.id, name: other.name}))
-                    : [];
-            return json({
-                ...moved,
-                replaced,
-                repointedNodes: reticked.nodes.filter((node, i) => node !== flow.nodes[i]).map((node) => node.id),
-                stillTickedBy: stranded.length > 0 ? stranded : undefined,
-                note:
-                    stranded.length > 0
-                        ? `These flows still tick "${before}", which no longer exists. Re-point their nodes, or move the skill back.`
                         : undefined,
             });
         },

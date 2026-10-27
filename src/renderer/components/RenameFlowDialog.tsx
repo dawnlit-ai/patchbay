@@ -4,36 +4,38 @@ import { toFolderName } from '@shared/naming';
 import { Modal } from './Modal';
 
 /**
- * Rename a flow, and optionally its folder. Moving the folder is offered ticked
+ * Rename a flow, and optionally its file. Renaming the file is offered ticked
  * only while it still has the name the app chose.
  */
 
 export interface RenameResult {
     name: string;
-    /** The folder to move to, or null to leave it where it is. */
-    folder: string | null;
+    /** The file name to move to, without `.json`, or null to leave it as it is. */
+    fileName: string | null;
 }
+
+/** A flow file's name without its folder or `.json`. */
+export const fileStem = (file: string): string => (file.split(/[\\/]/).pop() ?? file).replace(/\.json$/i, '');
 
 interface Props {
     name: string;
-    /** Null for a flow opened in place: its folder is the user's, so moving it is not offered. */
-    folder: string | null;
-    /** Shown under the folder field, so what is being moved is on screen. */
-    path: string;
+    /** The flow's file, shown so what is being renamed is on screen. */
+    file: string;
 
     onCancel(): void;
 
     onConfirm(result: RenameResult): void;
 }
 
-export function RenameFlowDialog({name, folder, path, onCancel, onConfirm}: Props): JSX.Element {
+export function RenameFlowDialog({name, file, onCancel, onConfirm}: Props): JSX.Element {
+    const current = fileStem(file);
     const [value, setValue] = useState(name);
-    // Ticked when the folder is still what the name gave it. A folder someone has
+    // Ticked when the file is still what the name gave it. A file someone has
     // since renamed by hand is one they chose, so it is left alone by default.
-    const [moveFolder, setMoveFolder] = useState(folder !== null && folder === toFolderName(name));
-    const [folderValue, setFolderValue] = useState(folder ?? '');
-    /** Until it is, the folder field follows what is typed into the name. */
-    const folderEdited = useRef(false);
+    const [renameFile, setRenameFile] = useState(current === toFolderName(name));
+    const [fileValue, setFileValue] = useState(current);
+    /** Until it is, the file field follows what is typed into the name. */
+    const fileEdited = useRef(false);
     const input = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -42,11 +44,11 @@ export function RenameFlowDialog({name, folder, path, onCancel, onConfirm}: Prop
 
     const trimmed = value.trim();
     // What the store will actually call it, shown rather than sprung afterwards.
-    const resolved = toFolderName(folderValue.trim() || trimmed);
-    const moving = moveFolder && resolved !== folder;
+    const resolved = toFolderName(fileValue.trim() || trimmed);
+    const moving = renameFile && resolved !== current;
 
     const submit = (): void => {
-        if (trimmed) onConfirm({name: trimmed, folder: moveFolder ? resolved : null});
+        if (trimmed) onConfirm({name: trimmed, fileName: renameFile ? resolved : null});
     };
 
     const onEnter = (e: { key: string }): void => {
@@ -73,52 +75,44 @@ export function RenameFlowDialog({name, folder, path, onCancel, onConfirm}: Prop
                     value={value}
                     onChange={(e) => {
                         setValue(e.target.value);
-                        if (!folderEdited.current) setFolderValue(toFolderName(e.target.value));
+                        if (!fileEdited.current) setFileValue(toFolderName(e.target.value));
                     }}
                     onKeyDown={onEnter}
                 />
             </label>
 
-            {folder === null ? (
-                <div className="hint">Saved to its own file, which stays where it is.</div>
-            ) : (
-                <label className="check">
-                    <input
-                        type="checkbox"
-                        checked={moveFolder}
-                        onChange={(e) => setMoveFolder(e.target.checked)}
-                    />
-                    <span>Rename the project folder to match</span>
-                </label>
-            )}
+            <label className="check">
+                <input type="checkbox" checked={renameFile} onChange={(e) => setRenameFile(e.target.checked)}/>
+                <span>Rename the flow’s file to match</span>
+            </label>
 
-            {moveFolder && (
+            {renameFile && (
                 <label className="field">
-                    <span>Folder name</span>
+                    <span>File name</span>
                     <input
-                        value={folderValue}
+                        value={fileValue}
                         onChange={(e) => {
-                            folderEdited.current = true;
-                            setFolderValue(e.target.value);
+                            fileEdited.current = true;
+                            setFileValue(e.target.value);
                         }}
                         onKeyDown={onEnter}
                     />
                     <div className="hint">
                         {moving ? (
                             <>
-                                Moves to <code>{resolved}</code>. Letters, numbers and dashes only — anything
+                                Becomes <code>{resolved}.json</code>. Letters, numbers and dashes only — anything
                                 else is folded into one. The flow keeps its runs and its place in the watcher;
-                                only the path changes.
+                                only the file name changes.
                             </>
                         ) : (
-                            <>Already called <code>{folder}</code>, so nothing moves.</>
+                            <>Already called <code>{current}.json</code>, so nothing moves.</>
                         )}
                     </div>
                 </label>
             )}
 
             <div className="hint block">
-                <code>{path}</code>
+                <code>{file}</code>
             </div>
         </Modal>
     );

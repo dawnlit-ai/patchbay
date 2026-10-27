@@ -1,23 +1,15 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
-    FLOW_FILE,
-    flowDir,
-    flowDirAt,
-    flowDirNamed,
     flowFile,
-    flowHome,
-    type FlowHome,
+    flowFileNamed,
     flowHomes,
     flowsDir,
-    flowSkillsDir,
-    flowSkillsDirAt,
+    flowsDirAt,
     forgetFlowHomes,
     isSafeSegment,
-    openedFlowFiles,
     samePath,
-    setOpenedFlowFiles,
     watermarkFile,
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
@@ -25,14 +17,11 @@ import { getSkill, isValidSkillName, saveSkill } from './skillStore';
 import { emptyFlow, type Flow, parseFlow } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
-import type { SkillScope } from '@shared/settings';
 
 /**
- * A flow is a file in a directory, beside the flow's own `.claude/skills`, and
- * that directory is the cwd its steps run in. One made here lives at
- * `flows/<folder>/flow.json`, and its folder can be renamed; one opened from
- * elsewhere stays where it is. Either way the id inside the file cannot change,
- * since runs and watermarks are keyed by it.
+ * A flow is a file in the open workspace's `flows` folder, named after it, and
+ * the user can rename it. The id inside the file cannot change, since runs and
+ * watermarks are keyed by it.
  */
 
 /**
@@ -47,7 +36,7 @@ function readFlowFile(path: string): Flow | null {
     return typeof raw.updatedAt === 'string' ? {...flow, updatedAt: raw.updatedAt} : flow;
 }
 
-/** Write a flow over its file, keeping whatever else the file holds: one opened in place may carry more than the graph. */
+/** Write a flow over its file, keeping whatever else the file holds: one written by hand may carry more than the graph. */
 function writeFlowFile(path: string, flow: Flow): void {
     const raw = readJson<unknown>(path, null);
     const rest = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
@@ -56,14 +45,12 @@ function writeFlowFile(path: string, flow: Flow): void {
 
 export function listFlows(): Flow[] {
     return [...flowHomes().values()]
-        .flatMap(({file}) => readFlowFile(file) ?? [])
+        .flatMap((file) => readFlowFile(file) ?? [])
         .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getFlow(id: string): Flow | null {
-    // Not through flowFile, which makes the directory it names: asking after a
-    // flow that was deleted, or never was, should not leave a folder behind.
-    const flow = readFlowFile(flowHome(id).file);
+    const flow = readFlowFile(flowFile(id));
     // A file written over since by another flow is that flow's now.
     return flow?.id === id ? flow : null;
 }
@@ -74,6 +61,7 @@ export function saveFlow(flow: Flow): Flow {
     const previous = Date.parse(getFlow(flow.id)?.updatedAt ?? '');
     const stamp = Number.isNaN(previous) ? Date.now() : Math.max(Date.now(), previous + 1);
     const next: Flow = {...flow, updatedAt: new Date(stamp).toISOString()};
+    flowsDir();
     writeFlowFile(flowFile(next.id), next);
     return next;
 }
@@ -118,75 +106,54 @@ export function renameFlow(id: string, name: string): Flow {
 // ── Where a flow lives ───────────────────────────────────────────────────
 
 export function entryFor(flow: Flow): FlowEntry {
-    const {file, inPlace} = flowHome(flow.id);
-    const path = dirname(file);
-    return {flow, folder: basename(path), path, file, inPlace};
+    return {flow, file: flowFile(flow.id)};
 }
 
 export function listFlowEntries(): FlowEntry[] {
     return listFlows().map(entryFor);
 }
 
-/** Where a flow lives, a workspace flow's folder made if missing so there is something to show. */
-export function flowLocation(flowId: string): FlowHome {
-    flowDir(flowId);
-    return flowHome(flowId);
+/** File names in use in `flows`, without `.json` and lowercased: two of the three filesystems we run on ignore case. */
+function takenNames(): Set<string> {
+    let names: string[];
+    try {
+        names = readdirSync(flowsDirAt());
+    } catch {
+        names = [];
+    }
+    return new Set(names.filter((n) => n.toLowerCase().endsWith('.json')).map((n) => n.slice(0, -5).toLowerCase()));
 }
 
-/** Names in use in a folder, lowercased: two of the three filesystems we run on ignore case. */
-function takenNames(parent: string): Set<string> {
-    return new Set(readdirSync(parent).map((name) => name.toLowerCase()));
-}
-
-/** That name, or the first numbered variant of it nothing in the folder already has. */
-function freeFolder(wanted: string, except?: string, parent = flowsDir()): string {
-    const taken = takenNames(parent);
+/** That name, or the first numbered variant of it no other flow file has. */
+function freeName(wanted: string, except?: string): string {
+    const taken = takenNames();
     if (except) taken.delete(except.toLowerCase());
     let name = wanted;
     for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${wanted}-${n}`;
     return name;
 }
 
-/**
- * Write a new flow into a fresh folder named after it. Given a location, the
- * folder goes there and the flow is kept in place like an opened file; without
- * one, it goes in the workspace. Every new and copied flow comes through here.
- */
-function createIn(flow: Flow, location?: string): Flow {
+/** Write a new flow into a file of its own, named after it. Every new, copied and imported flow comes through here. */
+function createIn(flow: Flow): Flow {
     const next: Flow = {...flow, updatedAt: new Date().toISOString()};
-    const folder = toFolderName(flow.name);
-    if (location === undefined) {
-        writeJson(join(flowDirNamed(freeFolder(folder)), FLOW_FILE), next);
-        forgetFlowHomes();
-        return next;
-    }
-    if (!isAbsolute(location)) throw new Error(`"${location}" is not a full path. Choose a folder for the flow.`);
-    const parent = resolve(location);
-    mkdirSync(parent, {recursive: true});
-    // Numbered past anything already there, so a new flow never moves into someone's folder.
-    const dir = join(parent, freeFolder(folder, undefined, parent));
-    mkdirSync(dir);
-    const file = join(dir, FLOW_FILE);
-    writeJson(file, next);
-    setOpenedFlowFiles([file, ...openedFlowFiles()]);
+    flowsDir();
+    writeJson(flowFileNamed(freeName(toFolderName(flow.name))), next);
+    forgetFlowHomes();
     return next;
 }
 
-/** Rename a flow's directory. Its id, and everything keyed by it, is untouched. */
-export function setFlowFolder(flowId: string, requested: string): FlowEntry {
+/** Rename a flow's file. Its id, and everything keyed by it, is untouched. */
+export function setFlowFileName(flowId: string, requested: string): FlowEntry {
     const flow = getFlow(flowId);
     if (!flow) throw new Error('That flow is no longer in the workspace.');
-    const home = flowHome(flowId);
-    if (home.inPlace) {
-        throw new Error(`This flow was opened from ${home.file}. Its folder is yours to rename, outside the app.`);
-    }
-    const current = basename(dirname(home.file));
+    const file = flowFile(flowId);
+    const current = basename(file).replace(/\.json$/i, '');
     const wanted = toFolderName(requested);
     if (wanted !== current) {
-        if (freeFolder(wanted, current) !== wanted) {
-            throw new Error(`Another flow's folder is already called “${wanted}”.`);
+        if (freeName(wanted, current) !== wanted) {
+            throw new Error(`Another flow's file is already called “${wanted}.json”.`);
         }
-        renameSync(dirname(home.file), flowDirAt(wanted));
+        renameSync(file, flowFileNamed(wanted));
         forgetFlowHomes();
     }
     return entryFor(flow);
@@ -194,38 +161,24 @@ export function setFlowFolder(flowId: string, requested: string): FlowEntry {
 
 // ── Making and unmaking ──────────────────────────────────────────────────
 
-/** A new, empty flow, in `location` or else the workspace (see `createIn`). */
-export function createFlow(name: string, location?: string): Flow {
-    // Its own library starts empty; the global one is already shared.
-    return createIn(emptyFlow(randomUUID(), name), location);
+/** A new, empty flow in the open workspace. */
+export function createFlow(name: string): Flow {
+    return createIn(emptyFlow(randomUUID(), name));
 }
 
 /**
  * Copy the graph handed over (what is on screen, unsaved edits included) into a
- * new flow in `location`, along with its own skill library. Node ids are kept, as
- * they only need to be unique within a flow; watermarks are not.
+ * new flow. Node ids are kept, as they only need to be unique within a flow;
+ * watermarks are not. The skills it ticks are the workspace's, so both share them.
  */
-export function duplicateFlow(source: Flow, name: string, location: string): Flow {
-    const copy = createIn({...source, id: randomUUID(), name}, location);
-    // Read where it is: making it would leave an empty library in a folder opened in place.
-    const library = flowSkillsDirAt(source.id);
-    if (existsSync(library)) cpSync(library, flowSkillsDir(copy.id), {recursive: true});
-    return copy;
+export function duplicateFlow(source: Flow, name: string): Flow {
+    return createIn({...source, id: randomUUID(), name});
 }
 
-/**
- * Deletes a workspace flow's directory, its skills included. One opened in place
- * is only taken off the list: its file and folder are the user's. Either way its
- * watermarks go.
- */
+/** Deletes a flow's file, and its watermarks. The skills it ticked are the workspace's, and stay. */
 export function removeFlow(id: string): void {
-    const home = flowHome(id);
-    if (home.inPlace) {
-        setOpenedFlowFiles(openedFlowFiles().filter((file) => !samePath(file, home.file)));
-    } else {
-        rmSync(dirname(home.file), {recursive: true, force: true});
-        forgetFlowHomes();
-    }
+    rmSync(flowFile(id), {force: true});
+    forgetFlowHomes();
     // One per trigger, keyed `<flowId>:<nodeId>`.
     const marks = readJson<Record<string, unknown>>(watermarkFile(), {});
     const mine = Object.keys(marks).filter((key) => key.startsWith(`${id}:`));
@@ -235,12 +188,11 @@ export function removeFlow(id: string): void {
     }
 }
 
-// ── Flow files opened from elsewhere ─────────────────────────────────────
+// ── Flow files from elsewhere ────────────────────────────────────────────
 
 /** What a flow file may carry beside the graph, so it can be run elsewhere. */
 interface BundledSkill {
     name: string;
-    scope: SkillScope;
     content: string;
 }
 
@@ -248,26 +200,20 @@ function bundledSkills(raw: unknown): BundledSkill[] {
     const list = (raw as { skills?: unknown }).skills;
     if (!Array.isArray(list)) return [];
     return list.flatMap((entry): BundledSkill[] => {
-        const {name, scope, content} = (entry ?? {}) as {
-            name?: unknown;
-            scope?: unknown;
-            content?: unknown;
-        };
+        const {name, content} = (entry ?? {}) as { name?: unknown; content?: unknown };
         if (typeof name !== 'string' || typeof content !== 'string') return [];
         if (!isValidSkillName(name)) return [];
-        return [{name, scope: scope === 'global' ? 'global' : 'flow', content}];
+        return [{name, content}];
     });
 }
 
 /**
- * Open a flow file where it is, rather than copying it in: it is listed, saved
- * back to, and its folder is where its runs work and its own skills live.
- *
- * The id inside is kept unless another flow's file still holds it — then this is a
- * copy, and gets one of its own. A file the id was listed at and that has since
- * gone means this one was moved there, so its runs and watermarks follow it.
+ * Copy a flow file into the workspace, as a file of its own named after the
+ * flow. One already in the workspace's `flows` is just read. The id inside is
+ * kept unless a flow here already has it — then this is a copy, and gets one of
+ * its own. Skills it carries go into the library, never over one already there.
  */
-export function openFlowFile(path: string): Flow {
+export function importFlowFile(path: string): Flow {
     const file = resolve(path);
     const label = basename(file);
     let raw: unknown;
@@ -280,36 +226,33 @@ export function openFlowFile(path: string): Flow {
         throw new Error(`${label} does not look like a Patchbay flow.`);
     }
     const fields = raw as Record<string, unknown>;
-    const readBack = (id: string): Flow => {
-        const flow = getFlow(id);
-        if (!flow) throw new Error(`${label} could not be read back after opening it.`);
-        return flow;
-    };
-    // Ids name folders and key watermarks, so one written by hand has to be fit for both.
+    // Ids name files and key watermarks, so one written by hand has to be fit for both.
     const ownId = typeof fields.id === 'string' && isSafeSegment(fields.id) ? fields.id : null;
     const held = ownId === null ? undefined : flowHomes().get(ownId);
-    // Listed already: opened before, or a workspace flow's own file.
-    if (ownId !== null && held && samePath(held.file, file)) return readBack(ownId);
-
-    // Without its own id, or a version for a canvas to save against, a file would
-    // read as a different flow, or a newer one, every time.
-    const stamp = {
-        id: ownId !== null && !held ? ownId : randomUUID(),
-        name: typeof fields.name === 'string' ? fields.name : label.replace(/\.json$/i, '') || 'Opened flow',
-        updatedAt: typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString(),
-    };
-    const {id} = stamp;
-    if (id !== fields.id || stamp.name !== fields.name || stamp.updatedAt !== fields.updatedAt) {
-        writeJson(file, {...fields, ...stamp});
+    if (ownId !== null && held && samePath(held, file)) {
+        const flow = getFlow(ownId);
+        if (flow) return flow;
     }
-    setOpenedFlowFiles([file, ...openedFlowFiles().filter((listed) => !samePath(listed, file))]);
-
-    const flow = readBack(id);
+    const id = ownId !== null && !held ? ownId : randomUUID();
+    const name = typeof fields.name === 'string' ? fields.name : label.replace(/\.json$/i, '') || 'Imported flow';
+    let flow: Flow | null;
+    if (samePath(dirname(file), flowsDirAt())) {
+        // In the folder already but not listed: written without an id, or a copy of
+        // another flow's file. It stays where it is, with an id of its own.
+        const updatedAt = typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString();
+        writeJson(file, {...fields, id, name, updatedAt});
+        forgetFlowHomes();
+        flow = getFlow(id);
+        if (!flow) throw new Error(`${label} could not be read back after opening it.`);
+    } else {
+        // Repaired on the way in, and without the skills it carried: those go into the library.
+        const {skills: _, ...rest} = fields;
+        flow = createIn(parseFlow({...rest, id, name}, id, name));
+    }
     for (const skill of bundledSkills(raw)) {
-        // Never over a skill already there: one beside the file is the user's, and
-        // a global one other flows use.
-        if (getSkill(skill.scope, flow.id, skill.name)) continue;
-        saveSkill(skill.scope, flow.id, skill.name, skill.content);
+        // Never over a skill already there: other flows in the workspace use it.
+        if (getSkill(skill.name)) continue;
+        saveSkill(skill.name, skill.content);
     }
     return flow;
 }

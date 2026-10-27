@@ -18,14 +18,13 @@ import type { AgentMcpServer, AgentRunRequest } from '../agents';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { getSettings } from '../store/settingsStore';
-import { globalPluginFor, missingSkills } from '../store/skillStore';
-import { flowDir } from '../paths';
+import { missingSkills, SKILL_PLUGIN, skillPluginFor } from '../store/skillStore';
+import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
-import { GLOBAL_SKILL_PLUGIN, isGlobalRef } from '@shared/settings';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
-    /** The flow being run: its directory holds the skills this node may use. */
+    /** The flow being run, in the open workspace, whose folder its steps work in. */
     flowId: string;
     node: FlowNode;
     /** The flow's named schemas, which the node's schema may refer to. */
@@ -98,14 +97,16 @@ function settingsServers(mcpTools: string[]): { servers: Record<string, AgentMcp
     return {servers, allowed};
 }
 
+/** The ticks as Claude names them: each skill of the workspace's plugin, `workspace:<name>`. */
+const skillNames = (skills: string[]): string[] => skills.map((name) => `${SKILL_PLUGIN}:${name}`);
+
 /**
- * The global library lives outside the run's directory, so what a node ticks
- * from it arrives as a plugin — and only when it ticks something there. The
+ * The workspace's library is not in plugin layout, so what a node ticks arrives
+ * as a plugin holding copies of those skills — and only when it ticks any. The
  * plugin is disposed of once the run is over.
  */
-function globalSkills(skills: string[]): { plugins: string[] | undefined; dispose(): void } {
-    const ticks = skills.filter(isGlobalRef).map((ref) => ref.slice(GLOBAL_SKILL_PLUGIN.length + 1));
-    const plugin = ticks.length > 0 ? globalPluginFor(ticks) : null;
+function tickedSkills(skills: string[]): { plugins: string[] | undefined; dispose(): void } {
+    const plugin = skills.length > 0 ? skillPluginFor(skills) : null;
     return {
         plugins: plugin ? [plugin.path] : undefined,
         dispose: () => plugin?.dispose(),
@@ -118,11 +119,11 @@ function globalSkills(skills: string[]): { plugins: string[] | undefined; dispos
  * given, so it leaves by its error port instead.
  */
 function lostSkills(ctx: NodeContext, skills: string[]): NodeOutcome | null {
-    const missing = missingSkills(ctx.flowId, skills);
+    const missing = missingSkills(skills);
     if (missing.length === 0) return null;
     const one = missing.length === 1;
     const message =
-        `${missing.map((ref) => `“${ref}”`).join(', ')} ${one ? 'is' : 'are'} ticked but no longer in the library, ` +
+        `${missing.map((ref) => `“${ref}”`).join(', ')} ${one ? 'is' : 'are'} ticked but no longer in the workspace, ` +
         `deleted or renamed outside the app. Put ${one ? 'it' : 'them'} back, or untick ${one ? 'it' : 'them'}.`;
     return {outPort: 'error', summary: message, error: message};
 }
@@ -184,7 +185,7 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     const result = await agents.run({
         prompt,
         ...modelsFor(config),
-        cwd: flowDir(ctx.flowId),
+        cwd: workspaceRoot(),
         // One judgement on text already in the prompt: with the built-in tools
         // disabled it stays a single turn.
         tools: [],
@@ -289,7 +290,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         'Extract the data described by the schema of `data` from the email below.',
         ...(ticked
             ? [
-                `Load ${config.skills.map((s) => `\`${s}\``).join(', ')} with the Skill tool first: ` +
+                `Load ${skillNames(config.skills).map((s) => `\`${s}\``).join(', ')} with the Skill tool first: ` +
                 `${config.skills.length === 1 ? 'it says' : 'they say'} how to read this kind of email.`,
             ]
             : []),
@@ -318,16 +319,14 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         ...slotContext(ctx, config.inputs),
     ].join('\n');
 
-    const library = globalSkills(config.skills);
+    const library = tickedSkills(config.skills);
 
     const result = await agents.run({
         prompt,
         ...modelsFor(config),
-        cwd: flowDir(ctx.flowId),
-        // 'project' makes the flow's own `.claude/skills` discoverable, as for a Processor.
-        settingSources: ticked ? ['project'] : undefined,
+        cwd: workspaceRoot(),
         skillPlugins: library.plugins,
-        skills: ticked ? config.skills : undefined,
+        skills: ticked ? skillNames(config.skills) : undefined,
         additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
         // Nothing that writes or runs a command: Skill to load what it ticks, and
         // Read for the attachments it saves.
@@ -425,12 +424,12 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     const one = config.skills.length === 1;
     const prompt = [
         config.instruction.trim(),
-        // A flow opened in place can sit below a project whose own skills share these
-        // names, and the session lists those too, though only the ticked ones load.
+        // The instruction may name a skill as the node ticks it, without the
+        // plugin's prefix the session knows it by.
         ...(config.skills.length > 0
             ? [
                 '',
-                `This step's skill${one ? ' is' : 's are'} ${config.skills.map((s) => `\`${s}\``).join(', ')}: ` +
+                `This step's skill${one ? ' is' : 's are'} ${skillNames(config.skills).map((s) => `\`${s}\``).join(', ')}: ` +
                 `load ${one ? 'it' : 'them'} with the Skill tool, by ${one ? 'that name' : 'those names'} exactly, before anything else. ` +
                 `A skill the instruction names is one of these, whatever other skill shares its name.`,
             ]
@@ -463,21 +462,18 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             : []),
     ].join('\n');
 
-    const library = globalSkills(config.skills);
+    const library = tickedSkills(config.skills);
 
     const result = await agents.run({
         prompt,
         ...modelsFor(config),
-        // The flow's own directory: 'project' is what makes the `.claude/skills`
-        // beneath it discoverable, and no other flow's library sits under it.
-        cwd: flowDir(ctx.flowId),
-        settingSources: ['project'],
+        // The workspace's folder. No setting sources: a workspace may be a project
+        // with Claude Code settings and skills of its own, which are not this step's.
+        cwd: workspaceRoot(),
         skillPlugins: library.plugins,
         // The scratch folder, where attachments are saved, is outside that directory.
         additionalDirectories: [ctx.scratchDir],
-        // Already in the SDK's own spelling: `global:name` for a plugin skill, a
-        // bare name for one of the flow's own.
-        skills: config.skills.length > 0 ? config.skills : undefined,
+        skills: config.skills.length > 0 ? skillNames(config.skills) : undefined,
         allowedTools,
         // Without file-system access the run still reads its own two folders,
         // which `dontAsk` allows; the shell goes, since `dontAsk` would let its

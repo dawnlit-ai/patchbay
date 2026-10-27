@@ -21,8 +21,10 @@ a crash still shows the node it was at and what it had done there.
 Right-click a run to put its email through the flow again (once whatever stopped it has been fixed, say) or to delete
 it. The new run starts at the trigger the email came in by and reads the flow as it is now.
 
-Runs are plain JSON in the app workspace — one file per run, plus a JSONL index. These records exist to be read when
-something has gone wrong, so a file you can open and paste into a bug report wins over a database.
+Runs are plain JSON — one file per run, plus a JSONL index — in the app's data folder, kept apart for each workspace,
+and the runs panel shows the open workspace's. They stay out of the workspace itself, which may be a git repository,
+because a trace holds the mail it handled. These records exist to be read when something has gone wrong, so a file you
+can open and paste into a bug report wins over a database.
 
 ## The console
 
@@ -36,7 +38,7 @@ the **Console** tab beside Runs is for. It records what the app did outside any 
 - **outlook** — every call to the client, how long it took, and how long it waited in the queue behind another
 - **agent** — the MCP server listening or failing to, every tool call an agent makes and its input, and every request
   refused
-- **app** — startup, and seeding the global skill library
+- **app** — startup, and which workspace it opened on
 
 Warnings and errors you have not looked at are counted on the tab. The level filter starts at *Info and up*; routine
 lines — a poll that found nothing, an Outlook call that worked — are *debug*, shown under *Everything*.

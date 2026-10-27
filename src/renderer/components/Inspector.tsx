@@ -934,13 +934,13 @@ function ExtractorFields({
     );
 }
 
-/** The skills a node may invoke, ticked from either library — and the libraries themselves, kept from here. */
+/** The skills a node may invoke, ticked from the workspace's library — and the library itself, kept from here. */
 function SkillsField({config, patch, library}: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
     return (
         <>
             <Legend
                 label="Skills"
-                hint="Claude may invoke any skill you tick, and nothing else. Drag one onto the other library to move it there."
+                hint="Claude may invoke any skill you tick, and nothing else. Every flow in the workspace shares these."
             />
             <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({skills})}/>
             <div className="gap"/>
@@ -1326,7 +1326,7 @@ interface Props {
     /** The open flow: its named schemas, and the nodes that share each. */
     flow: Flow;
     node: FlowNode | null;
-    /** The open flow's skills, ticked by a node and kept from here. */
+    /** The workspace's skills, ticked by a node and kept from here. */
     library: Library;
     /** Slots every path into this node fills. Undefined when no trigger reaches it. */
     available: Available | undefined;
@@ -1361,8 +1361,7 @@ export function Inspector({
                 </div>
                 <div className="section-title">Skills</div>
                 <div className="hint block">
-                    Processors and Extractors tick the ones they may use. Drag one onto the other library to move it
-                    there.
+                    Every flow in the workspace shares these. Processors and Extractors tick the ones they may use.
                 </div>
                 <div className="library-alone">
                     <SkillShelf library={library}/>

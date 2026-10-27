@@ -4,39 +4,25 @@ import { toFolderName } from '@shared/naming';
 import { Modal } from './Modal';
 
 /**
- * Name a new flow, or a copy of one, and choose where it is kept. It gets a folder
- * of its own inside the location, named after it, since that folder is what its
- * runs can read.
+ * Name a new workspace and choose where it is kept. It gets a folder of its own
+ * inside the location, named after it, since that folder is what its runs work in.
  */
 
 interface Props {
-    title?: string;
-    initialName?: string;
-    confirmLabel?: string;
-    /** What else making it does, said after where it goes. */
-    note?: string;
-
     onCancel(): void;
 
     onConfirm(name: string, location: string): void;
 }
 
-export function NewFlowDialog({
-                                  title = 'New flow',
-                                  initialName = 'New flow',
-                                  confirmLabel = 'Create',
-                                  note,
-                                  onCancel,
-                                  onConfirm,
-                              }: Props): JSX.Element {
-    const [name, setName] = useState(initialName);
+export function NewWorkspaceDialog({onCancel, onConfirm}: Props): JSX.Element {
+    const [name, setName] = useState('My workspace');
     /** Null until main says which folder to offer. */
     const [location, setLocation] = useState<string | null>(null);
     const input = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         input.current?.select();
-        void window.api.flows.location().then((offered) => setLocation((typed) => typed ?? offered));
+        void window.api.workspace.location().then((offered) => setLocation((typed) => typed ?? offered));
     }, []);
 
     const trimmed = name.trim();
@@ -54,25 +40,25 @@ export function NewFlowDialog({
     };
 
     const browse = async (): Promise<void> => {
-        const picked = await window.api.flows.pickLocation(where);
+        const picked = await window.api.workspace.pickLocation(where);
         if (picked) setLocation(picked);
     };
 
     return (
         <Modal
-            title={title}
+            title="New workspace"
             onClose={onCancel}
             footer={
                 <>
                     <button onClick={onCancel}>Cancel</button>
                     <button className="primary" disabled={!ready} onClick={submit}>
-                        {confirmLabel}
+                        Create
                     </button>
                 </>
             }
         >
             <label className="field">
-                <span>Flow name</span>
+                <span>Workspace name</span>
                 <input ref={input} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onEnter}/>
             </label>
 
@@ -92,10 +78,9 @@ export function NewFlowDialog({
                 </div>
                 {where !== '' && (
                     <div className="hint">
-                        Makes <code>{`${where}${separator}${toFolderName(trimmed)}`}</code>, numbered if that is
-                        taken,
-                        and saves the flow there as <code>flow.json</code>. Its runs work in that folder and its own
-                        skills live in it.{note && ` ${note}`}
+                        Makes <code>{`${where}${separator}${toFolderName(trimmed, 'workspace')}`}</code>, numbered if
+                        that is taken. Its flows are kept in its <code>flows</code> folder and the skills they share
+                        in <code>skills</code>, and every run works in it.
                     </div>
                 )}
             </div>

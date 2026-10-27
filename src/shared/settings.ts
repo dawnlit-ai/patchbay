@@ -77,10 +77,6 @@ export interface Settings {
     agents: AgentSetting[];
     /** Extra MCP servers, whose tools a Processor or Extractor is handed as its `mcpTools` names them. */
     mcpServers: McpServerSetting[];
-    /** Folder of `<name>/SKILL.md` directories to seed the global library from, while it is empty. */
-    skillSeedPath: string;
-    /** Folders of `<name>/SKILL.md` directories linked into the global library, highest first. */
-    globalSkillFolders: string[];
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
     /**
@@ -89,8 +85,6 @@ export interface Settings {
      */
     maxConcurrentRuns: number;
     agentControl: AgentControlSettings;
-    /** Where New flow or Duplicate last made a flow's folder, offered again next time. Empty offers `Documents/Patchbay`. */
-    flowLocation: string;
     /** Unset in a settings file, a nightly build follows nightlies and any other build follows stable. */
     updateChannel: UpdateChannel;
 }
@@ -100,13 +94,10 @@ export function defaultSettings(): Settings {
         claudeExecutablePath: '',
         agyExecutablePath: '',
         agents: agentsInOrder([]),
-        skillSeedPath: '',
-        globalSkillFolders: [],
         mcpServers: [],
         pollingEnabled: true,
         maxConcurrentRuns: 3,
         agentControl: {enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: ''},
-        flowLocation: '',
         updateChannel: 'stable',
     };
 }
@@ -150,50 +141,17 @@ export interface AboutInfo {
     version: string;
     developer: string;
     license: string;
-    /** The directory holding every flow, skill, run and log this install owns. */
-    workspace: string;
+    /** The directory holding this install's settings, runs and logs. Workspaces live wherever they were made. */
+    dataDir: string;
 }
 
-/**
- * Which library a skill lives in. `global` is shared by every flow in the
- * install; `flow` belongs to one flow and travels with it.
- */
-export type SkillScope = 'global' | 'flow';
-
-export const SKILL_SCOPES: SkillScope[] = ['global', 'flow'];
-
-/** The plugin name the global library reaches Claude under. */
-export const GLOBAL_SKILL_PLUGIN = 'global';
-
-/** How a ticked skill is written: `global:<name>` for the global library, the bare name for the flow's own. */
-export function skillRef(scope: SkillScope, name: string): string {
-    return scope === 'global' ? `${GLOBAL_SKILL_PLUGIN}:${name}` : name;
-}
-
-export function isGlobalRef(ref: string): boolean {
-    return ref.startsWith(`${GLOBAL_SKILL_PLUGIN}:`);
-}
-
+/** One skill in the open workspace's library, which every flow in it shares. */
 export interface SkillSummary {
     name: string;
-    scope: SkillScope;
     description: string;
     /** Bytes of SKILL.md. */
     size: number;
-    /** The folder it is kept in. For a global skill, which of the library's folders. */
-    folder: string;
     updatedAt: string;
-}
-
-/** One of the folders the global library reads, as Settings shows it. */
-export interface GlobalSkillFolder {
-    path: string;
-    /** The workspace's own folder, which is always read, last, and takes new skills. */
-    workspace: boolean;
-    /** Gone: renamed, or on a drive that is not plugged in. */
-    missing: boolean;
-    /** Everything in it, `shadowed` where a folder above holds the same name and wins. */
-    skills: (SkillSummary & { shadowed: boolean })[];
 }
 
 export interface SkillDetail extends SkillSummary {

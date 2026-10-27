@@ -7,10 +7,8 @@ import type {
     AboutInfo,
     AgentControlStatus,
     EngineStatus,
-    GlobalSkillFolder,
     McpServerTool,
     Settings,
-    SkillScope,
     SkillSummary,
     UpdateStatus,
 } from './settings';
@@ -31,22 +29,27 @@ export interface WorkspaceChange {
 export type OpenWhere = 'current' | 'new';
 
 /**
- * A flow and the directory it sits in — what the welcome window lists. The
- * folder is the user's to rename; the id inside the flow is not.
+ * A folder holding flows and the skills they share: `flows/<name>.json` and
+ * `skills/<name>/SKILL.md`. One is open at a time, and its folder is where every
+ * one of its runs works.
+ */
+export interface WorkspaceInfo {
+    /** The folder's own name, which is what the workspace is called. */
+    name: string;
+    /** Absolute path to it. */
+    path: string;
+    /** Gone since it was last open: renamed, deleted, or on a drive not plugged in. */
+    missing: boolean;
+}
+
+/**
+ * A flow and its file in the workspace's `flows` folder — what the welcome window
+ * lists. The file is the user's to rename; the id inside the flow is not.
  */
 export interface FlowEntry {
     flow: Flow;
-    /** The directory's own name: under `flows/`, or wherever a file opened in place sits. */
-    folder: string;
-    /** Absolute path to it. */
-    path: string;
-    /** The flow file itself. */
+    /** Absolute path to the flow file. */
     file: string;
-    /**
-     * Opened from elsewhere on disk and saved back there. Its folder is the user's,
-     * so the app neither renames nor deletes it.
-     */
-    inPlace: boolean;
 }
 
 /**
@@ -118,40 +121,58 @@ export interface OutlookDrag {
 }
 
 export interface Api {
+    /**
+     * Which workspace is open, and switching to another. A switch is refused while a
+     * run is under way; otherwise it stops watching every flow and closes every canvas.
+     */
+    workspace: {
+        /** Null when none is open: the first launch, or the last one's folder has gone. */
+        current(): Promise<WorkspaceInfo | null>;
+        /** Workspaces opened before, the last one first, the open one included. */
+        recent(): Promise<WorkspaceInfo[]>;
+        /** Open a folder as the workspace. Its `flows` and `skills` folders are made when first written. */
+        open(path: string): Promise<WorkspaceInfo>;
+        /** Ask for a folder, then open it. Null if cancelled. */
+        pickAndOpen(): Promise<WorkspaceInfo | null>;
+        /**
+         * Make a folder named after it inside `location`, with a starter skill, open
+         * it, and remember `location` for the next one.
+         */
+        create(name: string, location: string): Promise<WorkspaceInfo>;
+        /** The folder New workspace offers: the last one used, else one in Documents. */
+        location(): Promise<string>;
+        /** Ask for a folder to put a new workspace in, starting from `current`. Null if cancelled. */
+        pickLocation(current: string): Promise<string | null>;
+        /** Take one off the recent list. Its folder is untouched. */
+        forget(path: string): Promise<WorkspaceInfo[]>;
+        /** Show the open workspace's folder in the file manager. */
+        reveal(): Promise<void>;
+    };
     flows: {
+        /** The open workspace's flows. */
         entries(): Promise<FlowEntry[]>;
         /**
          * Write an edit made to the version `flow.updatedAt` names. Refused, not
          * written, when anything but this window has written the flow since.
          */
         save(flow: Flow): Promise<SaveOutcome>;
-        /**
-         * Make a flow in a folder of its own, named after it, inside `location`, and
-         * remember `location` for the next one.
-         */
-        create(name: string, location: string): Promise<Flow>;
-        /** The folder New flow and Duplicate offer: the last one used, else one in Documents. */
-        location(): Promise<string>;
-        /** Ask for a folder to put a new flow's folder in, starting from `current`. Null if cancelled. */
-        pickLocation(current: string): Promise<string | null>;
-        /**
-         * Copy a flow into a new one in a folder of its own inside `location` — the flow
-         * as it stands on screen, and the skill library belonging to the flow it came
-         * from — and remember `location` for the next one.
-         */
-        duplicate(flow: Flow, name: string, location: string): Promise<Flow>;
+        /** Make a flow in the workspace, in a file named after it. */
+        create(name: string): Promise<Flow>;
+        /** Copy a flow — as it stands on screen, unsaved edits included — into a new one in the workspace. */
+        duplicate(flow: Flow, name: string): Promise<Flow>;
         /** Rename the flow, leaving its graph as stored. Its own call so other windows are told. */
         rename(flowId: string, name: string): Promise<Flow>;
-        /** Delete a flow made here; one opened in place is only taken off the list. */
+        /** Delete the flow's file. The skills it ticks stay: they are the workspace's. */
         remove(id: string): Promise<void>;
+        /** Rename the flow's file, within `flows`; its id is untouched. */
+        setFileName(flowId: string, fileName: string): Promise<FlowEntry>;
+        /** Show the flow's file in the file manager. */
+        reveal(flowId: string): Promise<void>;
         /**
-         * Rename the flow's directory; its id is untouched. Refused while a run of it is
-         * in flight, and for a flow opened in place.
+         * Ask for a flow file, then copy it into the workspace, with any skills it
+         * carries that the workspace does not have yet. Null if cancelled.
          */
-        setFolder(flowId: string, folder: string): Promise<FlowEntry>;
-        revealFolder(flowId: string): Promise<void>;
-        /** Ask for a flow file, then open it where it is: listed, and saved back to that file. */
-        pickAndOpen(): Promise<Flow | null>;
+        pickAndImport(): Promise<Flow | null>;
     };
     settings: {
         get(): Promise<Settings>;
@@ -200,40 +221,21 @@ export interface Api {
         /** What the last check of that agent found this session, shown while the next runs. */
         lastStatus(id: string): Promise<AgentStatus | null>;
     };
-    /**
-     * Two libraries: one global to the install, one belonging to the flow. Every
-     * call says which it means, and `flowId` is read only for the flow's own.
-     */
+    /** The open workspace's one library, in its `skills` folder, which every flow in it shares. */
     skills: {
-        /** Both at once, each entry carrying the scope it came from. */
-        list(flowId: string): Promise<SkillSummary[]>;
+        list(): Promise<SkillSummary[]>;
         /** Write a new SKILL.md. Refused when the library already holds that name. */
-        create(scope: SkillScope, flowId: string, name: string, content: string): Promise<SkillSummary>;
+        create(name: string, content: string): Promise<SkillSummary>;
         /**
          * Open the SKILL.md in the system's app for `.md` files; the save is picked up
          * by watching the folder. Refused when the skill has gone since the list was read.
          */
-        open(scope: SkillScope, flowId: string, name: string): Promise<void>;
+        open(name: string): Promise<void>;
         /** Show the skill's folder in the file manager. */
-        reveal(scope: SkillScope, flowId: string, name: string): Promise<void>;
-        remove(scope: SkillScope, flowId: string, name: string): Promise<void>;
-        /**
-         * Take it out of one library and put it in the other, overwriting a skill of
-         * the same name there. The caller asks first, and repairs the ticks.
-         */
-        move(from: SkillScope, to: SkillScope, flowId: string, name: string): Promise<SkillSummary>;
+        reveal(name: string): Promise<void>;
+        remove(name: string): Promise<void>;
         /** Ask the user for SKILL.md files, then copy each one's skill into the library. */
-        pickAndImport(
-            scope: SkillScope,
-            flowId: string,
-        ): Promise<{ imported: string[]; skipped: string[] } | null>;
-        /** The folders the global library reads, highest first, with what each holds. */
-        folders(): Promise<GlobalSkillFolder[]>;
-        /** Replace the linked folders, highest first. */
-        setFolders(paths: string[]): Promise<GlobalSkillFolder[]>;
-        /** Ask the user for a folder to link. Only asks: linking it is `setFolders`. */
-        pickFolder(): Promise<string | null>;
-        revealFolder(path: string): Promise<void>;
+        pickAndImport(): Promise<{ imported: string[]; skipped: string[] } | null>;
     };
     engine: {
         /** Watching is switched on and off per flow. */
@@ -266,6 +268,7 @@ export interface Api {
         showWelcome(): Promise<void>;
         showSettings(): Promise<void>;
     };
+    /** The open workspace's runs. */
     runs: {
         list(limit: number): Promise<RunSummary[]>;
         get(id: string): Promise<Run | null>;
@@ -304,9 +307,6 @@ export interface Api {
 
     about(): Promise<AboutInfo>;
 
-    /** Show the workspace — flows, skills, runs and logs — in the file manager. */
-    revealWorkspace(): Promise<void>;
-
     copyText(text: string): Promise<void>;
 
     /**
@@ -319,20 +319,27 @@ export interface Api {
 export const IPC = {
     about: 'app:about',
     openDeveloperSite: 'app:openDeveloperSite',
-    revealWorkspace: 'app:revealWorkspace',
     copyText: 'app:copyText',
+
+    workspaceCurrent: 'workspace:current',
+    workspaceRecent: 'workspace:recent',
+    workspaceOpen: 'workspace:open',
+    workspacePickAndOpen: 'workspace:pickAndOpen',
+    workspaceCreate: 'workspace:create',
+    workspaceLocation: 'workspace:location',
+    workspacePickLocation: 'workspace:pickLocation',
+    workspaceForget: 'workspace:forget',
+    workspaceReveal: 'workspace:reveal',
 
     flowsEntries: 'flows:entries',
     flowsSave: 'flows:save',
     flowsCreate: 'flows:create',
-    flowsLocation: 'flows:location',
-    flowsPickLocation: 'flows:pickLocation',
     flowsDuplicate: 'flows:duplicate',
     flowsRename: 'flows:rename',
     flowsRemove: 'flows:remove',
-    flowsSetFolder: 'flows:setFolder',
+    flowsSetFileName: 'flows:setFileName',
     flowsReveal: 'flows:reveal',
-    flowsPickAndOpen: 'flows:pickAndOpen',
+    flowsPickAndImport: 'flows:pickAndImport',
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
@@ -360,12 +367,7 @@ export const IPC = {
     skillsOpen: 'skills:open',
     skillsReveal: 'skills:reveal',
     skillsRemove: 'skills:remove',
-    skillsMove: 'skills:move',
     skillsPickAndImport: 'skills:pickAndImport',
-    skillsFolders: 'skills:folders',
-    skillsSetFolders: 'skills:setFolders',
-    skillsPickFolder: 'skills:pickFolder',
-    skillsRevealFolder: 'skills:revealFolder',
 
     engineStart: 'engine:start',
     engineStop: 'engine:stop',

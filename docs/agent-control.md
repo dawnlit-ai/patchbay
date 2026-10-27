@@ -16,25 +16,28 @@ flow is refused rather than saved over it: the canvas says so, and shows the flo
 
 ## Tools
 
-| Area     | Tools                                                                                                                |
-|----------|----------------------------------------------------------------------------------------------------------------------|
-| Flows    | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                                                |
-| Graph    | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                                                    |
-| Skills   | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `set_global_skill_folders`, `move_skill`, `delete_skill` |
-| Mailbox  | `list_accounts`, `list_folders`, `list_recent_emails`                                                                |
-| Running  | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`                                            |
-| Runs     | `list_runs`, `get_run`, `get_console`                                                                                |
-| Settings | `get_settings`, `list_server_tools`                                                                                  |
+| Area      | Tools                                                                         |
+|-----------|-------------------------------------------------------------------------------|
+| Workspace | `get_workspace`                                                               |
+| Flows     | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`         |
+| Graph     | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`             |
+| Schemas   | `set_schema`, `rename_schema`, `delete_schema`                                |
+| Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`    |
+| Mailbox   | `list_accounts`, `list_folders`, `list_recent_emails`                         |
+| Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`     |
+| Runs      | `list_runs`, `get_run`, `get_console`                                         |
+| Settings  | `get_settings`, `list_server_tools`                                           |
+
+Every tool works on the workspace open in the app: its flows, its skills and its runs.
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an opened flow file gets, so a
 value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
 dropped, with the tool that dropped it saying how many.
 
-`write_skill` writes one `SKILL.md`; a skill with scripts or references beside it comes in whole through
-`import_skills`, from a folder on this machine, optionally narrowed to the names wanted. `move_skill` re-points the
-flow's own Processors and Extractors as a drag between the libraries does, and names any other flow a skill leaving
-the global shelf strands.
+`write_skill` writes one `SKILL.md` into the workspace's library; a skill with scripts or references beside it comes in
+whole through `import_skills`, from a folder on this machine, optionally narrowed to the names wanted. `delete_skill`
+names every flow still ticking the skill it deleted.
 
 A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
 under *Runs at once*. `get_run` says which, `list_runs` puts what is queued and under way first, and `cancel_run` takes
@@ -48,6 +51,7 @@ a queued one out before it starts. When an email never became a run at all, `get
   read is not a trace.
 - **No tool writes settings.** The Claude and agy executables and the servers handed to a Processor decide what code
   a run executes, so they stay with the person at the window.
+- **No tool opens another workspace.** Switching closes the person's canvases and stops their flows being watched.
 - **Nothing sends mail.** Nothing in this app does.
 
 ## Security

@@ -6,13 +6,11 @@ import {
     type FlowNode,
     NODE_KIND_META,
     NODE_KINDS,
-    retickSkill,
     triggerConfig,
 } from '@shared/flow';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
-import { type EngineStatus, skillRef, type SkillScope, type SkillSummary } from '@shared/settings';
-import type { FlowEntry } from '@shared/ipc';
+import type { EngineStatus, SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
@@ -44,14 +42,6 @@ function mergeLog(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
 
 const isProblem = (entry: LogEntry): boolean => entry.level === 'warn' || entry.level === 'error';
 
-/** Where the open flow is kept, for the rename dialog and the topbar's tooltip. */
-type Place = Omit<FlowEntry, 'flow'>;
-
-const placeOf = ({folder, path, file, inPlace}: FlowEntry): Place => ({folder, path, file, inPlace});
-
-/** A flow opened in place is named by its file: its folder may hold others. */
-const shownPath = (place: Place): string => (place.inPlace ? place.file : place.path);
-
 interface Props {
     /** The flow this window was opened for. Another arrives on `on.openFlow`. */
     initialFlowId: string;
@@ -59,9 +49,10 @@ interface Props {
 
 export function App({initialFlowId}: Props): JSX.Element {
     const [flow, setFlow] = useState<Flow | null>(null);
-    const [place, setPlace] = useState<Place | null>(null);
-    /** Only for the skill list, which says what moving one would mean elsewhere. */
-    const [flowCount, setFlowCount] = useState(1);
+    /** The open flow's file, for the rename dialog and the topbar's tooltip. */
+    const [file, setFile] = useState<string | null>(null);
+    /** What the open workspace is called, for the skill list. */
+    const [workspaceName, setWorkspaceName] = useState('');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[]>([]);
     const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -85,15 +76,15 @@ export function App({initialFlowId}: Props): JSX.Element {
     const {error, attempt, report: setError} = useErrorBanner();
     const [theme, setTheme] = useTheme();
 
-    /** Every library belongs to a flow, so switching flows swaps the list. */
     const flowId = flow?.id ?? null;
+    /** The workspace's, shared by every flow in it. */
     const refreshSkills = useCallback(async () => {
-        setSkills(flowId ? await window.api.skills.list(flowId) : []);
-    }, [flowId]);
+        setSkills(await window.api.skills.list());
+    }, []);
 
     useEffect(() => void refreshSkills(), [refreshSkills]);
-    // Main watches the skill folders and says when they change; this catches a
-    // folder it could not watch, such as a drive plugged back in.
+    // Main watches the skills folder and says when it changes; this catches one it
+    // could not watch, such as a folder made since.
     useEffect(() => {
         const refresh = (): void => void refreshSkills();
         window.addEventListener('focus', refresh);
@@ -107,7 +98,6 @@ export function App({initialFlowId}: Props): JSX.Element {
     /** Read a flow and its directory. If it has been deleted, swap this window for the start page. */
     const readFlow = useCallback(async (wantedId: string) => {
         const entries = await window.api.flows.entries();
-        setFlowCount(entries.length);
         const found = entries.find((entry) => entry.flow.id === wantedId);
         if (!found) {
             await window.api.window.showWelcome();
@@ -115,7 +105,7 @@ export function App({initialFlowId}: Props): JSX.Element {
             return;
         }
         setFlow(found.flow);
-        setPlace(placeOf(found));
+        setFile(found.file);
     }, []);
 
     // ── Boot ───────────────────────────────────────────────────────────────
@@ -123,6 +113,7 @@ export function App({initialFlowId}: Props): JSX.Element {
     useEffect(() => {
         void (async () => {
             setStatus(await window.api.engine.status());
+            void window.api.workspace.current().then((open) => setWorkspaceName(open?.name ?? ''));
             await readFlow(initialFlowId);
             refreshRuns();
         })();
@@ -289,16 +280,6 @@ export function App({initialFlowId}: Props): JSX.Element {
         [flow, updateFlow],
     );
 
-    /** A skill that moved library changed name (`global:x` ↔ `x`); re-point this flow's nodes. */
-    const relabelSkill = useCallback(
-        (from: SkillScope, to: SkillScope, name: string) => {
-            if (!flow) return;
-            const next = retickSkill(flow, skillRef(from, name), skillRef(to, name));
-            if (next !== flow) updateFlow(next);
-        },
-        [flow, updateFlow],
-    );
-
     const deleteNode = useCallback(
         (nodeId: string) => {
             if (!flow) return;
@@ -349,17 +330,14 @@ export function App({initialFlowId}: Props): JSX.Element {
 
     /**
      * Through main rather than a canvas save, so the welcome window hears of it.
-     * Queued edits go out first. The folder move is refused while a run uses it.
+     * Queued edits go out first.
      */
-    const renameFlow = (name: string, folder: string | null): Promise<void> =>
+    const renameFlow = (name: string, fileName: string | null): Promise<void> =>
         attempt(async () => {
             if (!flow) return;
             flushSave();
             if (name !== flow.name) setFlow(await window.api.flows.rename(flow.id, name));
-            if (folder !== null && folder !== place?.folder) {
-                const moved = await window.api.flows.setFolder(flow.id, folder);
-                setPlace(placeOf(moved));
-            }
+            if (fileName !== null) setFile((await window.api.flows.setFileName(flow.id, fileName)).file);
         });
 
     /** Brings a tab of the dock up, unfolding the dock if it was folded away. */
@@ -455,14 +433,7 @@ export function App({initialFlowId}: Props): JSX.Element {
 
     const watching = status?.flowIds.includes(flow.id) === true;
     const mailboxes = status?.watching.filter((w) => w.flowId === flow.id).length ?? 0;
-    const library: Library = {
-        flowId: flow.id,
-        flowName: flow.name,
-        skills,
-        otherFlowCount: flowCount - 1,
-        onRefresh: refreshSkills,
-        onMoved: relabelSkill,
-    };
+    const library: Library = {workspaceName, skills, onRefresh: refreshSkills};
 
     return (
         <div className="app">
@@ -476,7 +447,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                 </button>
                 <button
                     className="flow-name"
-                    title={place ? `Rename this flow · ${shownPath(place)}` : 'Rename this flow'}
+                    title={file ? `Rename this flow · ${file}` : 'Rename this flow'}
                     onClick={() => setRenaming(true)}
                 >
                     {flow.name}
@@ -620,12 +591,11 @@ export function App({initialFlowId}: Props): JSX.Element {
             {renaming && (
                 <RenameFlowDialog
                     name={flow.name}
-                    folder={place?.inPlace === true ? null : (place?.folder ?? '')}
-                    path={place ? shownPath(place) : ''}
+                    file={file ?? ''}
                     onCancel={() => setRenaming(false)}
                     onConfirm={(result) => {
                         setRenaming(false);
-                        void renameFlow(result.name, result.folder);
+                        void renameFlow(result.name, result.fileName);
                     }}
                 />
             )}

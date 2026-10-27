@@ -189,6 +189,13 @@ export function openFlow(flowId: string, where: OpenWhere = 'current'): void {
     if (welcome && !welcome.isDestroyed()) welcome.close();
 }
 
+/** Close every canvas: their flows belong to a workspace no longer open. Shows the start page first, so the app is never windowless. */
+export function closeCanvases(): void {
+    if (projects.length === 0) return;
+    showWelcome();
+    for (const {win} of [...projects]) if (!win.isDestroyed()) win.close();
+}
+
 /** The flow on each canvas, the window last used first. */
 export function openFlows(): string[] {
     return projects.map((p) => p.flowId);

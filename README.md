@@ -54,9 +54,9 @@ is deleting the folder.
 for, so the first time, macOS says it cannot check it for malicious software: open **System Settings → Privacy &
 Security** and click **Open Anyway** beside Patchbay.
 
-Flows, skills, settings, runs and logs live in the workspace — `%APPDATA%\Patchbay\workspace` on Windows,
-`~/Library/Application Support/Patchbay/workspace` on a Mac — so updating or deleting the app leaves them where they
-are.
+Flows and skills live in a **workspace** — a folder of yours, holding `flows/` and `skills/`. Settings, runs and logs
+live in the app's data folder, `%APPDATA%\Patchbay\workspace` on Windows and
+`~/Library/Application Support/Patchbay/workspace` on a Mac. Updating or deleting the app leaves both where they are.
 
 A downloaded copy updates itself in the background; **Settings → Updates** says what it found and has **Restart to
 update**. Choose the channel there too: **Stable** for published releases, or **Nightly** for a build of each day's
@@ -79,8 +79,9 @@ without them, but a Categorizer, Extractor or Processor runs on one. Patchbay in
 
 ## First run
 
-1. The welcome window opens with no flows. **New flow** asks where to keep it, and gives you a canvas and a folder of
-   its own there. Drag an **Outlook Trigger** onto the canvas and choose a mailbox.
+1. The welcome window asks for a workspace. **New workspace** makes a folder for your flows and the skills they
+   share; **Open folder…** uses one you already have, such as a git repository. Then **New flow** gives you a canvas.
+   Drag an **Outlook Trigger** onto it and choose a mailbox.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
 3. Drag a **Processor** per branch, tick a skill, and connect it.
@@ -92,9 +93,9 @@ without them, but a Categorizer, Extractor or Processor runs on one. Patchbay in
 
 ## Documentation
 
-- [Flows](docs/flows.md) — the nodes in detail, the slots data travels in, and where flow files live
+- [Flows](docs/flows.md) — the nodes in detail, the slots data travels in, and workspaces
 - [Models and agents](docs/models.md) — fallback models, Claude Code, agy, and what runs cost
-- [Skills and tools](docs/skills.md) — the two skill libraries, MCP servers, and the tools a run is handed
+- [Skills and tools](docs/skills.md) — the workspace's skill library, MCP servers, and the tools a run is handed
 - [Runs and the console](docs/runs.md) — what a run records, and what the app logs outside any run
 - [Letting an agent drive it](docs/agent-control.md) — Patchbay's own MCP server
 - [Development](docs/development.md) — running from source, self-checks, architecture

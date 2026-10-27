@@ -6,7 +6,6 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
-    renameSync,
     rmdirSync,
     statSync,
     unlinkSync,
@@ -14,26 +13,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { flowSkillsDir, flowSkillsDirAt, globalPluginDir, globalSkillsDir } from '../paths';
-import { getSettings, saveSettings } from './settingsStore';
-import {
-    GLOBAL_SKILL_PLUGIN,
-    type GlobalSkillFolder,
-    isGlobalRef,
-    type SkillDetail,
-    type SkillScope,
-    type SkillSummary,
-} from '@shared/settings';
+import { skillsDir, skillsDirAt } from '../paths';
+import type { SkillDetail, SkillSummary } from '@shared/settings';
 
 /**
- * Two libraries of `<name>/SKILL.md` folders: **global**, shared by every flow and
- * kept in plugin layout so runs can load it from outside their cwd; and **flow**,
- * under one flow's directory and travelling with it. `flowId` is read only for
- * the `flow` scope, and the two may hold the same name without shadowing.
- *
- * The global library reads the user's linked folders in place, then its own in the
- * workspace. The first folder to hold a name has the copy in use; a write goes over
- * that copy, else into the workspace's folder.
+ * The open workspace's library: `skills/<name>/SKILL.md` folders, shared by
+ * every flow in the workspace. A node ticks a skill by its name.
  */
 
 /** Skill names become directory names and Agent SDK allowlist entries. */
@@ -45,7 +30,7 @@ export function isValidSkillName(name: string): boolean {
 
 /**
  * A recursive delete that removes a link rather than following it: under Electron,
- * `rmSync` deletes what a junction points at, and a linked folder is the user's own.
+ * `rmSync` deletes what a junction points at, and a skill may link to the user's own.
  */
 function removeTree(path: string): void {
     let stat;
@@ -62,111 +47,29 @@ function removeTree(path: string): void {
     }
 }
 
-/** Writes the plugin manifest the SDK needs beside a `skills` folder, if it is missing. */
-function ensureManifest(pluginDir: string): void {
-    const manifest = join(pluginDir, '.claude-plugin', 'plugin.json');
-    if (existsSync(manifest)) return;
+/** The plugin name the library reaches Claude under: a run's ticked skills are `workspace:<name>` to it. */
+export const SKILL_PLUGIN = 'workspace';
+
+/** Writes the plugin manifest the SDK needs beside a `skills` folder. */
+function writeManifest(pluginDir: string): void {
     mkdirSync(join(pluginDir, '.claude-plugin'), {recursive: true});
-    const content = {
-        name: GLOBAL_SKILL_PLUGIN,
-        description: 'Skills shared by every flow in this Patchbay workspace.',
-    };
-    writeFileSync(manifest, JSON.stringify(content, null, 2), 'utf8');
-}
-
-/** The global library's folders, highest first. */
-function globalFolders(): { path: string; workspace: boolean }[] {
-    ensureManifest(globalPluginDir());
-    return [
-        ...getSettings().globalSkillFolders.map((path) => ({path, workspace: false})),
-        {path: globalSkillsDir(), workspace: true},
-    ];
-}
-
-/** The folder holding the copy of a global skill in use: the first to have one. */
-function globalHome(name: string): string | null {
-    for (const {path} of globalFolders()) if (existsSync(join(path, name, 'SKILL.md'))) return path;
-    return null;
-}
-
-/** Where a skill of this name is written: over the copy in use, else into the workspace. */
-function writeDir(scope: SkillScope, flowId: string, name: string): string {
-    if (scope === 'flow') return flowSkillsDir(flowId);
-    return globalHome(name) ?? globalSkillsDir();
-}
-
-/** Where a skill is read from, without creating anything, so reading a deleted flow's skills doesn't recreate its folder. */
-function readDir(scope: SkillScope, flowId: string, name: string): string {
-    return scope === 'global' ? (globalHome(name) ?? globalSkillsDir()) : flowSkillsDirAt(flowId);
-}
-
-/** Every folder the global library reads, with what each holds — what Settings lists. */
-export function globalShelf(): GlobalSkillFolder[] {
-    const taken = new Set<string>();
-    return globalFolders().map(({path, workspace}) => {
-        const missing = !existsSync(path);
-        const skills = missing
-            ? []
-            : readLibrary('global', path).map((skill) => ({...skill, shadowed: taken.has(skill.name)}));
-        for (const skill of skills) taken.add(skill.name);
-        return {path, workspace, missing, skills};
-    });
+    const content = {name: SKILL_PLUGIN, description: 'Skills shared by every flow in this Patchbay workspace.'};
+    writeFileSync(join(pluginDir, '.claude-plugin', 'plugin.json'), JSON.stringify(content, null, 2), 'utf8');
 }
 
 /**
- * Replace the folders linked into the global library, highest first. A folder
- * already linked may be missing, so an unplugged drive can still be moved down or
- * unlinked; one being linked has to be there.
+ * The plugin a run loads its ticked skills from. The workspace's `skills` folder
+ * is not in plugin layout, and writing a manifest into the user's folder is not
+ * the app's place, so the ticked skills are copied into a temporary one — which
+ * also keeps an edit made mid-run out of it. `dispose` removes the copy.
  */
-export function setGlobalFolders(paths: string[]): GlobalSkillFolder[] {
-    const current = new Set(getSettings().globalSkillFolders);
-    const own = resolve(globalSkillsDir());
-    const seen = new Set<string>();
-    const next = paths.map((path) => {
-        const target = resolve(path);
-        if (!current.has(target)) {
-            if (!existsSync(target) || !statSync(target).isDirectory()) throw new Error(`No such folder: ${target}`);
-            if (existsSync(join(target, 'SKILL.md'))) {
-                throw new Error(`${target} is a skill itself. Link the folder it sits in.`);
-            }
-        }
-        if (target === own) throw new Error(`${target} is the workspace's own library, which is always read.`);
-        if (seen.has(target)) throw new Error(`${target} is linked twice.`);
-        seen.add(target);
-        return target;
-    });
-    saveSettings({...getSettings(), globalSkillFolders: next});
-    return globalShelf();
-}
-
-/** Where to show a folder the library reads. Anything else is refused, so a window cannot open arbitrary paths. */
-export function globalFolderPath(path: string): string {
-    const folder = globalFolders().find((f) => f.path === path);
-    if (!folder) throw new Error(`${path} is not one of the global library's folders.`);
-    return folder.path;
-}
-
-/**
- * The plugin a run loads its ticked global skills from. Only the workspace's own
- * folder is in plugin layout, so while any folder is linked the ticked skills are
- * copied into a temporary one, which also keeps an edit made mid-run out of it.
- * `dispose` removes the copy.
- */
-export function globalPluginFor(names: string[]): { path: string; dispose(): void } {
-    if (getSettings().globalSkillFolders.length === 0) {
-        ensureManifest(globalPluginDir());
-        return {
-            path: globalPluginDir(), dispose: () => {
-            }
-        };
-    }
+export function skillPluginFor(names: string[]): { path: string; dispose(): void } {
     const root = mkdtempSync(join(tmpdir(), 'patchbay-skills-'));
-    ensureManifest(root);
+    writeManifest(root);
     for (const name of names) {
-        const home = isValidSkillName(name) ? globalHome(name) : null;
-        if (!home) continue;
+        if (!isValidSkillName(name) || !existsSync(skillFile(name))) continue;
         // Dereferenced, so a link inside a skill is copied as content, not as a way back into the folder.
-        cpSync(join(home, name), join(root, 'skills', name), {recursive: true, dereference: true});
+        cpSync(join(skillsDirAt(), name), join(root, 'skills', name), {recursive: true, dereference: true});
     }
     const dispose = (): void => {
         try {
@@ -204,27 +107,27 @@ export function parseFrontmatter(content: string): Frontmatter {
     return out;
 }
 
-function skillFile(scope: SkillScope, flowId: string, name: string): string {
-    return join(readDir(scope, flowId, name), name, 'SKILL.md');
+/** Read from where it is, without creating anything, so asking after a skill never makes the library's folder. */
+function skillFile(name: string): string {
+    return join(skillsDirAt(), name, 'SKILL.md');
 }
 
-function summarize(scope: SkillScope, name: string, content: string, file: string): SkillSummary {
+function summarize(name: string, content: string, file: string): SkillSummary {
     const stat = statSync(file);
     return {
         name,
-        scope,
         description: parseFrontmatter(content).description ?? '',
         size: stat.size,
         updatedAt: stat.mtime.toISOString(),
-        folder: dirname(dirname(file)),
     };
 }
 
 /**
- * The skills in one folder, by name. One deleted or unreadable mid-list is left
- * out rather than failing the list.
+ * The library's skills, by name. One deleted or unreadable mid-list is left out
+ * rather than failing the list.
  */
-function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
+export function listSkills(): SkillSummary[] {
+    const dir = skillsDirAt();
     let entries;
     try {
         entries = readdirSync(dir, {withFileTypes: true});
@@ -236,7 +139,7 @@ function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
         if (!entry.isDirectory()) continue;
         const file = join(dir, entry.name, 'SKILL.md');
         try {
-            out.push(summarize(scope, entry.name, readFileSync(file, 'utf8'), file));
+            out.push(summarize(entry.name, readFileSync(file, 'utf8'), file));
         } catch {
             // No SKILL.md, or it went between the listing and the read.
         }
@@ -244,79 +147,52 @@ function readLibrary(scope: SkillScope, dir: string): SkillSummary[] {
     return out.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-/** A library's skills. The global one gives each name once, the copy in use. */
-export function listSkills(scope: SkillScope, flowId: string): SkillSummary[] {
-    if (scope === 'flow') return readLibrary(scope, flowSkillsDirAt(flowId));
-    return globalShelf()
-        .flatMap((folder) => folder.skills.filter((skill) => !skill.shadowed))
-        .map(({shadowed: _, ...skill}) => skill)
-        .toSorted((a, b) => a.name.localeCompare(b.name));
-}
-
-/** Both libraries at once — what the inspector's skill list shows. */
-export function listAllSkills(flowId: string): SkillSummary[] {
-    return [...listSkills('global', flowId), ...listSkills('flow', flowId)];
-}
-
-export function getSkill(scope: SkillScope, flowId: string, name: string): SkillDetail | null {
+export function getSkill(name: string): SkillDetail | null {
     if (!isValidSkillName(name)) return null;
-    const file = skillFile(scope, flowId, name);
+    const file = skillFile(name);
     if (!existsSync(file)) return null;
     const content = readFileSync(file, 'utf8');
-    return {...summarize(scope, name, content, file), content};
+    return {...summarize(name, content, file), content};
 }
 
-/** Where a library is named in a message. */
-const libraryName = (scope: SkillScope): string => (scope === 'global' ? 'the global library' : 'this flow’s library');
-
 /**
- * The SKILL.md of the copy in use, for opening in another app. The list it was
- * picked from can be behind the disk, so a skill gone since is refused by name.
+ * The SKILL.md, for opening in another app. The list it was picked from can be
+ * behind the disk, so a skill gone since is refused by name.
  */
-export function locateSkill(scope: SkillScope, flowId: string, name: string): string {
-    const file = isValidSkillName(name) ? skillFile(scope, flowId, name) : null;
+export function locateSkill(name: string): string {
+    const file = isValidSkillName(name) ? skillFile(name) : null;
     if (!file || !existsSync(file)) {
-        throw new Error(`“${name}” is no longer in ${libraryName(scope)}. It was deleted or renamed outside the app.`);
+        throw new Error(`“${name}” is no longer in this workspace. It was deleted or renamed outside the app.`);
     }
     return file;
 }
 
 /** Write a new skill. Refused when the library already has one of that name. */
-export function createSkill(scope: SkillScope, flowId: string, name: string, content: string): SkillSummary {
-    if (isValidSkillName(name) && existsSync(skillFile(scope, flowId, name))) {
-        const where = scope === 'global' ? 'The global library' : 'This flow’s library';
-        throw new Error(`${where} already has a “${name}”. Pick another name, or edit that one.`);
+export function createSkill(name: string, content: string): SkillSummary {
+    if (isValidSkillName(name) && existsSync(skillFile(name))) {
+        throw new Error(`This workspace already has a “${name}”. Pick another name, or edit that one.`);
     }
-    return saveSkill(scope, flowId, name, content);
+    return saveSkill(name, content);
 }
 
 /**
- * The ticks, as a node stores them, naming a skill neither library has — deleted
- * or renamed since the node ticked it. A run checks before it starts.
+ * The ticks naming a skill the library does not have — deleted or renamed since
+ * the node ticked it. A run checks before it starts.
  */
-export function missingSkills(flowId: string, refs: string[]): string[] {
-    return refs.filter((ref) => {
-        const global = isGlobalRef(ref);
-        const name = global ? ref.slice(GLOBAL_SKILL_PLUGIN.length + 1) : ref;
-        return !isValidSkillName(name) || !existsSync(skillFile(global ? 'global' : 'flow', flowId, name));
-    });
+export function missingSkills(names: string[]): string[] {
+    return names.filter((name) => !isValidSkillName(name) || !existsSync(skillFile(name)));
 }
 
-export function saveSkill(
-    scope: SkillScope,
-    flowId: string,
-    name: string,
-    content: string,
-): SkillSummary {
+export function saveSkill(name: string, content: string): SkillSummary {
     if (!isValidSkillName(name)) {
         throw new Error(
             `Invalid skill name "${name}". Use lowercase letters, digits and hyphens — the name becomes both a folder and a Claude skill identifier.`,
         );
     }
-    mkdirSync(join(writeDir(scope, flowId, name), name), {recursive: true});
-    const file = skillFile(scope, flowId, name);
+    mkdirSync(join(skillsDir(), name), {recursive: true});
+    const file = skillFile(name);
     writeFileSync(file, content, 'utf8');
-    return summarize(scope, name, content, file);
+    return summarize(name, content, file);
 }
 
 /** Windows refuses to rename or delete a folder while another app has a file in it open. Says so, not EBUSY. */
@@ -326,52 +202,17 @@ function heldOpen(e: unknown, name: string, doing: string): unknown {
     return new Error(`Could not ${doing} “${name}”: another app has a file in its folder open. Close it there and try again.`);
 }
 
-export function removeSkill(scope: SkillScope, flowId: string, name: string): void {
+export function removeSkill(name: string): void {
     if (!isValidSkillName(name)) return;
-    // Only the copy in use: one of the same name in a folder further down takes over.
     try {
-        removeTree(join(writeDir(scope, flowId, name), name));
+        removeTree(join(skillsDirAt(), name));
     } catch (e) {
         throw heldOpen(e, name, 'delete');
     }
 }
 
-/**
- * Move a skill folder to the other library, overwriting one of the same name
- * there; confirming that is the caller's job. Re-pointing ticks is too.
- */
-export function moveSkill(
-    from: SkillScope,
-    to: SkillScope,
-    flowId: string,
-    name: string,
-): SkillSummary {
-    if (!isValidSkillName(name)) throw new Error(`Invalid skill name "${name}".`);
-    if (from === to) throw new Error(`"${name}" is already in that library.`);
-    const source = join(readDir(from, flowId, name), name);
-    if (!existsSync(join(source, 'SKILL.md'))) throw new Error(`There is no skill "${name}" to move.`);
-
-    const target = join(writeDir(to, flowId, name), name);
-    try {
-        removeTree(target);
-        try {
-            renameSync(source, target);
-        } catch (e) {
-            // A global folder can be on another drive, which a rename cannot cross.
-            if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
-            cpSync(source, target, {recursive: true});
-            removeTree(source);
-        }
-    } catch (e) {
-        throw heldOpen(e, name, 'move');
-    }
-
-    const file = join(target, 'SKILL.md');
-    return summarize(to, name, readFileSync(file, 'utf8'), file);
-}
-
-/** Copy `<dir>/<skill>/SKILL.md` folders into a library, overwriting same-named skills. `only` limits it to those. */
-export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string, only?: string[]): string[] {
+/** Copy `<dir>/<skill>/SKILL.md` folders into the library, overwriting same-named skills. `only` limits it to those. */
+export function importSkillsFrom(dir: string, only?: string[]): string[] {
     if (!existsSync(dir)) throw new Error(`No such folder: ${dir}`);
     const imported: string[] = [];
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
@@ -380,7 +221,7 @@ export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string,
         const source = join(dir, entry.name);
         if (!existsSync(join(source, 'SKILL.md'))) continue;
         if (!isValidSkillName(entry.name)) continue;
-        cpSync(source, join(writeDir(scope, flowId, entry.name), entry.name), {recursive: true});
+        cpSync(source, join(skillsDir(), entry.name), {recursive: true});
         imported.push(entry.name);
     }
     return imported;
@@ -392,11 +233,7 @@ export function importSkillsFrom(scope: SkillScope, flowId: string, dir: string,
  * folder; any other `.md` becomes a skill of that one file. Either falls back to
  * the frontmatter `name` when the folder or file name is not a valid skill name.
  */
-export function importSkillFiles(
-    scope: SkillScope,
-    flowId: string,
-    files: string[],
-): { imported: string[]; skipped: string[] } {
+export function importSkillFiles(files: string[]): { imported: string[]; skipped: string[] } {
     const imported: string[] = [];
     const skipped: string[] = [];
     for (const file of files) {
@@ -409,10 +246,10 @@ export function importSkillFiles(
             continue;
         }
         if (!whole) {
-            saveSkill(scope, flowId, name, content);
+            saveSkill(name, content);
         } else {
             const source = resolve(dirname(file));
-            const target = resolve(join(writeDir(scope, flowId, name), name));
+            const target = resolve(join(skillsDir(), name));
             if (source === target) {
                 skipped.push(`${name} (already in the library)`);
                 continue;
@@ -457,35 +294,7 @@ that email — you cannot reach any other message.
   enables it, and even then a draft is left in Outlook for a human to send.
 `;
 
-/**
- * Fill an empty global library from the folder named in Settings, else a `skills`
- * directory beside the app, else the starter skill, so a Processor always has
- * something to tick. Returns the names imported.
- */
-export function seedGlobalLibrary(): string[] {
-    const existing = listSkills('global', '');
-    // A library holding only the placeholder still counts as unseeded; otherwise
-    // one launch before pointing at a real skills folder would lock it in forever.
-    const onlyStarter = existing.length === 1 && existing[0]?.name === STARTER_SKILL_NAME;
-    if (existing.length > 0 && !onlyStarter) return [];
-
-    for (const dir of [getSettings().skillSeedPath, join(process.cwd(), 'skills')]) {
-        if (!dir.trim() || !existsSync(dir)) continue;
-        try {
-            const imported = importSkillsFrom('global', '', dir);
-            if (imported.length > 0) {
-                // Real skills supersede the placeholder.
-                if (onlyStarter && !imported.includes(STARTER_SKILL_NAME)) {
-                    removeSkill('global', '', STARTER_SKILL_NAME);
-                }
-                return imported;
-            }
-        } catch {
-            // An unreadable seed folder should not fail startup; the starter skill still applies.
-        }
-    }
-
-    if (onlyStarter) return [];
-    saveSkill('global', '', STARTER_SKILL_NAME, STARTER_SKILL);
-    return [STARTER_SKILL_NAME];
+/** Give a new workspace's library its first skill, so a Processor has something to tick. */
+export function seedStarterSkill(): void {
+    saveSkill(STARTER_SKILL_NAME, STARTER_SKILL);
 }

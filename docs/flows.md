@@ -88,28 +88,39 @@ A key beside `$ref`, such as that `description`, wins over the named schema's ow
 before the node starts, so Claude only sees the whole schema. A node whose schema names a schema the flow lacks, or
 one that contains itself, is flagged on the canvas and leaves by *Error* if it runs.
 
-## Flow files
+## Workspaces and flow files
 
-The app opens on a start page listing every flow this install holds — its size, when it was last edited, whether a
-trigger in it is being polled. From it you open, create, duplicate, rename and delete flows, and open a flow file
-somebody sent you. **☰ Flows** in the canvas's top bar brings it back.
+A **workspace** is a folder holding flows and the skills they share:
 
-Flows are files you keep, not copies the app holds. **New flow** and **Duplicate** ask for a name and a location —
-`Documents/Patchbay` the first time — and make a folder named after the flow there, holding its `flow.json`; a
-duplicate's folder gets a copy of the original's own skills too. **Open flow file…** takes a flow file wherever it
-already is, and copies nothing. A flow an agent makes without naming a location lives in the app workspace under
-`flows/`.
+```
+<workspace>/
+├─ flows/<name>.json        one file per flow
+└─ skills/<name>/SKILL.md   the library every flow here ticks from
+```
 
-Either way every edit is saved back to that file, and the folder it sits in is the flow's **project folder**: the
-working directory its Processors run in, with the flow's own skills in `.claude/skills` — so a flow kept in a git
-repository is edited, run and committed from one place. Keep each flow in a folder of its own: with file access off, a
-Processor can still read the flow's whole folder.
+One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether
+a trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
+lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). **☰ Flows** in the
+canvas's top bar brings it back. **Switch workspace…** opens another one you have used, any folder, or a new one.
+Switching stops watching every flow and closes every canvas, so it asks first when either would happen, and it is
+refused while a run is under way or waiting.
 
-A flow's **id** never changes — renaming it, or moving its file, leaves its runs and the watcher's marks pointing at
-the same flow. Renaming offers to rename the folder too, ticked when the folder is still the one the app chose. A
-rename or a delete is refused while a run is using the flow's directory. Deleting a flow kept outside the workspace
-only takes it off the list — the file and its folder stay as they are.
+**New workspace** asks for a name and a location — `Documents/Patchbay` the first time — and makes a folder named after
+it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows` and `skills` folders
+are made the first time something is written to them. A workspace is a folder you keep, not a copy the app holds, so
+one kept in git is edited, run and committed from one place.
+
+The workspace's folder is the working directory of every run of its flows. With file access off, a Processor can still
+read the whole of it, so keep anything a step should not read somewhere else.
+
+**New flow** and **Duplicate** ask for a name and save the flow in `flows`, in a file named after it. **Import flow
+file…** copies a flow file somebody sent you into `flows`, with any skills it carries that the workspace does not have.
+A flow file put into `flows` by hand is listed too.
+
+A flow's **id** never changes — renaming it, or its file, leaves its runs and the watcher's marks pointing at the same
+flow. Renaming offers to rename the file too, ticked when the file is still the one the app chose. Deleting a flow
+deletes its file; the skills it ticked stay in the workspace.
 
 Opening a flow while a canvas is up on another asks whether to open it in that window or a second one beside it; a
-flow already open raises its window rather than drawing it twice. Runs and the console belong to the workspace, so
-every canvas shows all of both.
+flow already open raises its window rather than drawing it twice. Every canvas shows all of the workspace's runs, and
+the whole console.

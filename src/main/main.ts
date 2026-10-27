@@ -1,9 +1,8 @@
 import { app, Menu } from 'electron';
 import { VelopackApp } from 'velopack';
 import { getAgentControl, getUpdates, getWatcher, registerIpc } from './ipc';
-import { seedGlobalLibrary } from './store/skillStore';
 import { anyWindowOpen, showWelcome } from './windows';
-import { workspaceRoot } from './paths';
+import { currentWorkspace, dataRoot } from './paths';
 import { log } from './log';
 import { offerApplicationsFolder } from './updates';
 
@@ -14,13 +13,13 @@ VelopackApp.build().run();
 void app.whenReady().then(() => {
     // Nothing in the default menu applies to this app.
     Menu.setApplicationMenu(null);
-    log.info('app', `Patchbay ${app.getVersion()} started`, {detail: `workspace: ${workspaceRoot()}`});
-    const seeded = seedGlobalLibrary();
-    if (seeded.length > 0) log.info('app', `Seeded the global skill library: ${seeded.join(', ')}`);
+    log.info('app', `Patchbay ${app.getVersion()} started`, {
+        detail: `data: ${dataRoot()}\nworkspace: ${currentWorkspace() ?? '(none open)'}`,
+    });
     registerIpc();
-    // Listens only if the workspace says so; a settings edit is what turns it on.
+    // Listens only if the settings say so; a settings edit is what turns it on.
     getAgentControl().apply();
-    // The start page, every launch: a canvas needs a flow chosen first.
+    // The start page, every launch: a canvas needs a flow chosen first, and a workspace before that.
     showWelcome();
     getUpdates().start();
     void offerApplicationsFolder();

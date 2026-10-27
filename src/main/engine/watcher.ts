@@ -21,8 +21,8 @@ import { log } from '../log';
 
 /**
  * Polls each trigger's mailbox (Outlook offers no push) and queues a run per new
- * email. Runs overlap up to the cap in Settings, but never two of one flow: they
- * share its directory as cwd, and its mail is handled in arrival order.
+ * email. Runs overlap up to the cap in Settings, but never two of one flow: its
+ * mail is handled in arrival order.
  */
 
 interface Watermark {

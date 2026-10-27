@@ -7,11 +7,18 @@
  */
 import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Flow } from '../src/shared/flow';
 import { defaultConfig } from '../src/shared/flow';
 import { executeRun } from '../src/main/engine/engine';
 import * as outlook from '../src/main/outlook/bridge';
-import { workspaceRoot } from '../src/main/paths';
+import { openWorkspace } from '../src/main/store/workspaceStore';
+
+// A run works in a workspace and records itself in the app's data; both are
+// throwaway folders here, so the check leaves nothing in either of the app's.
+app.setPath('userData', mkdtempSync(join(tmpdir(), 'patchbay-selftest-')));
 
 function buildFlow(account: string): Flow {
     const categorizer = defaultConfig('categorizer');
@@ -73,7 +80,7 @@ function buildFlow(account: string): Flow {
 }
 
 async function main(): Promise<void> {
-    console.log('workspace:', workspaceRoot());
+    console.log('workspace:', openWorkspace(mkdtempSync(join(tmpdir(), 'patchbay-selftest-workspace-'))).path);
 
     const accounts = await outlook.getAccounts();
     console.log('accounts:', accounts);

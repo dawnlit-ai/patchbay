@@ -1,6 +1,7 @@
 /**
- * Smoke test for the agent-control MCP server, under Electron against a throwaway
- * temp workspace. Calls neither Outlook nor Claude, so it is free to run.
+ * Smoke test for the agent-control MCP server, under Electron against throwaway
+ * app data and workspaces in the temp folder. Calls neither Outlook nor Claude,
+ * so it is free to run.
  *
  *   npm run mcpcheck
  */
@@ -12,7 +13,6 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
-    renameSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -27,8 +27,8 @@ import type { EngineStatus } from '../src/shared/settings';
 const PORT = 8799;
 const TOKEN = 'mcpcheck-token';
 
-const workspace = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-'));
-app.setPath('userData', workspace);
+const data = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-'));
+app.setPath('userData', data);
 
 let failures = 0;
 
@@ -38,19 +38,21 @@ function check(what: string, ok: boolean, detail = ''): void {
 }
 
 async function main(): Promise<void> {
-    // Imported here rather than at the top, so the workspace above is already
+    // Imported here rather than at the top, so the app data above is already
     // redirected by the time anything resolves a path inside it.
     const {getSettings, saveSettings} = await import('../src/main/store/settingsStore');
     const {AgentControl} = await import('../src/main/mcp/server');
     const {Watcher} = await import('../src/main/engine/watcher');
-    const {duplicateFlow, getFlow, openFlowFile, saveFlowFrom} = await import('../src/main/store/flowStore');
-    const {flowDir} = await import('../src/main/paths');
-    const {createSkill, globalPluginFor, listAllSkills, locateSkill, missingSkills} = await import(
+    const {duplicateFlow, getFlow, importFlowFile, saveFlowFrom, setFlowFileName} = await import(
+        '../src/main/store/flowStore'
+        );
+    const {createSkill, listSkills, locateSkill, missingSkills, skillPluginFor} = await import(
         '../src/main/store/skillStore'
         );
     const {stopWatchingSkills, watchSkills} = await import('../src/main/store/skillWatch');
+    const {createWorkspace, openWorkspace} = await import('../src/main/store/workspaceStore');
 
-    console.log('workspace:', workspace);
+    console.log('app data:', data);
     saveSettings({...getSettings(), agentControl: {enabled: true, port: PORT, token: TOKEN}});
 
     const watcher = new Watcher(
@@ -102,7 +104,33 @@ async function main(): Promise<void> {
         return text;
     };
 
+    const none = await client.callTool({name: 'list_flows', arguments: {}});
+    check(
+        'with no workspace open, a tool says so',
+        none.isError === true && JSON.stringify(none.content).includes('No workspace is open'),
+    );
+
+    // A new workspace is a folder of its own in the location, with a flows folder
+    // and a starter skill, and becomes the open one.
+    const home = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-home-'));
+    const root = createWorkspace('Checked workspace', home).path;
+    console.log('workspace:', root);
+    check(
+        'a new workspace gets a folder named after it, a flows folder and a starter skill',
+        root === join(home, 'checked-workspace') &&
+        existsSync(join(root, 'flows')) &&
+        existsSync(join(root, 'skills', 'summarize-and-file', 'SKILL.md')),
+    );
+    check('a second of the same name is numbered past it', createWorkspace('Checked workspace', home).path === join(home, 'checked-workspace-2'));
+    openWorkspace(root);
+    check('get_workspace names the one open', (JSON.parse(await call('get_workspace')) as { path: string }).path === root);
+
     const flowId = (JSON.parse(await call('create_flow', {name: 'Wired by an agent'})) as { id: string }).id;
+    check(
+        'a new flow is a file in the workspace’s flows folder, named after it',
+        (JSON.parse(await call('list_flows')) as { id: string; file: string }[]).find((f) => f.id === flowId)?.file ===
+        join(root, 'flows', 'wired-by-an-agent.json'),
+    );
     const idOf = async (kind: string, name?: string): Promise<string> =>
         (JSON.parse(await call('add_node', {flowId, kind, ...(name ? {name} : {})})) as { id: string }).id;
 
@@ -199,14 +227,12 @@ async function main(): Promise<void> {
     check('an edge left hanging is dropped and reported', dropped.includes('"droppedEdges": 1'));
 
     await call('write_skill', {
-        scope: 'flow',
-        flowId,
         name: 'check-skill',
         content: '---\nname: check-skill\ndescription: A skill written over MCP.\n---\n\nDo the thing.\n',
     });
     check(
-        'the skill is in the flow’s library',
-        (await call('list_skills', {flowId})).includes('check-skill'),
+        'the skill is in the workspace’s library',
+        (await call('list_skills')).includes('check-skill') && existsSync(join(root, 'skills', 'check-skill', 'SKILL.md')),
     );
 
     // A skill is a folder, not a file: what sits beside SKILL.md has to come too.
@@ -219,146 +245,73 @@ async function main(): Promise<void> {
         );
         writeFileSync(join(shelf, name, 'references', 'notes.md'), 'A file beside the SKILL.md.\n');
     }
-    const imported = JSON.parse(
-        await call('import_skills', {scope: 'flow', flowId, dir: shelf, names: ['alpha', 'nope']}),
-    ) as { imported: string[]; notFound?: string[] };
+    const imported = JSON.parse(await call('import_skills', {dir: shelf, names: ['alpha', 'nope']})) as {
+        imported: string[];
+        notFound?: string[];
+    };
     check(
         'only the named skill is imported, and a missing one is named',
         imported.imported.join() === 'alpha' && imported.notFound?.join() === 'nope',
     );
-    const flowPath =
-        (JSON.parse(await call('list_flows')) as {
-            id: string;
-            path: string
-        }[]).find((f) => f.id === flowId)?.path ?? '';
     check(
         'the files beside SKILL.md come with it',
-        existsSync(join(flowPath, '.claude', 'skills', 'alpha', 'references', 'notes.md')),
+        existsSync(join(root, 'skills', 'alpha', 'references', 'notes.md')),
     );
-    const itself = await client.callTool({
-        name: 'import_skills',
-        arguments: {scope: 'flow', flowId, dir: join(shelf, 'alpha')},
-    });
+    const itself = await client.callTool({name: 'import_skills', arguments: {dir: join(shelf, 'alpha')}});
     check('a skill folder passed as the shelf is refused', itself.isError === true);
-    const relative = await client.callTool({name: 'import_skills', arguments: {scope: 'global', dir: 'skills'}});
+    const relative = await client.callTool({name: 'import_skills', arguments: {dir: 'skills'}});
     check('a relative folder is refused', relative.isError === true);
 
-    // Moving a skill changes how it is ticked, so the flow's Processors and
-    // Extractors follow it, and a skill leaving the shelf names every other flow
-    // it leaves behind.
+    // Every flow ticks the one library by name. A tick a flow saved while there were
+    // two libraries, `global:<name>`, reads as the name.
     const worker = await idOf('processor');
     await call('update_node', {flowId, nodeId: worker, config: {skills: ['alpha']}});
-    await call('update_node', {flowId, nodeId: puller, config: {skills: ['alpha']}});
-    const up = JSON.parse(await call('move_skill', {flowId, name: 'alpha', to: 'global'})) as {
-        repointedNodes: string[];
-    };
-    check(
-        'moving a skill re-points this flow’s ticks',
-        up.repointedNodes.includes(worker) &&
-        up.repointedNodes.includes(puller) &&
-        (await call('get_flow', {flowId})).includes('"global:alpha"'),
-    );
+    await call('update_node', {flowId, nodeId: puller, config: {skills: ['global:alpha', 'alpha']}});
+    const ticks = (JSON.parse(await call('get_flow', {flowId})) as {
+        nodes: { id: string; config: { skills?: string[] } }[];
+    }).nodes.find((n) => n.id === puller)?.config.skills;
+    check('an old global: tick reads as the skill’s name, once', ticks?.join() === 'alpha', JSON.stringify(ticks));
     const other = (JSON.parse(await call('create_flow', {name: 'Also ticks alpha'})) as { id: string }).id;
     const otherWorker = (JSON.parse(await call('add_node', {flowId: other, kind: 'processor'})) as { id: string }).id;
-    await call('update_node', {flowId: other, nodeId: otherWorker, config: {skills: ['global:alpha']}});
-    const down = JSON.parse(await call('move_skill', {flowId, name: 'alpha', to: 'flow'})) as {
-        stillTickedBy?: { id: string }[];
-    };
+    await call('update_node', {flowId: other, nodeId: otherWorker, config: {skills: ['alpha']}});
+    const gone = await call('delete_skill', {name: 'alpha'});
     check(
-        'a skill leaving the shelf names the flows it strands',
-        down.stillTickedBy?.some((f) => f.id === other) === true,
+        'deleting a skill names every flow still ticking it',
+        gone.includes('Wired by an agent') && gone.includes('Also ticks alpha'),
+        gone,
     );
     await call('delete_flow', {flowId: other});
+    await call('import_skills', {dir: shelf, names: ['alpha']});
 
-    // The global shelf reads the linked folders in place, then the workspace's own.
-    // The first to hold a name has the copy in use, a write goes over that copy or
-    // into the workspace, and a run gets a copy of just the ticked skills as a plugin.
-    const writeSkill = (dir: string, name: string, description: string): void => {
-        mkdirSync(join(dir, name), {recursive: true});
-        writeFileSync(join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n`);
-    };
-    const upper = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-upper-'));
-    const lower = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-lower-'));
-    writeSkill(upper, 'gamma', 'Upper.');
-    writeSkill(lower, 'gamma', 'Lower.');
-    writeSkill(lower, 'epsilon', 'Lower only.');
-    const own = join(workspace, 'workspace', 'global', 'skills');
-    writeSkill(own, 'gamma', 'Stale copy in the workspace.');
-    type Shelf = { folder: string; skills: string[]; shadowed?: string[] }[];
-    const folders = JSON.parse(
-        await call('set_global_skill_folders', {folders: [upper, lower]}),
-    ) as Shelf;
+    // A run gets a copy of just the skills it ticks, as a plugin.
+    const plugin = skillPluginFor(['alpha', 'check-skill', 'missing']);
     check(
-        'the higher folder wins a name two folders share',
-        folders[0]?.skills.join() === 'gamma' &&
-        folders[1]?.skills.join() === 'epsilon' &&
-        folders[1]?.shadowed?.join() === 'gamma' &&
-        folders[2]?.folder === 'app workspace' &&
-        folders[2]?.shadowed?.includes('gamma') === true,
-        JSON.stringify(folders),
-    );
-    const offered = listAllSkills(flowId).filter((s) => s.scope === 'global');
-    check(
-        'the library offers each name once, from where it is in use',
-        offered.filter((s) => s.name === 'gamma').length === 1 &&
-        offered.find((s) => s.name === 'gamma')?.folder === upper,
-    );
-    await call('write_skill', {
-        scope: 'global',
-        name: 'delta',
-        content: '---\nname: delta\ndescription: New.\n---\n',
-    });
-    check(
-        'a new skill is saved in the workspace, not a linked folder',
-        existsSync(join(own, 'delta', 'SKILL.md')) && !existsSync(join(upper, 'delta')),
-    );
-    await call('write_skill', {
-        scope: 'global',
-        name: 'epsilon',
-        content: '---\nname: epsilon\ndescription: Edited.\n---\n',
-    });
-    check(
-        'an edit goes over the copy in use, wherever it is',
-        !existsSync(join(upper, 'epsilon')) && readFileSync(join(lower, 'epsilon', 'SKILL.md'), 'utf8').includes('Edited.'),
-    );
-    const plugin = globalPluginFor(['gamma', 'epsilon', 'missing']);
-    check(
-        'a run gets only the ticked skills, each from where it is in use, as a plugin',
+        'a run gets only the ticked skills, folder and all, as a plugin',
         existsSync(join(plugin.path, '.claude-plugin', 'plugin.json')) &&
-        readFileSync(join(plugin.path, 'skills', 'gamma', 'SKILL.md'), 'utf8').includes('Upper.') &&
-        existsSync(join(plugin.path, 'skills', 'epsilon', 'SKILL.md')) &&
-        !existsSync(join(plugin.path, 'skills', 'delta')),
+        existsSync(join(plugin.path, 'skills', 'alpha', 'references', 'notes.md')) &&
+        existsSync(join(plugin.path, 'skills', 'check-skill', 'SKILL.md')) &&
+        !existsSync(join(plugin.path, 'skills', 'summarize-and-file')) &&
+        !existsSync(join(plugin.path, 'skills', 'missing')),
     );
     plugin.dispose();
     check(
-        'the run’s copy goes, and the folders stay',
-        !existsSync(plugin.path) && existsSync(join(upper, 'gamma', 'SKILL.md')),
+        'the run’s copy goes, and the library stays',
+        !existsSync(plugin.path) && existsSync(join(root, 'skills', 'alpha', 'SKILL.md')),
     );
     // Under Electron, rmSync follows a junction and empties its target.
     const outside = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-outside-'));
     writeFileSync(join(outside, 'keep.md'), 'Not the skill’s to delete.\n');
-    writeSkill(upper, 'zeta', 'Linked.');
-    symlinkSync(outside, join(upper, 'zeta', 'shared'), 'junction');
-    await call('delete_skill', {scope: 'global', name: 'zeta'});
+    await call('write_skill', {name: 'zeta', content: '---\nname: zeta\ndescription: Linked.\n---\n'});
+    symlinkSync(outside, join(root, 'skills', 'zeta', 'shared'), 'junction');
+    await call('delete_skill', {name: 'zeta'});
     check(
         'deleting a skill removes a link inside it, not what it points at',
-        !existsSync(join(upper, 'zeta')) && existsSync(join(outside, 'keep.md')),
+        !existsSync(join(root, 'skills', 'zeta')) && existsSync(join(outside, 'keep.md')),
     );
-    await call('delete_skill', {scope: 'global', name: 'gamma'});
-    check(
-        'deleting the copy in use lets the one below take over',
-        !existsSync(join(upper, 'gamma')) &&
-        listAllSkills(flowId).find((s) => s.scope === 'global' && s.name === 'gamma')?.folder === lower,
-    );
-    const skillAsFolder = await client.callTool({
-        name: 'set_global_skill_folders',
-        arguments: {folders: [join(lower, 'gamma')]},
-    });
-    check('a skill folder is refused as a library folder', skillAsFolder.isError === true);
 
-    // Skills are edited and deleted in other apps while this one runs. Their folders
-    // are watched — a linked one, and a flow's library but not the rest of its
-    // folder — and what went is refused by name, not failed on.
+    // Skills are edited and deleted in other apps while this one runs. The library
+    // is watched, but not the rest of the workspace, and what went is refused by
+    // name, not failed on.
     let heard = 0;
     watchSkills(() => {
         heard += 1;
@@ -372,63 +325,48 @@ async function main(): Promise<void> {
         return heard > before;
     };
     check(
-        'a skill saved in a linked folder is heard',
+        'a skill saved in the library is heard',
         await heardAfter(() =>
-            writeFileSync(join(lower, 'epsilon', 'SKILL.md'), '---\nname: epsilon\ndescription: Saved elsewhere.\n---\n'),
+            writeFileSync(join(root, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: Saved elsewhere.\n---\n'),
         ),
     );
     check(
-        'a skill saved in a flow’s library is heard',
-        await heardAfter(() =>
-            writeFileSync(join(flowPath, '.claude', 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: Saved elsewhere.\n---\n'),
-        ),
+        'a file elsewhere in the workspace is not',
+        !(await heardAfter(() => writeFileSync(join(root, 'scratch.txt'), 'Not a skill.\n'))),
     );
     check(
-        'a file beside a flow’s graph is not',
-        !(await heardAfter(() => writeFileSync(join(flowPath, 'scratch.txt'), 'Not a skill.\n'))),
-    );
-    check(
-        'a skill deleted in a linked folder is heard',
-        await heardAfter(() => rmSync(join(lower, 'epsilon'), {recursive: true})),
+        'a skill deleted in the library is heard',
+        await heardAfter(() => rmSync(join(root, 'skills', 'check-skill'), {recursive: true})),
     );
     stopWatchingSkills();
     let refusedByName = '';
     try {
-        locateSkill('global', '', 'epsilon');
+        locateSkill('check-skill');
     } catch (e) {
         refusedByName = (e as Error).message;
     }
-    check('opening a skill deleted elsewhere is refused by name', refusedByName.includes('“epsilon” is no longer'));
+    check('opening a skill deleted elsewhere is refused by name', refusedByName.includes('“check-skill” is no longer'));
     check(
         'a tick naming a skill deleted elsewhere is found',
-        missingSkills(flowId, ['alpha', 'global:delta', 'global:epsilon']).join() === 'global:epsilon',
+        missingSkills(['alpha', 'check-skill']).join() === 'check-skill',
     );
-    mkdirSync(join(lower, 'hollow', 'SKILL.md'), {recursive: true});
+    mkdirSync(join(root, 'skills', 'hollow', 'SKILL.md'), {recursive: true});
     let listed: string[] = [];
     try {
-        listed = listAllSkills(flowId).map((s) => s.name);
+        listed = listSkills().map((s) => s.name);
     } catch {
         // Checked below.
     }
-    check('a skill that cannot be read is left out of the list, not failing it', listed.includes('delta') && !listed.includes('hollow'));
+    check('a skill that cannot be read is left out of the list, not failing it', listed.includes('alpha') && !listed.includes('hollow'));
     let replaced = true;
     try {
-        createSkill('global', '', 'delta', '---\nname: delta\ndescription: Would replace.\n---\n');
+        createSkill('alpha', '---\nname: alpha\ndescription: Would replace.\n---\n');
     } catch {
         replaced = false;
     }
     check(
         'creating a skill does not replace one of that name',
-        !replaced && readFileSync(join(own, 'delta', 'SKILL.md'), 'utf8').includes('New.'),
-    );
-    const unlinked = JSON.parse(await call('set_global_skill_folders', {folders: []})) as Shelf;
-    check(
-        'unlinking them all leaves the workspace’s own skills',
-        unlinked.length === 1 &&
-        unlinked[0]?.skills.includes('gamma') === true &&
-        unlinked[0]?.skills.includes('delta') === true &&
-        !unlinked[0]?.skills.includes('epsilon'),
-        JSON.stringify(unlinked),
+        !replaced && readFileSync(join(root, 'skills', 'alpha', 'SKILL.md'), 'utf8').includes('Saved elsewhere.'),
     );
 
     // A run has an id from the moment it is queued. A trigger wired to nothing
@@ -477,7 +415,7 @@ async function main(): Promise<void> {
         id: string
     }).id;
     const orphan = (JSON.parse(await call('add_node', {flowId: stranded, kind: 'processor'})) as { id: string }).id;
-    await call('update_node', {flowId: stranded, nodeId: orphan, config: {skills: ['global:epsilon']}});
+    await call('update_node', {flowId: stranded, nodeId: orphan, config: {skills: ['check-skill']}});
     await call('connect', {flowId: stranded, from: inbox, port: 'out', to: orphan});
     const lostRun = watcher.enqueueManual(stranded, inbox, email);
     for (let i = 0; i < 50 && watcher.status().activeRunIds.length > 0; i++) {
@@ -486,7 +424,7 @@ async function main(): Promise<void> {
     const lostTrace = await call('get_run', {runId: lostRun});
     check(
         'a step ticking a skill deleted since leaves by its error port, naming it',
-        lostTrace.includes('“global:epsilon” is ticked but no longer in the library'),
+        lostTrace.includes('“check-skill” is ticked but no longer in the workspace'),
     );
     await call('delete_flow', {flowId: stranded});
 
@@ -509,114 +447,100 @@ async function main(): Promise<void> {
         'an edit to the flow as it now stands is saved',
         reread !== null && 'saved' in saveFlowFrom('canvas', {...reread, name: 'Edited after reading'}),
     );
-    const laneFolder = join(workspace, 'workspace', 'flows', lane);
+    const laneFile = join(root, 'flows', 'queue-check.json');
+    check('a renamed flow keeps its file', existsSync(laneFile));
     await call('delete_flow', {flowId: lane});
     const late = reread ? saveFlowFrom('canvas', {...reread, name: 'Too late'}) : null;
     // What a canvas still showing the flow does next: refresh its skill list.
-    listAllSkills(lane);
+    listSkills();
     check(
-        'a save to a deleted flow, or a look at its skills, does not bring it back',
-        late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFolder),
+        'a save to a deleted flow, or a look at the skills, does not bring it back',
+        late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFile),
     );
 
-    // A flow file opened from elsewhere is used where it is: listed, saved back to,
-    // run in its own folder, and never copied into the workspace.
+    // A flow file from elsewhere is copied in, as a file of its own named after the
+    // flow, and the skills it carries go into the library, never over one there.
     const elsewhere = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-elsewhere-'));
     const sent = join(elsewhere, 'sent.json');
     writeFileSync(
         sent,
         JSON.stringify({
             name: 'Sent over',
-            note: 'not the app’s',
             nodes: [],
             edges: [],
-            skills: [{name: 'carried', content: '---\nname: carried\ndescription: Came in the file.\n---\n'}],
+            skills: [
+                {name: 'carried', content: '---\nname: carried\ndescription: Came in the file.\n---\n'},
+                {name: 'alpha', content: '---\nname: alpha\ndescription: Would replace.\n---\n'},
+            ],
         }),
     );
-    const opened = openFlowFile(sent);
-    const onDisk = (): Record<string, unknown> => JSON.parse(readFileSync(sent, 'utf8')) as Record<string, unknown>;
-    check('a flow file opened without an id is given one, in the file', onDisk().id === opened.id);
-    check('its folder is where its runs work', flowDir(opened.id) === elsewhere);
+    const brought = importFlowFile(sent);
+    const sentOver = join(root, 'flows', 'sent-over.json');
+    check('an imported flow is copied into flows, named after it', existsSync(sentOver) && getFlow(brought.id)?.name === 'Sent over');
+    check('and the file it came from is left as it was', !('id' in (JSON.parse(readFileSync(sent, 'utf8')) as object)));
     check(
-        'and nothing is copied into the workspace',
-        !readdirSync(join(workspace, 'workspace', 'flows')).some((folder) => folder.startsWith('sent')),
+        'the skills it carries go into the library, never over one there',
+        existsSync(join(root, 'skills', 'carried', 'SKILL.md')) &&
+        readFileSync(join(root, 'skills', 'alpha', 'SKILL.md'), 'utf8').includes('Saved elsewhere.'),
     );
     check(
-        'the skills it carries are written beside it',
-        existsSync(join(elsewhere, '.claude', 'skills', 'carried', 'SKILL.md')),
+        'importing it again is another flow, in a file numbered past the first',
+        importFlowFile(sent).id !== brought.id && existsSync(join(root, 'flows', 'sent-over-2.json')),
     );
-    watchSkills(() => {
-        heard += 1;
-    });
+    const withId = join(elsewhere, 'with-id.json');
+    copyFileSync(sentOver, withId);
+    check('a file carrying an id this workspace has gets one of its own', importFlowFile(withId).id !== brought.id);
+    check('importing a file already listed is that flow', importFlowFile(sentOver).id === brought.id);
+    const byHand = join(root, 'flows', 'zz-copied-by-hand.json');
+    copyFileSync(sentOver, byHand);
+    const adopted = importFlowFile(byHand);
     check(
-        'and one saved there later is heard',
-        await heardAfter(() =>
-            writeFileSync(
-                join(elsewhere, '.claude', 'skills', 'carried', 'SKILL.md'),
-                '---\nname: carried\ndescription: Saved elsewhere.\n---\n',
-            ),
-        ),
+        'a copy made by hand in flows gets an id of its own, where it is',
+        adopted.id !== brought.id &&
+        (JSON.parse(readFileSync(byHand, 'utf8')) as { id: string }).id === adopted.id &&
+        readdirSync(join(root, 'flows')).length === 5,
+        readdirSync(join(root, 'flows')).join(', '),
     );
-    // Released before the folder is moved about and deleted below.
-    stopWatchingSkills();
-    const listedOpen = (JSON.parse(await call('list_flows')) as { id: string; file: string; inPlace: boolean }[]).find(
-        (entry) => entry.id === opened.id,
-    );
-    check('list_flows names its file, opened in place', listedOpen?.file === sent && listedOpen.inPlace);
-    await call('rename_flow', {flowId: opened.id, name: 'Renamed where it is'});
-    check(
-        'an edit is saved to that file, keeping what else it holds',
-        onDisk().name === 'Renamed where it is' && onDisk().note === 'not the app’s',
-    );
-    check('opening it again is the same flow', openFlowFile(sent).id === opened.id);
-    const copied = join(elsewhere, 'copied.json');
-    copyFileSync(sent, copied);
-    const copy = openFlowFile(copied);
-    check('a copy of a listed file gets an id of its own', copy.id !== opened.id && onDisk().id === opened.id);
-    const moved = join(elsewhere, 'moved.json');
-    renameSync(sent, moved);
-    check('a moved file keeps its id, so its runs follow it', openFlowFile(moved).id === opened.id);
-    const removed = await call('delete_flow', {flowId: opened.id});
-    check(
-        'deleting a flow opened in place only takes it off the list',
-        removed.includes('Removed') && existsSync(moved) && getFlow(opened.id) === null,
-    );
-    await call('delete_flow', {flowId: copy.id});
-    check('nor does it touch its folder', existsSync(copied) && existsSync(join(elsewhere, '.claude', 'skills')));
 
-    // A new flow given a location gets a folder of its own there, and is kept in place.
-    const location = join(elsewhere, 'not', 'yet');
-    const made = async (): Promise<string> =>
-        (JSON.parse(await call('create_flow', {name: 'Made here', location})) as { id: string }).id;
-    const madeFirst = await made();
-    const madeSecond = await made();
+    // Its file can be renamed, and its id, and so its runs, stay with it.
+    setFlowFileName(brought.id, 'Renamed by hand');
     check(
-        'a flow made in a location gets a folder of its own, made if missing',
-        flowDir(madeFirst) === join(location, 'made-here') && existsSync(join(location, 'made-here', 'flow.json')),
+        'renaming a flow’s file keeps its id',
+        existsSync(join(root, 'flows', 'renamed-by-hand.json')) && !existsSync(sentOver) && getFlow(brought.id) !== null,
     );
-    check('a second of the same name is numbered past it', flowDir(madeSecond) === join(location, 'made-here-2'));
-    const listedMade = (JSON.parse(await call('list_flows')) as { id: string; inPlace: boolean }[]).find(
-        (entry) => entry.id === madeFirst,
-    );
-    check('and is listed as kept in place', listedMade?.inPlace === true);
-    const relativeMade = await client.callTool({
-        name: 'create_flow',
-        arguments: {name: 'Nowhere', location: 'flows'}
-    });
-    check('a location that is not a full path is refused', relativeMade.isError === true);
-    createSkill('flow', madeFirst, 'kept', '---\nname: kept\ndescription: Its own.\n---\n');
-    const original = getFlow(madeFirst);
-    const duplicate = original ? duplicateFlow(original, 'Made here', location) : null;
+    let clashed = false;
+    try {
+        setFlowFileName(adopted.id, 'renamed-by-hand');
+    } catch {
+        clashed = true;
+    }
+    check('a file name another flow has is refused', clashed);
+    const original = getFlow(brought.id);
+    const duplicate = original ? duplicateFlow(original, 'Sent over') : null;
     check(
-        'a duplicate goes in a folder of its own in the location, with the original’s skills',
-        duplicate !== null &&
-        flowDir(duplicate.id) === join(location, 'made-here-3') &&
-        existsSync(join(location, 'made-here-3', '.claude', 'skills', 'kept', 'SKILL.md')),
+        'a duplicate is a flow of its own, in a file of its own',
+        duplicate !== null && duplicate.id !== brought.id && existsSync(sentOver),
     );
-    await call('delete_flow', {flowId: madeFirst});
-    await call('delete_flow', {flowId: madeSecond});
-    if (duplicate) await call('delete_flow', {flowId: duplicate.id});
+    for (const id of [brought.id, adopted.id, duplicate?.id]) if (id) await call('delete_flow', {flowId: id});
+    check('deleting flows leaves the skills', existsSync(join(root, 'skills', 'carried', 'SKILL.md')));
     rmSync(elsewhere, {recursive: true, force: true});
+
+    // One workspace is open at a time, and each has its own flows, skills and runs.
+    const away = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-away-'));
+    openWorkspace(away);
+    check(
+        'another workspace lists only its own flows and skills',
+        (JSON.parse(await call('list_flows')) as unknown[]).length === 0 &&
+        (JSON.parse(await call('list_skills')) as unknown[]).length === 0,
+    );
+    check('and only its own runs', !(await call('list_runs', {limit: 50})).includes(first));
+    check('and looking writes nothing into its folder', readdirSync(away).length === 0);
+    openWorkspace(root);
+    check(
+        'coming back finds them where they were',
+        (await call('list_runs', {limit: 50})).includes(first) && (await call('list_flows')).includes(flowId),
+    );
+    rmSync(away, {recursive: true, force: true});
 
     // The console: what the app did outside any one run, this session's and a day's.
     check(
@@ -646,7 +570,7 @@ async function main(): Promise<void> {
 
     const missing = await client.callTool({name: 'get_flow', arguments: {flowId: 'gone'}});
     check('a missing flow comes back as a readable error', missing.isError === true);
-    check('and asking after it leaves no folder behind', !existsSync(join(workspace, 'workspace', 'flows', 'gone')));
+    check('and asking after it leaves no file behind', !existsSync(join(root, 'flows', 'gone.json')));
 
     await client.close();
     control.stop();

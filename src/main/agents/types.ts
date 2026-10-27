@@ -28,7 +28,7 @@ export interface AgentRunRequest {
      * at once as `unavailable` for the next model to take.
      */
     waitOutLimit?: boolean;
-    /** The run's working directory. Must be the flow's directory, so its `.claude/skills` is discoverable. */
+    /** The run's working directory: the open workspace's folder. */
     cwd: string;
     /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
     additionalDirectories?: string[];
@@ -55,7 +55,7 @@ export interface AgentRunRequest {
     repeatableTools?: string[];
     /** When set, the run is constrained to this shape and `structured` is filled. */
     jsonSchema?: Record<string, unknown>;
-    /** Claude Code's setting sources: `project` is what makes `cwd`'s `.claude/skills` discoverable. */
+    /** Claude Code's setting sources. None by default: a workspace's own Claude Code settings are not a step's. */
     settingSources?: ('user' | 'project' | 'local')[];
     signal?: AbortSignal;
 

@@ -581,6 +581,33 @@ button.wide {
     margin-top: 2px;
 }
 
+/* A skill's description: enough to recognise it by, the rest on hover. */
+.flow-row .meta.desc {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: var(--text);
+    line-height: 1.45;
+}
+
+/* A skill ticked but not in the workspace: nothing to open, only to read. */
+.flow-row.missing {
+    cursor: default;
+    border-style: dashed;
+}
+
+.flow-row.missing:hover {
+    border-color: var(--err-line);
+}
+
+/* How many each list holds, beside its name in the switch between them. */
+.welcome-head .segmented .count {
+    margin-left: 4px;
+    color: var(--dim);
+    font-weight: 500;
+}
+
 /* The project folder, in two parts so a long path loses its parent folders first. */
 .flow-row .where {
     flex: none;
@@ -900,14 +927,6 @@ button.wide {
     line-height: 1.55;
 }
 
-/* A heading between two groups on one page. */
-.set-subhead {
-    margin: 22px 2px 8px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-}
-
 .set-page .set-label .mono {
     font-family: var(--mono);
     font-size: 12px;
@@ -915,10 +934,6 @@ button.wide {
 
 .set-page .set-label .path {
     overflow-wrap: anywhere;
-}
-
-.set-warn {
-    color: var(--err);
 }
 
 /* The agents, a card each, in the order their models are listed. */
@@ -1044,10 +1059,6 @@ button.wide {
     display: flex;
     gap: 8px;
     margin-top: 10px;
-}
-
-.set-page .set-message {
-    margin: 12px 0 0;
 }
 
 /* One MCP server: its name on top, what starts it underneath. */
@@ -1383,12 +1394,6 @@ button.wide {
     background: var(--panel-2);
     padding: 4px 6px 4px 8px;
     margin-bottom: 8px;
-}
-
-/* The library a dragged skill would land in. */
-.pick-group.drop-on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
 }
 
 .pick-group-head {

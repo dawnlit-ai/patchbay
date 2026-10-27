@@ -1,21 +1,25 @@
 import { app } from 'electron';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { readJson, writeJson } from './store/jsonFile';
+import { toFolderName } from '@shared/naming';
 
 /**
- * Everything lives under one workspace directory, except flow files opened from
- * elsewhere, which stay where they are. A flow's directory is the Agent SDK `cwd`
- * its `.claude/skills` are found from.
+ * Two roots. The app's own data — settings, runs, logs, watermarks — lives under
+ * userData. A workspace is a folder of the user's: its flows in `flows/`, the
+ * skills they share in `skills/`, and it is the directory every run of them
+ * works in. One is open at a time.
  */
-let root: string | null = null;
+let data: string | null = null;
 
-export function workspaceRoot(): string {
-    if (!root) {
-        root = join(app.getPath('userData'), 'workspace');
-        mkdirSync(root, {recursive: true});
+/** Called `workspace` on disk, from before a workspace was a folder of the user's own. */
+export function dataRoot(): string {
+    if (!data) {
+        data = join(app.getPath('userData'), 'workspace');
+        mkdirSync(data, {recursive: true});
     }
-    return root;
+    return data;
 }
 
 function ensureAt(path: string): string {
@@ -24,137 +28,163 @@ function ensureAt(path: string): string {
 }
 
 function ensure(...segments: string[]): string {
-    return ensureAt(join(workspaceRoot(), ...segments));
+    return ensureAt(join(dataRoot(), ...segments));
 }
 
 export const isSafeSegment = (name: string): boolean => /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
 
-/** Refuses a name that could climb out of the workspace: these come from the renderer and can reach `rm -r`. */
+/** Refuses a name that could climb out of its folder: these come from the renderer and can reach `rm`. */
 function safeSegment(name: string): string {
-    if (!isSafeSegment(name)) throw new Error(`"${name}" is not a usable folder name.`);
+    if (!isSafeSegment(name)) throw new Error(`"${name}" is not a usable file name.`);
     return name;
 }
 
-/** The global library, in plugin layout (manifest beside `skills/`) so runs can load it from outside their cwd. */
-export const globalPluginDir = (): string => ensure('global');
-export const globalSkillsDir = (): string => ensure('global', 'skills');
-
-export const flowsDir = (): string => ensure('flows');
-
-/** A flow's directory holds its graph under this name, whatever it is called. */
-export const FLOW_FILE = 'flow.json';
-
 /** Two of the three filesystems we run on ignore case. */
+const folded = (path: string): string => (process.platform === 'linux' ? resolve(path) : resolve(path).toLowerCase());
+
 export function samePath(a: string, b: string): boolean {
-    const fold = (path: string): string => (process.platform === 'linux' ? resolve(path) : resolve(path).toLowerCase());
-    return fold(a) === fold(b);
+    return folded(a) === folded(b);
 }
 
-export interface FlowHome {
-    /** The flow's file. Its directory is the flow's directory. */
-    file: string;
-    /** Opened from elsewhere on disk. Its directory is the user's: the app never renames or deletes it. */
-    inPlace: boolean;
+// ── Which workspace is open ──────────────────────────────────────────────
+
+/** The workspace open now, those opened before (last first), and where New workspace last made one. */
+export interface WorkspaceState {
+    current: string;
+    recent: string[];
+    location: string;
 }
+
+const workspacesFile = (): string => join(dataRoot(), 'workspaces.json');
+
+let state: WorkspaceState | null = null;
+
+export function workspaceState(): WorkspaceState {
+    if (state) return state;
+    const raw = readJson<Partial<Record<keyof WorkspaceState, unknown>>>(workspacesFile(), {});
+    const recent = Array.isArray(raw.recent) ? raw.recent : [];
+    state = {
+        current: typeof raw.current === 'string' ? raw.current : '',
+        recent: recent.filter((path): path is string => typeof path === 'string'),
+        location: typeof raw.location === 'string' ? raw.location : '',
+    };
+    return state;
+}
+
+export function setWorkspaceState(next: WorkspaceState): void {
+    state = next;
+    writeJson(workspacesFile(), next);
+    forgetFlowHomes();
+}
+
+export function isFolder(path: string): boolean {
+    try {
+        return statSync(path).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+/** The open workspace's folder, or null when none is open or its folder has gone. */
+export function currentWorkspace(): string | null {
+    const {current} = workspaceState();
+    return current && isFolder(current) ? current : null;
+}
+
+/** The open workspace's folder. Everything that reads or writes flows and skills goes through here. */
+export function workspaceRoot(): string {
+    const root = currentWorkspace();
+    if (!root) throw new Error('No workspace is open. Open or create one from the start window.');
+    return root;
+}
+
+/** Where the workspace's flow files are. Does not create it: for reading. */
+export const flowsDirAt = (): string => join(workspaceRoot(), 'flows');
+/** That folder, made if missing, for writing. */
+export const flowsDir = (): string => ensureAt(flowsDirAt());
+/** Where the workspace's `<name>/SKILL.md` folders are. Does not create it: for reading. */
+export const skillsDirAt = (): string => join(workspaceRoot(), 'skills');
+export const skillsDir = (): string => ensureAt(skillsDirAt());
+
+// ── Where each flow is ───────────────────────────────────────────────────
 
 /**
- * Flow id → its file. The user can rename a directory or move a file, so neither
- * can be the id. Rebuilt on a miss, and dropped by whatever moves a flow.
+ * Flow id → its file. The user can rename or copy a file, so its name cannot be
+ * the id. Rebuilt on a miss, and dropped by whatever adds, renames or removes one.
  */
-let homes: Map<string, FlowHome> | null = null;
+let homes: Map<string, string> | null = null;
 
 function readId(file: string): string | null {
     try {
-        const id = (JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown }).id;
-        // An id names a folder when its file goes missing, so it has to be fit to.
-        return typeof id === 'string' && isSafeSegment(id) ? id : null;
+        const raw = JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown; nodes?: unknown };
+        // An id names a file when its own goes missing, so it has to be fit to.
+        return typeof raw.id === 'string' && isSafeSegment(raw.id) && Array.isArray(raw.nodes) ? raw.id : null;
     } catch {
-        // Not a flow file, or not readable — a drive unplugged, say. Nothing here can fix either.
+        // Not a flow file, or not readable. Nothing here can fix either.
         return null;
     }
 }
 
-function scanHomes(): Map<string, FlowHome> {
-    const dir = flowsDir();
-    const found = new Map<string, FlowHome>();
-    // A copied file carries the same id; the first one found wins.
-    const add = (file: string, inPlace: boolean): void => {
-        const id = readId(file);
-        if (id !== null && !found.has(id)) found.set(id, {file, inPlace});
-    };
-    for (const entry of readdirSync(dir, {withFileTypes: true})) {
-        if (entry.isDirectory()) add(join(dir, entry.name, FLOW_FILE), false);
+function scanHomes(): Map<string, string> {
+    const found = new Map<string, string>();
+    const root = currentWorkspace();
+    if (!root) return found;
+    const dir = join(root, 'flows');
+    let names: string[];
+    try {
+        names = readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.json')).sort();
+    } catch {
+        return found;
     }
-    for (const file of openedFlowFiles()) add(file, true);
+    for (const name of names) {
+        const file = join(dir, name);
+        const id = readId(file);
+        // A copied file carries the same id; the first one found wins.
+        if (id !== null && !found.has(id)) found.set(id, file);
+    }
     return found;
 }
 
-/** Every flow there is, read from disk afresh. */
-export function flowHomes(): Map<string, FlowHome> {
+/** Every flow in the open workspace, read from disk afresh. */
+export function flowHomes(): Map<string, string> {
     homes = scanHomes();
     return homes;
 }
 
 /** Where a flow's file is. The cache is checked against disk, since the user can move files too. */
-export function flowHome(flowId: string): FlowHome {
+export function flowFile(flowId: string): string {
     const cached = homes?.get(flowId);
-    if (cached && existsSync(cached.file)) return cached;
-    // An id with no file is one about to be given one — a flow mid-creation, or a
-    // test run built in memory. Its own id names a directory in the workspace.
-    return flowHomes().get(flowId) ?? {file: join(flowDirAt(flowId), FLOW_FILE), inPlace: false};
+    if (cached && existsSync(cached)) return cached;
+    // An id with no file is one about to be given one, such as a test run's flow
+    // built in memory. Its own id names the file.
+    return flowHomes().get(flowId) ?? join(flowsDirAt(), `${safeSegment(flowId)}.json`);
 }
 
-/** Called by whatever creates, renames or removes a flow directory. */
+/** Called by whatever creates, renames or removes a flow file. */
 export function forgetFlowHomes(): void {
     homes = null;
 }
 
-/** Flow files opened from elsewhere, newest first: listed and saved where they are, never copied in. */
-const openedFile = (): string => join(workspaceRoot(), 'opened-flows.json');
+/** Where a flow file of that name would sit in the workspace. Does not create it. */
+export const flowFileNamed = (name: string): string => join(flowsDirAt(), `${safeSegment(name)}.json`);
 
-export function openedFlowFiles(): string[] {
-    const list = readJson<unknown>(openedFile(), []);
-    return Array.isArray(list) ? list.filter((file): file is string => typeof file === 'string') : [];
-}
+// ── The app's own data ───────────────────────────────────────────────────
 
-export function setOpenedFlowFiles(files: string[]): void {
-    writeJson(openedFile(), files);
-    forgetFlowHomes();
-}
-
-/** The skill libraries of flows opened in place, which `flows` does not hold. From the cache when there is one. */
-export function openedFlowSkillDirs(): string[] {
-    homes ??= scanHomes();
-    return [...homes.values()]
-        .filter((home) => home.inPlace)
-        .map((home) => join(dirname(home.file), '.claude', 'skills'));
-}
-
-/** Where a directory of that name would sit in the workspace. Does not create it. */
-export const flowDirAt = (folder: string): string => join(flowsDir(), safeSegment(folder));
-
-/** That directory, made if it is not there yet. */
-export const flowDirNamed = (folder: string): string => ensureAt(flowDirAt(folder));
-
-/** Makes a workspace flow's directory. One opened in place is not the app's to make, even when it has gone. */
-function made(home: FlowHome): FlowHome {
-    if (!home.inPlace) ensureAt(dirname(home.file));
-    return home;
-}
-
-/** A flow's directory, created if missing: it is its runs' cwd, which the Agent SDK needs to exist. */
-export const flowDir = (flowId: string): string => dirname(made(flowHome(flowId)).file);
-export const flowFile = (flowId: string): string => made(flowHome(flowId)).file;
-/** Where one flow's SKILL.md folders would sit. Does not create it: for reading. */
-export const flowSkillsDirAt = (flowId: string): string =>
-    join(dirname(flowHome(flowId).file), '.claude', 'skills');
-/** Where one flow's SKILL.md folders live. The Agent SDK discovers them from here. */
-export const flowSkillsDir = (flowId: string): string => ensureAt(flowSkillsDirAt(flowId));
-export const runsDir = (): string => ensure('runs');
+/**
+ * Each workspace's runs are kept apart, in a folder named for it, so the runs
+ * panel shows the open one's. They stay in the app's data rather than the
+ * workspace: a trace holds the mail it handled, and a workspace may be a git
+ * repository.
+ */
+export const runsDir = (): string => {
+    const root = workspaceRoot();
+    const tag = createHash('sha256').update(folded(root)).digest('hex').slice(0, 8);
+    return ensure('runs', `${toFolderName(basename(root), 'workspace')}-${tag}`);
+};
 /** Per-run scratch space — saved attachments, files a skill writes. */
-export const runScratchDir = (runId: string): string => ensure('runs', safeSegment(runId) + '.files');
-export const settingsFile = (): string => join(workspaceRoot(), 'settings.json');
-export const watermarkFile = (): string => join(workspaceRoot(), 'watermarks.json');
+export const runScratchDir = (runId: string): string => ensureAt(join(runsDir(), safeSegment(runId) + '.files'));
+export const settingsFile = (): string => join(dataRoot(), 'settings.json');
+export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
 /** The console's files, one JSONL per day. */
 export const logsDir = (): string => ensure('logs');
