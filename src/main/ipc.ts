@@ -8,13 +8,14 @@ import {
     type WorkspaceChange,
     type WorkspaceInfo,
 } from '@shared/ipc';
-import { type Flow, type MailScope, triggerConfig } from '@shared/flow';
+import { type Flow, type JsonSchema, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, Settings } from '@shared/settings';
 import * as flowStore from './store/flowStore';
+import * as schemaStore from './store/schemaStore';
 import * as skillStore from './store/skillStore';
 import * as workspaceStore from './store/workspaceStore';
-import { rewatch, watchSkills } from './store/skillWatch';
+import { rewatch, watchFolders } from './store/folderWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
 import * as outlook from './outlook/bridge';
@@ -110,7 +111,7 @@ function handleWrite<T extends unknown[], R>(
 
 /** A write that changes which flows exist or where one lives. */
 function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
-    handleWrite({flows: true, skills: false}, channel, fn);
+    handleWrite({flows: true, skills: false, schemas: false}, channel, fn);
 }
 
 /**
@@ -133,7 +134,7 @@ function switchWorkspace(path: string | null, open: () => WorkspaceInfo): Worksp
     watcher.stopAll();
     closeCanvases();
     rewatch();
-    broadcast(IPC.evtWorkspaceChanged, {flows: true, skills: true});
+    broadcast(IPC.evtWorkspaceChanged, {flows: true, skills: true, schemas: true});
     return opened;
 }
 
@@ -307,9 +308,9 @@ export function registerIpc(): void {
     handle(IPC.agentsStatus, (id: string) => agents.status(id));
     handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));
 
-    // Skills are edited in other apps, so main watches their folders and every
-    // window re-reads its list on a change, whoever made it.
-    watchSkills(() => broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: true}));
+    // Skills and schemas are edited in other apps, so main watches their folders
+    // and every window re-reads its list on a change, whoever made it.
+    watchFolders((change) => broadcast(IPC.evtWorkspaceChanged, change));
     handle(IPC.skillsList, () => {
         if (!workspaceStore.currentWorkspaceInfo()) return [];
         rewatch();
@@ -335,6 +336,30 @@ export function registerIpc(): void {
         rewatch();
         return result;
     });
+
+    handle(IPC.schemasList, () => {
+        if (!workspaceStore.currentWorkspaceInfo()) return [];
+        rewatch();
+        return schemaStore.listSchemas();
+    });
+    // Other windows hear of these by the folder being watched; it may be new, and
+    // only a folder that is there can be.
+    handle(IPC.schemasCreate, (name: string, schema: JsonSchema) => {
+        const created = schemaStore.createSchema(name, schema);
+        rewatch();
+        return created;
+    });
+    handle(IPC.schemasSave, (name: string, schema: JsonSchema) => {
+        const saved = schemaStore.saveSchema(name, schema);
+        rewatch();
+        return saved;
+    });
+    // These rewrite the flows that name the schema, so every window re-reads its flows too.
+    const schemaAndFlows: WorkspaceChange = {flows: true, skills: false, schemas: true};
+    handleWrite(schemaAndFlows, IPC.schemasRename, (from: string, to: string) => flowStore.renameSchema(from, to));
+    handleWrite(schemaAndFlows, IPC.schemasRemove, (name: string) => flowStore.removeSchema(name));
+    handle(IPC.schemasOpen, (name: string) => openInEditor(schemaStore.locateSchema(name)));
+    handle(IPC.schemasReveal, (name: string) => shell.showItemInFolder(schemaStore.locateSchema(name)));
 
     handle(IPC.engineStart, (flowId: string) => getWatcher().start(flowId));
     handle(IPC.engineStop, (flowId: string) => getWatcher().stop(flowId));

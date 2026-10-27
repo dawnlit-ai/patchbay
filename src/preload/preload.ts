@@ -89,6 +89,15 @@ const api: Api = {
         remove: (name) => call(IPC.skillsRemove, name),
         pickAndImport: () => call(IPC.skillsPickAndImport),
     },
+    schemas: {
+        list: () => call(IPC.schemasList),
+        create: (name, schema) => call(IPC.schemasCreate, name, schema),
+        save: (name, schema) => call(IPC.schemasSave, name, schema),
+        rename: (from, to) => call(IPC.schemasRename, from, to),
+        remove: (name) => call(IPC.schemasRemove, name),
+        open: (name) => call(IPC.schemasOpen, name),
+        reveal: (name) => call(IPC.schemasReveal, name),
+    },
     engine: {
         start: (flowId) => call(IPC.engineStart, flowId),
         stop: (flowId) => call(IPC.engineStop, flowId),

@@ -591,6 +591,53 @@ button.wide {
     line-height: 1.45;
 }
 
+/* A schema's fields by name, to know it by without picking it. */
+.flow-row .meta.fields {
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The picked schema's fields in full: a name, a type and a description each. */
+.schema-fields {
+    display: grid;
+    grid-template-columns: max-content max-content 1fr;
+    gap: 5px 14px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.schema-fields.empty-fields {
+    display: block;
+    color: var(--muted);
+}
+
+/* One row of the grid: its three cells sit in the columns above. */
+.schema-field {
+    display: contents;
+}
+
+.schema-field .name {
+    font-family: var(--mono);
+    font-size: 11.5px;
+}
+
+.schema-field .type {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+.schema-field .optional,
+.schema-field .desc {
+    color: var(--muted);
+}
+
 /* A skill ticked but not in the workspace: nothing to open, only to read. */
 .flow-row.missing {
     cursor: default;
@@ -1761,6 +1808,189 @@ button.wide {
 /* The schema picker, over the schema it shows. */
 .schema-pick {
     margin-bottom: 6px;
+}
+
+/* ── Schema editor ──────────────────────────────────────────────────────── */
+/* A schema as a list of field cards, with its JSON a click away. Narrow enough
+   for the inspector, and the same in the start window's dialog. */
+
+.schema-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 11px;
+}
+
+.schema-editor > .segmented {
+    align-self: flex-start;
+}
+
+/* Words to read rather than code: the body font, growing with what is written. */
+.schema-editor textarea.prose {
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.45;
+    resize: none;
+    field-sizing: content;
+    min-height: 32px;
+    max-height: 160px;
+}
+
+.schema-editor .field {
+    margin-bottom: 0;
+}
+
+.field-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    /* Its own width decides its layout: the inspector is narrow, the dialog wide. */
+    container-type: inline-size;
+}
+
+.field-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.field-head .field-name {
+    flex: 1 1 120px;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.field-head .field-kind {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 160px;
+}
+
+.field-head .of {
+    color: var(--dim);
+    font-size: 11.5px;
+}
+
+.field-tools {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.field-tools button.icon {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    font-size: 12px;
+}
+
+/* Narrow, as in the inspector: the name and its buttons on one line, what it holds on the next. */
+@container (max-width: 560px) {
+    .field-head .field-name {
+        flex-basis: calc(100% - 100px);
+    }
+
+    .field-head .field-tools {
+        order: 1;
+    }
+
+    .field-head .field-kind,
+    .field-head .of {
+        order: 2;
+    }
+}
+
+.field-tools button.remove:hover:not(:disabled) {
+    color: var(--err);
+    background: var(--err-bg);
+}
+
+.hint.err {
+    color: var(--err);
+    margin-top: 0;
+}
+
+.field-card .choices {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.field-card .choices > span {
+    color: var(--muted);
+    font-size: 11.5px;
+}
+
+.field-card .choices input {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.field-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.field-foot .check {
+    margin-bottom: 0;
+    font-size: 12px;
+}
+
+.field-foot button.compact {
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+/* A group's own fields, set in under the field that holds them. */
+.field-nested {
+    padding-left: 10px;
+    border-left: 2px solid var(--line);
+}
+
+.field-card .field-card {
+    background: var(--panel-2);
+}
+
+button.add-field {
+    align-self: flex-start;
+    color: var(--muted);
+    border-style: dashed;
+    background: transparent;
+}
+
+button.add-field:hover:not(:disabled) {
+    color: var(--text);
+}
+
+/* The picked schema's own buttons, under its fields in the Schemas tab. */
+.flow-row .row-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+/* A line of text in a dialog's footer, beside the buttons it explains. */
+.modal footer .footer-note {
+    align-self: center;
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+.modal .err-banner {
+    margin-bottom: 12px;
 }
 
 /* Pushes whatever follows it to the far end of a flex bar. */

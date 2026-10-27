@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
 
 /** Not the default port: a check should not fight the app if it is running. */
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
     const {createSkill, listSkills, locateSkill, missingSkills, workspaceSkillPlugin} = await import(
         '../src/main/store/skillStore'
         );
-    const {stopWatchingSkills, watchSkills} = await import('../src/main/store/skillWatch');
+    const {stopWatchingFolders, watchFolders} = await import('../src/main/store/folderWatch');
     const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
 
     console.log('app data:', data);
@@ -229,6 +230,130 @@ async function main(): Promise<void> {
     });
     check('an edge left hanging is dropped and reported', dropped.includes('"droppedEdges": 1'));
 
+    // A schema named once is the workspace's: a file in its schemas folder, which a
+    // node in any flow can pick, and which a rename or a delete carries through
+    // every flow naming it.
+    const schemaFile = (name: string): string => join(root, 'schemas', `${name}.json`);
+    const fileOf = async (id: string): Promise<string> =>
+        readFileSync(
+            (JSON.parse(await call('list_flows')) as {
+                id: string;
+                file: string
+            }[]).find((f) => f.id === id)?.file ?? '',
+            'utf8',
+        );
+    const settingsShape = {type: 'object', properties: {output_dir: {type: 'string'}}, required: ['output_dir']};
+    await call('set_schema', {name: 'Settings', schema: settingsShape});
+    await call('set_schema', {
+        name: 'Shipment',
+        schema: {
+            type: 'object',
+            properties: {bl_no: {type: 'string'}, settings: {$ref: '#/schemas/Settings', description: 'Its own.'}},
+            required: ['bl_no', 'settings'],
+        },
+    });
+    check(
+        'a named schema is a file in the workspace’s schemas folder',
+        existsSync(schemaFile('Settings')) && existsSync(schemaFile('Shipment')),
+    );
+    const shipmentRef = {$ref: '#/schemas/Shipment'};
+    await call('update_node', {flowId, nodeId: puller, config: {schema: shipmentRef}});
+    const sharer = (JSON.parse(await call('create_flow', {name: 'Shares a schema'})) as { id: string }).id;
+    const secondIn = (JSON.parse(await call('add_node', {flowId: sharer, kind: 'trigger.outlook'})) as {
+        id: string
+    }).id;
+    const secondPuller = (JSON.parse(await call('add_node', {flowId: sharer, kind: 'extractor'})) as { id: string }).id;
+    await call('update_node', {flowId: sharer, nodeId: secondPuller, config: {schema: shipmentRef}});
+    await call('connect', {flowId: sharer, from: secondIn, port: 'out', to: secondPuller});
+    const usedBy = (listing: string, name: string): number | undefined =>
+        (JSON.parse(listing) as { name: string; usedBy: unknown[] }[]).find((s) => s.name === name)?.usedBy.length;
+    const listing = await call('list_schemas');
+    check(
+        'a node in any flow can use one, and through it the schemas it holds',
+        usedBy(listing, 'Shipment') === 2 && usedBy(listing, 'Settings') === 2,
+    );
+    check('and the flow is fine with it', !(await call('get_flow', {flowId: sharer})).includes('cannot be used'));
+    const caseOnly = await client.callTool({name: 'set_schema', arguments: {name: 'shipment', schema: settingsShape}});
+    check('a name that differs only in case is refused', caseOnly.isError === true);
+    await call('rename_schema', {name: 'Settings', to: 'Config'});
+    check(
+        'renaming one renames its file, and the schemas holding it follow',
+        !existsSync(schemaFile('Settings')) && readFileSync(schemaFile('Shipment'), 'utf8').includes('#/schemas/Config'),
+    );
+    await call('rename_schema', {name: 'Shipment', to: 'Cargo'});
+    check(
+        'and so does every flow naming it',
+        (await fileOf(flowId)).includes('#/schemas/Cargo') &&
+        (await fileOf(sharer)).includes('#/schemas/Cargo') &&
+        !(await fileOf(sharer)).includes('#/schemas/Shipment'),
+    );
+    await call('delete_schema', {name: 'Config'});
+    const cargo = readFileSync(schemaFile('Cargo'), 'utf8');
+    check(
+        'deleting one gives each schema that held it a copy, its own description kept',
+        !existsSync(schemaFile('Config')) && cargo.includes('output_dir') && cargo.includes('Its own.') && !cargo.includes('$ref'),
+    );
+    await call('delete_schema', {name: 'Cargo'});
+    check(
+        'and each flow that used it a copy too',
+        (await fileOf(sharer)).includes('"bl_no"') && !(await fileOf(sharer)).includes('$ref') && !(await fileOf(flowId)).includes('$ref'),
+    );
+    await call('update_node', {flowId: sharer, nodeId: secondPuller, config: {schema: {$ref: '#/schemas/Nope'}}});
+    check(
+        'a node naming a schema the workspace lacks is flagged',
+        (await call('get_flow', {flowId: sharer})).includes('the workspace has no schema \\"Nope\\"'),
+    );
+    await call('delete_flow', {flowId: sharer});
+
+    // A flow file from before schemas were the workspace's keeps them inside it.
+    // Opening the workspace moves them into its folder: one the folder has, the same
+    // to the letter, stays as it is; one whose name the folder gives another comes
+    // in under a free name, and what named it follows.
+    await call('set_schema', {name: 'Kept', schema: settingsShape});
+    await call('set_schema', {name: 'Clash', schema: {type: 'object', properties: {mine: {type: 'string'}}}});
+    const kept = readFileSync(schemaFile('Kept'), 'utf8');
+    const before = join(root, 'flows', 'from-before.json');
+    writeFileSync(
+        before,
+        JSON.stringify({
+            id: 'from-before',
+            name: 'From before',
+            nodes: [
+                {
+                    id: 'pull',
+                    kind: 'extractor',
+                    name: 'Pull',
+                    position: {x: 0, y: 0},
+                    config: {output: 'pulled', schema: {$ref: '#/schemas/Clash'}},
+                },
+            ],
+            edges: [],
+            schemas: {
+                Kept: settingsShape,
+                Clash: {type: 'object', properties: {theirs: {type: 'string'}}},
+                Holder: {type: 'object', properties: {held: {$ref: '#/schemas/Clash'}}},
+            },
+        }),
+    );
+    openWorkspace(root);
+    const after = readFileSync(before, 'utf8');
+    check(
+        'opening the workspace moves the schemas a flow file kept into the schemas folder',
+        !after.includes('"schemas"') && existsSync(schemaFile('Holder')),
+    );
+    check(
+        'one the folder has already stays as it is',
+        readFileSync(schemaFile('Kept'), 'utf8') === kept && !existsSync(schemaFile('Kept2')),
+    );
+    check(
+        'one clashing with the folder’s comes in under a free name, and what named it follows',
+        readFileSync(schemaFile('Clash'), 'utf8').includes('mine') &&
+        readFileSync(schemaFile('Clash2'), 'utf8').includes('theirs') &&
+        after.includes('#/schemas/Clash2') &&
+        readFileSync(schemaFile('Holder'), 'utf8').includes('#/schemas/Clash2'),
+    );
+    await call('delete_flow', {flowId: 'from-before'});
+
     await call('write_skill', {
         name: 'check-skill',
         content: '---\nname: check-skill\ndescription: A skill written over MCP.\n---\n\nDo the thing.\n',
@@ -320,8 +445,10 @@ async function main(): Promise<void> {
     // is watched, but not the rest of the workspace, and what went is refused by
     // name, not failed on.
     let heard = 0;
-    watchSkills(() => {
+    let lastHeard: WorkspaceChange | null = null;
+    watchFolders((change) => {
         heard += 1;
+        lastHeard = change;
     });
     const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
     const heardAfter = async (act: () => void): Promise<boolean> => {
@@ -345,7 +472,13 @@ async function main(): Promise<void> {
         'a skill deleted in the library is heard',
         await heardAfter(() => rmSync(join(root, 'skills', 'check-skill'), {recursive: true})),
     );
-    stopWatchingSkills();
+    // So are schemas, and what is heard says which.
+    check(
+        'a schema saved in its folder is heard, as a schema',
+        (await heardAfter(() => writeFileSync(schemaFile('Kept'), JSON.stringify({type: 'object', properties: {}})))) &&
+        (lastHeard as WorkspaceChange | null)?.schemas === true,
+    );
+    stopWatchingFolders();
     let refusedByName = '';
     try {
         locateSkill('check-skill');
@@ -475,6 +608,7 @@ async function main(): Promise<void> {
             name: 'Sent over',
             nodes: [],
             edges: [],
+            schemas: {Carried: settingsShape},
             skills: [
                 {name: 'carried', content: '---\nname: carried\ndescription: Came in the file.\n---\n'},
                 {name: 'alpha', content: '---\nname: alpha\ndescription: Would replace.\n---\n'},
@@ -493,6 +627,10 @@ async function main(): Promise<void> {
     check(
         'importing it again is another flow, in a file numbered past the first',
         importFlowFile(sent).id !== brought.id && existsSync(join(root, 'flows', 'sent-over-2.json')),
+    );
+    check(
+        'and the schemas it carries into the schemas folder, once',
+        existsSync(schemaFile('Carried')) && !existsSync(schemaFile('Carried2')) && !readFileSync(sentOver, 'utf8').includes('"schemas"'),
     );
     const withId = join(elsewhere, 'with-id.json');
     copyFileSync(sentOver, withId);
@@ -536,9 +674,10 @@ async function main(): Promise<void> {
     const away = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-away-'));
     openWorkspace(away);
     check(
-        'another workspace lists only its own flows and skills',
+        'another workspace lists only its own flows, skills and schemas',
         (JSON.parse(await call('list_flows')) as unknown[]).length === 0 &&
-        (JSON.parse(await call('list_skills')) as unknown[]).length === 0,
+        (JSON.parse(await call('list_skills')) as unknown[]).length === 0 &&
+        (JSON.parse(await call('list_schemas')) as unknown[]).length === 0,
     );
     check('and only its own runs', !(await call('list_runs', {limit: 50})).includes(first));
     check('a run there gets no skills: none come from the other workspace, or from anywhere else', workspaceSkillPlugin() === null);

@@ -14,7 +14,17 @@ import {
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { getSkill, isValidSkillName, saveSkill } from './skillStore';
-import { emptyFlow, type Flow, parseFlow } from '@shared/flow';
+import { adoptSchemas, findSchema, removeSchemaFile, renameSchemaFile } from './schemaStore';
+import {
+    editSchemas,
+    emptyFlow,
+    type Flow,
+    inlineSchema,
+    type JsonSchema,
+    parseFlow,
+    parseSchemas,
+    repointSchema,
+} from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 
@@ -188,6 +198,56 @@ export function removeFlow(id: string): void {
     }
 }
 
+// ── Named schemas ────────────────────────────────────────────────────────
+// The workspace's, a file each in its `schemas` folder, and named from any
+// flow's nodes, so renaming or deleting one rewrites the flows that name it.
+
+/** Each flow whose nodes `edit` changes, saved with the change. */
+function editFlowSchemas(edit: (schema: JsonSchema) => JsonSchema): void {
+    for (const flow of listFlows()) {
+        const next = editSchemas(flow, edit);
+        if (JSON.stringify(next.nodes) !== JSON.stringify(flow.nodes)) saveFlow(next);
+    }
+}
+
+/** Rename a schema, and every reference to it, in the workspace's flows and its other schemas. */
+export function renameSchema(from: string, to: string): void {
+    // First, since it is the half that refuses: a name taken, or the schema gone.
+    renameSchemaFile(from, to);
+    if (to !== from) editFlowSchemas((schema) => repointSchema(schema, from, to));
+}
+
+/**
+ * Delete a schema. Each node and schema that used it is given a copy of it as
+ * its own, so nothing that used it breaks; they just no longer share it.
+ */
+export function removeSchema(name: string): void {
+    const {schema} = findSchema(name);
+    // The flows first: should one fail to save, the schema it names is still there.
+    if (schema) editFlowSchemas((own) => inlineSchema(own, name, schema));
+    removeSchemaFile(name);
+}
+
+/**
+ * Named schemas used to be kept in each flow's file, under `schemas`. Move any a
+ * file still carries into the workspace's folder, and take the key out of it. One
+ * whose name the folder gives another schema comes in under a free name, and the
+ * file's references follow it.
+ */
+function adoptSchemasIn(file: string): void {
+    const raw = readJson<unknown>(file, null);
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || !('schemas' in raw)) return;
+    const {schemas, ...rest} = raw as Record<string, unknown>;
+    let next: Record<string, unknown> = rest;
+    for (const [from, to] of adoptSchemas(parseSchemas(schemas))) next = repointSchema(next, from, to);
+    writeJson(file, next);
+}
+
+/** Bring every flow file in the workspace up to schemas kept in their own folder. Done as a workspace opens. */
+export function adoptFlowSchemas(): void {
+    for (const file of flowHomes().values()) adoptSchemasIn(file);
+}
+
 // ── Flow files from elsewhere ────────────────────────────────────────────
 
 /** What a flow file may carry beside the graph, so it can be run elsewhere. */
@@ -211,7 +271,9 @@ function bundledSkills(raw: unknown): BundledSkill[] {
  * Copy a flow file into the workspace, as a file of its own named after the
  * flow. One already in the workspace's `flows` is just read. The id inside is
  * kept unless a flow here already has it — then this is a copy, and gets one of
- * its own. Skills it carries go into the library, never over one already there.
+ * its own. Skills it carries go into the library, never over one already there,
+ * and schemas into the schemas folder, under a name of their own when the
+ * workspace has a different one by theirs.
  */
 export function importFlowFile(path: string): Flow {
     const file = resolve(path);
@@ -241,13 +303,17 @@ export function importFlowFile(path: string): Flow {
         // another flow's file. It stays where it is, with an id of its own.
         const updatedAt = typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString();
         writeJson(file, {...fields, id, name, updatedAt});
+        adoptSchemasIn(file);
         forgetFlowHomes();
         flow = getFlow(id);
         if (!flow) throw new Error(`${label} could not be read back after opening it.`);
     } else {
-        // Repaired on the way in, and without the skills it carried: those go into the library.
-        const {skills: _, ...rest} = fields;
-        flow = createIn(parseFlow({...rest, id, name}, id, name));
+        // Repaired on the way in, and without the skills and schemas it carried: those
+        // go into the workspace's folders, and its references follow any renamed there.
+        const {skills: _, schemas, ...rest} = fields;
+        let graph: Record<string, unknown> = {...rest, id, name};
+        for (const [from, to] of adoptSchemas(parseSchemas(schemas))) graph = repointSchema(graph, from, to);
+        flow = createIn(parseFlow(graph, id, name));
     }
     for (const skill of bundledSkills(raw)) {
         // Never over a skill already there: other flows in the workspace use it.

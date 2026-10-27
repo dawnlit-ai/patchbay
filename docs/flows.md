@@ -58,51 +58,80 @@ and the flow cannot be watched until that is fixed. A test run of such a flow st
 
 ### Named schemas
 
-A slot's schema can be one the node keeps to itself, or one **named** for the whole flow, such as `Shipment`, which
-any Extractor or Processor in it can pick. Every node that picks it fills the same shape, and its port and chips name
-the slot's type `Shipment` rather than `JSON · 9 fields`.
+A slot's schema can be one the node keeps to itself, or one **named** for the whole workspace, such as `Shipment`,
+which any Extractor or Processor in any of its flows can pick. Every node that picks it fills the same shape, and its
+port and chips name the slot's type `Shipment` rather than `JSON · 9 fields`.
 
-The inspector's *Schema* picker offers *This node's own* and each named schema. **New…** names what the node has now
-and switches the node to it. On a named schema, the JSON below it is the shared one, so an edit changes it for every
-node that uses it. **Rename…** renames it and every reference to it. **Delete…** gives each node that used it a copy of
-its own, so nothing breaks. Leaving a named schema for *This node's own* starts from a copy of it. Picking a named
-schema over one of the node's own replaces it, so the app asks first.
+A schema is edited as a list of **fields**, with no JSON to write. Each field has a name, a kind (*Text*, *One of a
+list*, *Number*, *Whole number*, *Yes / no*, *Group of fields*, *List*, or one of the workspace's named schemas), a
+description, which is what Claude reads to fill it, and *Required*: a step passes only once every required field is
+filled. *＋ Add field* adds one, ↑ ↓ reorder them, ✕ removes one, and a group or a list of groups opens to its own
+fields. *JSON* beside *Fields* shows the same schema as JSON Schema, for anything the form has no control for. A field
+the form cannot show, such as a map from any name to a list, is edited as JSON where it stands. Whatever the form
+leaves alone, such as a list's `minItems`, is kept as it was.
 
-Named schemas live in the flow file, under `schemas`, and a node or a field refers to one as
-`{"$ref": "#/schemas/<name>"}`. So one named schema can be built from others, such as `Shipment` holding a `Settings`:
+The inspector's *Schema* picker offers *This node's own* and each of the workspace's named schemas. **New…** names
+what the node has now and switches the node to it. On a named schema, the fields below it are the shared ones, so an
+edit changes it for every node in every flow that uses it; the hint under it says which. **Rename…** renames it and every
+reference to it, in every flow. **Delete…** gives each node that used it, in any flow, a copy of its own, so nothing
+breaks. Leaving a named schema for *This node's own* starts from a copy of it. Picking a named schema over one of the
+node's own replaces it, so the app asks first.
+
+Named schemas live in the workspace's `schemas` folder, a file each named after it, holding the JSON Schema itself.
+A node or a field refers to one as `{"$ref": "#/schemas/<name>"}`, so one named schema can be built from others, such
+as `Shipment` holding a `Settings`:
 
 ```json
-"schemas": {
-  "Settings": {"type": "object", "properties": {"output_dir": {"type": "string"}}, "required": ["output_dir"]},
-  "Shipment": {
-    "type": "object",
-    "properties": {
-      "bl_no": {"type": "string", "description": "The House B/L number."},
-      "settings": {"$ref": "#/schemas/Settings", "description": "The settings this run works from."}
-    },
-    "required": ["bl_no", "settings"]
-  }
+// schemas/Settings.json
+{"type": "object", "properties": {"output_dir": {"type": "string"}}, "required": ["output_dir"]}
+
+// schemas/Shipment.json
+{
+  "type": "object",
+  "properties": {
+    "bl_no": {"type": "string", "description": "The House B/L number."},
+    "settings": {"$ref": "#/schemas/Settings", "description": "The settings this run works from."}
+  },
+  "required": ["bl_no", "settings"]
 }
 ```
 
-A key beside `$ref`, such as that `description`, wins over the named schema's own. A run fills every reference in
-before the node starts, so Claude only sees the whole schema. A node whose schema names a schema the flow lacks, or
-one that contains itself, is flagged on the canvas and leaves by *Error* if it runs.
+A key beside `$ref`, such as that `description`, wins over the named schema's own. A run reads the schemas as it
+starts and fills every reference in before each node does, so Claude only sees the whole schema. A node whose schema
+names a schema the workspace lacks, or one that contains itself, is flagged on the canvas and leaves by *Error* if it
+runs. A name is letters, digits and `_`, and two that differ only in case are one name, since Windows and macOS would
+keep them in one file.
+
+The app watches the `schemas` folder, so a file saved there in your editor, or brought in by a `git pull`, shows on
+every canvas as it happens. Flow files written before schemas were the workspace's kept theirs inside, under
+`schemas`; opening the workspace moves them into the folder. One the folder already has, the same to the letter, is
+left as it is, and one whose name the folder gives a different schema comes in under a numbered name, such as
+`Shipment2`, with the flow's references following it.
 
 ## Workspaces and flow files
 
-A **workspace** is a folder holding flows, the skills they share, and an optional README:
+A **workspace** is a folder holding flows, the skills and schemas they share, and an optional README:
 
 ```
 <workspace>/
 ├─ flows/<name>.json        one file per flow
 ├─ skills/<name>/SKILL.md   the library every flow here ticks from
+├─ schemas/<name>.json      the named schemas every flow here can pick
 └─ README.md                optional: what the workspace is for
 ```
 
 One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether
 a trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
-lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). Its **README**
+lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). Its **Schemas**
+tab lists the [named schemas](#named-schemas): each one's description, its fields, the flows and nodes that use it, and
+when it was last edited. The one picked shows every field with its kind and description, and **Edit…**,
+**Duplicate…** and **Delete…** under them. **New schema** and **Edit…** (or a double-click) open the schema in a
+dialog with its name and the same field editor as the inspector. Nothing is written until **Save**, renaming it there
+carries every flow along, and a click outside asks before it throws edits away. **Duplicate…** starts a new schema from
+a copy of an old one. Deleting one gives each node that used it a copy of its own, as the inspector does. Right-clicking
+one can also open its file in the app your system gives `.json` files, or show it in its folder; a file the form cannot
+read opens there instead. A schema some node names but the folder no longer holds is listed at the bottom, with
+**Create it…**. Its **README**
 tab shows the `README.md` at the top of the workspace folder — a repository's own README, for a workspace that is one.
 **Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
 with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab
@@ -113,20 +142,21 @@ Switching stops watching every flow and closes every canvas, so it asks first wh
 refused while a run is under way or waiting.
 
 **New workspace** asks for a name and a location — `Documents/Patchbay` the first time — and makes a folder named after
-it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows` and `skills` folders
-are made the first time something is written to them. A workspace is a folder you keep, not a copy the app holds, so
+it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows`, `skills` and
+`schemas` folders are made the first time something is written to them. A workspace is a folder you keep, not a copy the app holds, so
 one kept in git is edited, run and committed from one place.
 
 The workspace's folder is the working directory of every run of its flows. With file access off, a Processor can still
 read the whole of it, so keep anything a step should not read somewhere else.
 
 **New flow** and **Duplicate** ask for a name and save the flow in `flows`, in a file named after it. **Import flow
-file…** copies a flow file somebody sent you into `flows`, with any skills it carries that the workspace does not have.
+file…** copies a flow file somebody sent you into `flows`, with any skills it carries that the workspace does not have,
+and any schemas it carries into `schemas`, as opening the workspace does.
 A flow file put into `flows` by hand is listed too.
 
 A flow's **id** never changes — renaming it, or its file, leaves its runs and the watcher's marks pointing at the same
 flow. Renaming offers to rename the file too, ticked when the file is still the one the app chose. Deleting a flow
-deletes its file; the skills it ticked stay in the workspace.
+deletes its file; the skills and schemas it used stay in the workspace.
 
 Opening a flow while a canvas is up on another asks whether to open it in that window or a second one beside it; a
 flow already open raises its window rather than drawing it twice. Every canvas shows all of the workspace's runs, and

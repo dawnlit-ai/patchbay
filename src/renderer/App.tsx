@@ -1,13 +1,24 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { checkSlots, type Flow, type FlowNode, NODE_KIND_META, NODE_KINDS, triggerConfig, } from '@shared/flow';
+import {
+    checkSlots,
+    type Flow,
+    type FlowNode,
+    type JsonSchema,
+    NODE_KIND_META,
+    NODE_KINDS,
+    type Schemas,
+    schemaUsers,
+    triggerConfig,
+} from '@shared/flow';
+import type { SchemaSummary } from '@shared/ipc';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import type { EngineStatus, SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
-import { Inspector } from './components/Inspector';
+import { Inspector, type SchemaShelf } from './components/Inspector';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
@@ -48,6 +59,10 @@ export function App({initialFlowId}: Props): JSX.Element {
     const [workspaceName, setWorkspaceName] = useState('');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[]>([]);
+    /** The workspace's named schemas, shared by every flow in it. */
+    const [schemaList, setSchemaList] = useState<SchemaSummary[]>([]);
+    /** The workspace's other flows, for saying which of them an edit to a named schema reaches. */
+    const [others, setOthers] = useState<Flow[]>([]);
     const [runs, setRuns] = useState<RunSummary[]>([]);
     const [selectedRun, setSelectedRun] = useState<Run | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
@@ -75,14 +90,35 @@ export function App({initialFlowId}: Props): JSX.Element {
         setSkills(await window.api.skills.list());
     }, []);
 
-    useEffect(() => void refreshSkills(), [refreshSkills]);
-    // Main watches the skills folder and says when it changes; this catches one it
-    // could not watch, such as a folder made since.
+    /** Edits to a named schema not written to its file yet, by name. */
+    const pendingSchemas = useRef(new Map<string, JsonSchema>());
+    const schemaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    /** The workspace's too. An edit not written yet stays on screen over what the file holds. */
+    const refreshSchemas = useCallback(async () => {
+        const list = await window.api.schemas.list();
+        const pending = pendingSchemas.current;
+        setSchemaList(list.map((s) => (pending.has(s.name) ? {
+            ...s,
+            schema: pending.get(s.name)!,
+            problem: undefined
+        } : s)));
+    }, []);
+
     useEffect(() => {
-        const refresh = (): void => void refreshSkills();
+        void refreshSkills();
+        void refreshSchemas();
+    }, [refreshSkills, refreshSchemas]);
+    // Main watches the skills and schemas folders and says when they change; this
+    // catches one it could not watch, such as a folder made since.
+    useEffect(() => {
+        const refresh = (): void => {
+            void refreshSkills();
+            void refreshSchemas();
+        };
         window.addEventListener('focus', refresh);
         return () => window.removeEventListener('focus', refresh);
-    }, [refreshSkills]);
+    }, [refreshSkills, refreshSchemas]);
 
     const refreshRuns = useCallback(() => {
         void window.api.runs.list(100).then(setRuns);
@@ -99,6 +135,7 @@ export function App({initialFlowId}: Props): JSX.Element {
         }
         setFlow(found.flow);
         setFile(found.file);
+        setOthers(entries.flatMap((entry) => (entry.flow.id === wantedId ? [] : [entry.flow])));
     }, []);
 
     // ── Boot ───────────────────────────────────────────────────────────────
@@ -193,10 +230,22 @@ export function App({initialFlowId}: Props): JSX.Element {
         [readFlow, setError],
     );
 
-    /** Write a queued edit now, rather than when its timer says so. */
+    /** Write every edit to a named schema still waiting, now. */
+    const flushSchemas = useCallback(() => {
+        if (schemaTimer.current) clearTimeout(schemaTimer.current);
+        schemaTimer.current = null;
+        const pending = [...pendingSchemas.current];
+        pendingSchemas.current.clear();
+        for (const [name, schema] of pending) {
+            void window.api.schemas.save(name, schema).catch((e: Error) => setError(e.message));
+        }
+    }, [setError]);
+
+    /** Write queued edits — the flow's, and any to a named schema — now, rather than when their timers say so. */
     const flushSave = useCallback(() => {
         if (queued.current) writeFlow(queued.current);
-    }, [writeFlow]);
+        flushSchemas();
+    }, [writeFlow, flushSchemas]);
 
     /** Flush on blur, so another window reading this flow off disk sees what is on the canvas. */
     useEffect(() => {
@@ -212,11 +261,12 @@ export function App({initialFlowId}: Props): JSX.Element {
         () =>
             window.api.on.workspaceChanged((change) => {
                 if (change.skills) void refreshSkills();
+                if (change.schemas) void refreshSchemas();
                 if (!change.flows || !flowId) return;
                 flushSave();
                 void readFlow(flowId);
             }),
-        [flowId, flushSave, readFlow, refreshSkills],
+        [flowId, flushSave, readFlow, refreshSkills, refreshSchemas],
     );
 
     /** The welcome window picked another flow, and this is the window to show it. */
@@ -251,8 +301,25 @@ export function App({initialFlowId}: Props): JSX.Element {
         [flow, selectedNodeId],
     );
 
+    /** The named schemas a node can pick, by name. */
+    const schemas: Schemas = useMemo(
+        () => Object.fromEntries(schemaList.flatMap((s) => (s.schema ? [[s.name, s.schema]] : []))),
+        [schemaList],
+    );
+
+    /** Shown at once, and written once typing pauses, as the flow's own edits are. */
+    const saveSchema = useCallback(
+        (name: string, schema: JsonSchema) => {
+            pendingSchemas.current.set(name, schema);
+            setSchemaList((list) => list.map((s) => (s.name === name ? {...s, schema, problem: undefined} : s)));
+            if (schemaTimer.current) clearTimeout(schemaTimer.current);
+            schemaTimer.current = setTimeout(flushSchemas, 400);
+        },
+        [flushSchemas],
+    );
+
     /** Which slots reach each node, and what falls short — redrawn with every edit. */
-    const slots = useMemo(() => (flow ? checkSlots(flow) : null), [flow]);
+    const slots = useMemo(() => (flow ? checkSlots(flow, schemas) : null), [flow, schemas]);
     /** Each slot's colour, shared by the canvas and the inspector. */
     const tokens = useMemo(() => dataTokens(flow?.nodes ?? []), [flow]);
 
@@ -260,15 +327,6 @@ export function App({initialFlowId}: Props): JSX.Element {
         (node: FlowNode) => {
             if (!flow) return;
             updateFlow({...flow, nodes: flow.nodes.map((n) => (n.id === node.id ? node : n))});
-        },
-        [flow, updateFlow],
-    );
-
-    /** A change reaching past one node, as a named schema's is: made from the flow as it stands. */
-    const editFlow = useCallback(
-        (edit: (current: Flow) => Flow) => {
-            if (!flow) return;
-            updateFlow(edit(flow));
         },
         [flow, updateFlow],
     );
@@ -332,6 +390,29 @@ export function App({initialFlowId}: Props): JSX.Element {
             if (name !== flow.name) setFlow(await window.api.flows.rename(flow.id, name));
             if (fileName !== null) setFile((await window.api.flows.setFileName(flow.id, fileName)).file);
         });
+
+    /** Whether `act` went through. When it did not, the banner says why. */
+    const succeeded = async (act: () => Promise<unknown>): Promise<boolean> => {
+        let ok = false;
+        await attempt(async () => {
+            await act();
+            ok = true;
+        });
+        return ok;
+    };
+
+    /**
+     * Renaming or deleting a named schema rewrites every flow that names it, this
+     * one perhaps among them. This window's own edits go out first, and it reads the
+     * flow and the schemas again after.
+     */
+    const rewriteSchemas = async (act: () => Promise<void>): Promise<boolean> => {
+        if (!flow) return false;
+        flushSave();
+        const ok = await succeeded(act);
+        await Promise.all([refreshSchemas(), readFlow(flow.id)]);
+        return ok;
+    };
 
     /** Brings a tab of the dock up, unfolding the dock if it was folded away. */
     const showDock = (tab: 'runs' | 'console'): void => {
@@ -427,6 +508,24 @@ export function App({initialFlowId}: Props): JSX.Element {
     const watching = status?.flowIds.includes(flow.id) === true;
     const mailboxes = status?.watching.filter((w) => w.flowId === flow.id).length ?? 0;
     const library: Library = {workspaceName, skills, onRefresh: refreshSkills};
+    const shelf: SchemaShelf = {
+        schemas,
+        users: (name) => ({
+            here: schemaUsers(flow, schemas, name).length,
+            elsewhere: others.filter((other) => schemaUsers(other, schemas, name).length > 0).map((other) => other.name),
+        }),
+        save: saveSchema,
+        create: (name, schema) =>
+            succeeded(async () => {
+                const made = await window.api.schemas.create(name, schema);
+                // Listed at once, so the node about to pick it never names one the canvas lacks.
+                setSchemaList((list) =>
+                    [...list.filter((s) => s.name !== made.name), made].toSorted((a, b) => a.name.localeCompare(b.name)),
+                );
+            }),
+        rename: (from, to) => rewriteSchemas(() => window.api.schemas.rename(from, to)),
+        remove: (name) => rewriteSchemas(() => window.api.schemas.remove(name)),
+    };
 
     return (
         <div className="app">
@@ -567,14 +666,13 @@ export function App({initialFlowId}: Props): JSX.Element {
                 <div className="side right">
                     <div className="side-body">
                         <Inspector
-                            flow={flow}
                             node={selectedNode}
                             library={library}
                             available={selectedNode ? slots?.available.get(selectedNode.id) : undefined}
                             issues={slots?.issues.filter((issue) => issue.nodeId === selectedNode?.id) ?? []}
                             tokens={tokens}
                             onChange={updateNode}
-                            onEditFlow={editFlow}
+                            shelf={shelf}
                             onDelete={deleteNode}
                         />
                     </div>

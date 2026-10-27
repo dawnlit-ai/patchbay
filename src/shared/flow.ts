@@ -175,8 +175,6 @@ export interface Flow {
     name: string;
     nodes: FlowNode[];
     edges: FlowEdge[];
-    /** Schemas named once for the whole flow, which a node's schema, or a field in one, can stand for. */
-    schemas: Schemas;
     updatedAt: string;
 }
 
@@ -245,19 +243,20 @@ export const EMAIL_SLOT: Slot = {name: 'email', type: {kind: 'email'}};
 export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // ── Named schemas ────────────────────────────────────────────────────────
-// A flow names a schema once, in `schemas`, and a node's schema stands for it as
-// {"$ref": "#/schemas/<name>"}. So can any field inside a schema, which lets one
-// named schema be built out of others. A run fills every reference in before
-// the schema is used, so nothing downstream ever sees one.
+// A workspace names a schema once, as a file in its `schemas` folder, and a
+// node's schema in any of its flows stands for it as {"$ref": "#/schemas/<name>"}.
+// So can any field inside a schema, which lets one named schema be built out of
+// others. A run fills every reference in before the schema is used, so nothing
+// downstream ever sees one.
 
 export type Schemas = Record<string, JsonSchema>;
 
 const SCHEMA_REF = '#/schemas/';
 
-/** A reference to the flow's schema `name`, as a node or a field holds it. */
+/** A reference to the workspace's schema `name`, as a node or a field holds it. */
 export const schemaRef = (name: string): JsonSchema => ({$ref: `${SCHEMA_REF}${name}`});
 
-/** The flow's schema `schema` stands for, or null when it is a schema of its own. */
+/** The named schema `schema` stands for, or null when it is a schema of its own. */
 export function refName(schema: unknown): string | null {
     if (!isObject(schema) || typeof schema.$ref !== 'string') return null;
     return schema.$ref.startsWith(SCHEMA_REF) ? schema.$ref.slice(SCHEMA_REF.length) : null;
@@ -272,6 +271,16 @@ function mapRefs(schema: unknown, swap: (name: string, ref: Json) => unknown): u
     return Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, mapRefs(value, swap)]));
 }
 
+/** The named schemas `schema` refers to itself, each once — not the ones those refer to in turn. */
+export function schemaRefs(schema: unknown): string[] {
+    const names = new Set<string>();
+    mapRefs(schema, (name, ref) => {
+        names.add(name);
+        return ref;
+    });
+    return [...names];
+}
+
 /** The named schema in place of its reference. A key beside `$ref`, such as a field's own description, wins. */
 function fillRef(named: JsonSchema, ref: Json): Json {
     const {$ref: _, ...beside} = ref;
@@ -283,7 +292,7 @@ export function resolveSchema(schemas: Schemas, schema: JsonSchema): JsonSchema 
     const fill = (value: unknown, through: string[]): unknown =>
         mapRefs(value, (name, ref) => {
             const named = Object.hasOwn(schemas, name) ? schemas[name] : undefined;
-            if (!named) throw new Error(`the flow has no schema "${name}"`);
+            if (!named) throw new Error(`the workspace has no schema "${name}"`);
             if (through.includes(name)) throw new Error(`"${name}" contains itself (${[...through, name].join(' → ')})`);
             return fillRef(fill(named, [...through, name]) as JsonSchema, ref);
         });
@@ -338,56 +347,27 @@ export function resolveNode(schemas: Schemas, node: FlowNode): FlowNode {
     return editNodeSchema(node, (schema) => resolveSchema(schemas, schema));
 }
 
-/** The nodes whose schema uses `name`, directly or through another named schema. */
-export function schemaUsers(flow: Flow, name: string): FlowNode[] {
+/** The nodes of `flow` whose schema uses `name`, directly or through another named schema. */
+export function schemaUsers(flow: Flow, schemas: Schemas, name: string): FlowNode[] {
     return flow.nodes.filter((node) => {
         const schema = nodeSchema(node);
-        return schema !== undefined && usesSchema(flow.schemas, schema, name);
+        return schema !== undefined && usesSchema(schemas, schema, name);
     });
 }
 
-/**
- * Name what node `nodeId`'s schema holds now as `name`, and point the node at it.
- * A node already on a named schema starts the new one from a copy of that one.
- */
-export function saveSchemaAs(flow: Flow, nodeId: string, name: string): Flow {
-    const node = flow.nodes.find((n) => n.id === nodeId);
-    const current = node && 'schema' in node.config ? node.config.schema : {type: 'object', properties: {}};
-    const from = refName(current);
-    const schema = from !== null && Object.hasOwn(flow.schemas, from) ? flow.schemas[from]! : current;
-    return {
-        ...flow,
-        schemas: {...flow.schemas, [name]: schema},
-        nodes: flow.nodes.map((n) => (n.id === nodeId ? editNodeSchema(n, () => schemaRef(name)) : n)),
-    };
+/** `schema` with every reference to `from` pointing at `to` instead: a rename, followed. */
+export function repointSchema(schema: JsonSchema, from: string, to: string): JsonSchema {
+    return mapRefs(schema, (name, ref) => (name === from ? {...ref, $ref: `${SCHEMA_REF}${to}`} : ref)) as JsonSchema;
 }
 
-/** The flow with schema `from` called `to`, and every reference to it, in nodes and in other schemas, following. */
-export function renameSchema(flow: Flow, from: string, to: string): Flow {
-    const repoint = (schema: JsonSchema): JsonSchema =>
-        mapRefs(schema, (name, ref) => (name === from ? {...ref, $ref: `${SCHEMA_REF}${to}`} : ref)) as JsonSchema;
-    return {
-        ...flow,
-        // Rebuilt in order, so the renamed schema keeps its place in the file.
-        schemas: Object.fromEntries(
-            Object.entries(flow.schemas).map(([name, schema]) => [name === from ? to : name, repoint(schema)]),
-        ),
-        nodes: flow.nodes.map((node) => editNodeSchema(node, repoint)),
-    };
+/** `schema` with every reference to `name` replaced by a copy of `named`, its own from then on: a delete, survived. */
+export function inlineSchema(schema: JsonSchema, name: string, named: JsonSchema): JsonSchema {
+    return mapRefs(schema, (ref, holder) => (ref === name ? fillRef(named, holder) : holder)) as JsonSchema;
 }
 
-/** The flow without schema `name`. Each node and schema that used it keeps a copy of it, as its own, in its place. */
-export function deleteSchema(flow: Flow, name: string): Flow {
-    const named = flow.schemas[name];
-    if (!named) return flow;
-    const inline = (schema: JsonSchema): JsonSchema =>
-        mapRefs(schema, (ref, holder) => (ref === name ? fillRef(named, holder) : holder)) as JsonSchema;
-    const {[name]: _, ...rest} = flow.schemas;
-    return {
-        ...flow,
-        schemas: Object.fromEntries(Object.entries(rest).map(([n, schema]) => [n, inline(schema)])),
-        nodes: flow.nodes.map((node) => editNodeSchema(node, inline)),
-    };
+/** `flow` with each node's schema put through `edit`, which is how a rename or a delete reaches the flows. */
+export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema): Flow {
+    return {...flow, nodes: flow.nodes.map((node) => editNodeSchema(node, edit))};
 }
 
 /** A slot's type as the canvas and inspector name it: a named schema's name, else e.g. "JSON · 3 fields". */
@@ -507,9 +487,10 @@ function intersect(a: Available, b: Available): Available {
  * What every node can count on holding, whichever trigger and path a run took to
  * reach it, and where that falls short of what the node reads. A slot counts only
  * when every path in brings it, so arriving sets are intersected; that only ever
- * shrinks them, which is what lets a flow that loops settle.
+ * shrinks them, which is what lets a flow that loops settle. `schemas` are the
+ * workspace's, which a node's schema may name.
  */
-export function checkSlots(flow: Flow): SlotCheck {
+export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
     const byId = new Map(flow.nodes.map((n) => [n.id, n]));
     const arriving = new Map<string, Available>();
     const queue: string[] = [];
@@ -549,7 +530,7 @@ export function checkSlots(flow: Flow): SlotCheck {
             });
         }
         const schema = nodeSchema(node);
-        const schemaIssue = schema && schemaProblem(flow.schemas, schema);
+        const schemaIssue = schema && schemaProblem(schemas, schema);
         if (schemaIssue) {
             issues.push({
                 nodeId: node.id,
@@ -783,7 +764,7 @@ export function connectNodes(flow: Flow, source: string, sourceHandle: string, t
 
 /** A blank canvas: a trigger is dragged in from the palette like anything else. */
 export function emptyFlow(id: string, name: string): Flow {
-    return {id, name, nodes: [], edges: [], schemas: {}, updatedAt: new Date().toISOString()};
+    return {id, name, nodes: [], edges: [], updatedAt: new Date().toISOString()};
 }
 
 // ── Reading a flow the app did not write ─────────────────────────────────
@@ -819,8 +800,11 @@ const skillTicks = (value: unknown, fallback: string[]): string[] => [
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
-/** The named schemas, keeping each that is an object under a name a reference can spell. */
-function schemasOf(value: unknown): Schemas {
+/**
+ * Named schemas as a flow file kept them, under `schemas`, before they were the
+ * workspace's: each that is an object under a name a reference can spell.
+ */
+export function parseSchemas(value: unknown): Schemas {
     if (!isObject(value)) return {};
     return Object.fromEntries(
         Object.entries(value).filter(
@@ -977,7 +961,6 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
         name: str(raw.name, '').trim() || fallbackName,
         nodes,
         edges,
-        schemas: schemasOf(raw.schemas),
         updatedAt: new Date().toISOString(),
     };
 }

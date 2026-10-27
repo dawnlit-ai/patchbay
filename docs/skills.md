@@ -36,8 +36,9 @@ ticks it on the node whose list it came from, and opens it. **Import…** copies
 library, each with the folder it sits in — which is how skills kept elsewhere, such as `~/.claude/skills`, come in.
 
 The start window's **Skills** tab lists the same library beside the workspace's flows: each skill's description, which
-flows tick it, and when it was last edited, with **New skill** and **Import skills…** in the rail. Double-clicking a
-skill opens its `SKILL.md`; right-clicking it can show its folder or delete it. A skill some flow ticks but the folder
+flows tick it, and when it was last edited, with **New skill** and **Import skills…** in the rail. The skill picked has
+**Edit SKILL.md** and **Delete…** under it. Edit, or a double-click, opens its `SKILL.md` in the app your system gives
+`.md` files; right-clicking it can also show its folder. A skill some flow ticks but the folder
 no longer holds is listed at the bottom, with the flows that tick it.
 
 The app watches the workspace's `skills` folder, so a skill saved, renamed or deleted elsewhere — in your editor, Finder

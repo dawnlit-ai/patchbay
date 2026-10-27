@@ -3,12 +3,10 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
-    deleteSchema,
     type Disposition,
     DISPOSITIONS,
     EMAIL_SLOT,
     type ExtractorConfig,
-    type Flow,
     type FlowIssue,
     type FlowNode,
     hasInput,
@@ -21,11 +19,9 @@ import {
     type ProcessorConfig,
     provides,
     refName,
-    renameSchema,
     requires,
-    saveSchemaAs,
     schemaRef,
-    schemaUsers,
+    type Schemas,
     shortId,
     SLOT_NAME,
     slotTypeLabel,
@@ -38,6 +34,7 @@ import { AGENT_NAMES, type AgentId, type McpServerTool } from '@shared/settings'
 import { ConfirmDialog } from './ConfirmDialog';
 import { FolderTree } from './FolderTree';
 import { NameDialog } from './NameDialog';
+import { SchemaEditor } from './SchemaEditor';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
 import { type DataTokens, tint } from '../slotColors';
@@ -610,11 +607,31 @@ function slotNameProblem(name: string): string | null {
     return null;
 }
 
-/** A change to the flow as a whole, rather than to one node: what a named schema needs. */
-interface FlowEdit {
-    flow: Flow;
+/**
+ * The workspace's named schemas, as a node's Schema field picks, edits, names,
+ * renames and deletes them. Every flow in the workspace shares them, so the
+ * window that holds the flow does the work.
+ */
+export interface SchemaShelf {
+    /** The ones a node can pick, by name. */
+    schemas: Schemas;
 
-    onEditFlow(edit: (flow: Flow) => Flow): void;
+    /** How many nodes in this flow use it, and which of the workspace's other flows do. */
+    users(name: string): { here: number; elsewhere: string[] };
+
+    /** An edit to its JSON. Written to its file a moment later, so typing is not a write per key. */
+    save(name: string, schema: JsonSchema): void;
+
+    /** Each resolves to whether it went through; one refused says why in the window's banner. */
+    create(name: string, schema: JsonSchema): Promise<boolean>;
+
+    rename(from: string, to: string): Promise<boolean>;
+
+    remove(name: string): Promise<boolean>;
+}
+
+interface SchemaProps {
+    shelf: SchemaShelf;
 }
 
 /**
@@ -622,15 +639,12 @@ interface FlowEdit {
  * name be left blank, for a node that hands nothing on.
  */
 function OutputFields({
-                          nodeId,
                           config,
                           patch,
                           hint,
                           optional = false,
-                          flow,
-                          onEditFlow,
-                      }: Section<{ output: string; schema: JsonSchema }> & FlowEdit & {
-    nodeId: string;
+                          shelf,
+                      }: Section<{ output: string; schema: JsonSchema }> & SchemaProps & {
     hint: string;
     optional?: boolean
 }): JSX.Element {
@@ -654,30 +668,33 @@ function OutputFields({
 
             {config.output !== '' && (
                 <SchemaField
-                    nodeId={nodeId}
                     schema={config.schema}
                     output={config.output}
                     patch={patch}
-                    flow={flow}
-                    onEditFlow={onEditFlow}
+                    shelf={shelf}
                 />
             )}
         </>
     );
 }
 
+/** The schema of that name in another case, if any: two of the three filesystems we run on ignore case. */
+const sameName = (schemas: Schemas, name: string, own?: string): string | undefined =>
+    Object.keys(schemas).find((other) => other !== own && other.toLowerCase() === name.toLowerCase());
+
 /** Why a schema name will not do, or null when it will. `own` is the name being renamed, which may stay. */
-function schemaNameProblem(flow: Flow, name: string, own?: string): string | null {
+function schemaNameProblem(schemas: Schemas, name: string, own?: string): string | null {
     if (!SLOT_NAME.test(name)) return 'Letters, digits and _ only, not starting with a digit.';
-    if (name !== own && Object.hasOwn(flow.schemas, name)) return `This flow already has a schema called ${name}.`;
+    const taken = sameName(schemas, name, own);
+    if (taken) return `This workspace already has a schema called ${taken}.`;
     return null;
 }
 
 /** A free name for a new schema, after the slot it describes: `shipment` suggests `Shipment`. */
-function suggestSchemaName(flow: Flow, output: string): string {
+function suggestSchemaName(schemas: Schemas, output: string): string {
     const stem = SLOT_NAME.test(output) ? output[0]!.toUpperCase() + output.slice(1) : 'Schema';
     let name = stem;
-    for (let n = 2; Object.hasOwn(flow.schemas, name); n++) name = `${stem}${n}`;
+    for (let n = 2; sameName(schemas, name); n++) name = `${stem}${n}`;
     return name;
 }
 
@@ -687,27 +704,33 @@ const hasFields = (schema: JsonSchema): boolean =>
 
 const BLANK_SCHEMA: JsonSchema = {type: 'object', properties: {}};
 
+/** Who else an edit to a named schema reaches. */
+function sharedWith({here, elsewhere}: { here: number; elsewhere: string[] }): string {
+    const nodes = here === 1 ? 'this node' : `${here} nodes in this flow`;
+    if (elsewhere.length === 0) return `Used by ${nodes} only`;
+    return `Used by ${nodes}, and in ${elsewhere.length === 1 ? 'the flow' : 'the flows'} ${elsewhere.join(', ')}`;
+}
+
 /**
- * The schema a node's result has to match: one of the flow's named schemas,
- * shared with every node that picks it, or one of the node's own.
+ * The schema a node's result has to match: one of the workspace's named
+ * schemas, shared with every node in any flow that picks it, or one of the
+ * node's own.
  */
 function SchemaField({
-                         nodeId,
                          schema,
                          output,
                          patch,
-                         flow,
-                         onEditFlow,
-                     }: FlowEdit & {
-    nodeId: string;
+                         shelf,
+                     }: SchemaProps & {
     schema: JsonSchema;
     /** The slot it fills, which a new name starts from. */
     output: string;
 
     patch(partial: { schema: JsonSchema }): void;
 }): JSX.Element {
+    const {schemas} = shelf;
     const named = refName(schema);
-    const shown = named === null ? schema : flow.schemas[named];
+    const shown = named === null ? schema : schemas[named];
     const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
     const [nameError, setNameError] = useState<string | null>(null);
     /** A named schema waiting to replace this node's own, until the person says it may. */
@@ -727,36 +750,40 @@ function SchemaField({
     };
 
     const confirmName = (name: string): void => {
-        const problem = schemaNameProblem(flow, name, naming === 'rename' ? (named ?? undefined) : undefined);
+        const problem = schemaNameProblem(schemas, name, naming === 'rename' ? (named ?? undefined) : undefined);
         if (problem) {
             setNameError(problem);
             return;
         }
-        if (naming === 'new') onEditFlow((f) => saveSchemaAs(f, nodeId, name));
-        else if (named !== null && name !== named) onEditFlow((f) => renameSchema(f, named, name));
         closeNaming();
+        if (naming === 'new') {
+            // Made from what the node shows now: its own, or a copy of the named one it is on.
+            void shelf.create(name, shown ?? BLANK_SCHEMA).then((made) => {
+                if (made) patch({schema: schemaRef(name)});
+            });
+        } else if (named !== null && name !== named) {
+            void shelf.rename(named, name);
+        }
     };
-
-    const users = named === null ? 0 : schemaUsers(flow, named).length;
 
     return (
         <>
             <Legend
                 label="Schema"
-                hint="Name a schema to share it: every node that picks it fills the same shape, and its ports say so."
+                hint="Name a schema to share it with every flow in the workspace: each node that picks it fills the same shape, and its ports say so."
             />
             <div className="row schema-pick">
                 <select value={named ?? ''} onChange={(e) => use(e.target.value)}>
                     <option value="">This node's own</option>
                     {named !== null && !shown && <option value={named}>{named} (missing)</option>}
-                    {Object.keys(flow.schemas).map((name) => (
+                    {Object.keys(schemas).map((name) => (
                         <option key={name} value={name}>
                             {name}
                         </option>
                     ))}
                 </select>
                 <button className="fixed" onClick={() => setNaming('new')}
-                        title={named === null ? 'Name this schema, for other nodes to pick too' : `Start a new named schema from a copy of ${named}`}>
+                        title={named === null ? 'Name this schema, for nodes in any flow here to pick too' : `Start a new named schema from a copy of ${named}`}>
                     New…
                 </button>
                 {named !== null && shown && (
@@ -772,24 +799,22 @@ function SchemaField({
             </div>
 
             {shown ? (
-                <SchemaText
-                    // Remounted with each schema picked, so one's draft never lands on another.
+                <SchemaEditor
+                    // Remounted with each schema picked, so one's drafts never land on another.
                     key={named ?? ''}
                     value={shown}
+                    // Any of the workspace's but the one shown: a schema cannot hold itself.
+                    named={Object.keys(schemas).filter((name) => name !== named)}
                     hint={
                         named === null
-                            ? 'JSON Schema for the result. Give each field a description: it is what Claude reads to fill it.'
-                            : `Shared by ${users === 1 ? 'this node only' : `${users} nodes in this flow`}: an edit here changes it for each. A field can use another named schema as {"$ref": "#/schemas/<name>"}.`
+                            ? 'Give each field a description: it is what Claude reads to fill it. Required fields have to be filled for the step to pass.'
+                            : `${sharedWith(shelf.users(named))}. It is the workspace’s, in schemas/${named}.json, so an edit here changes it for every node that picks it.`
                     }
-                    onChange={(next) =>
-                        named === null
-                            ? patch({schema: next})
-                            : onEditFlow((f) => ({...f, schemas: {...f.schemas, [named]: next}}))
-                    }
+                    onChange={(next) => (named === null ? patch({schema: next}) : shelf.save(named, next))}
                 />
             ) : (
                 <div className="hint block">
-                    This flow has no schema called {named}. Pick another, or start one with New….
+                    The workspace has no schema called {named}. Pick another, or start one with New….
                 </div>
             )}
 
@@ -797,13 +822,13 @@ function SchemaField({
                 <NameDialog
                     title={naming === 'new' ? 'Name a schema' : `Rename ${named}`}
                     label="Schema name"
-                    initial={naming === 'new' ? suggestSchemaName(flow, output) : (named ?? '')}
+                    initial={naming === 'new' ? suggestSchemaName(schemas, output) : (named ?? '')}
                     confirmLabel={naming === 'new' ? 'Name it' : 'Rename'}
                     hint={
                         nameError ??
                         (naming === 'new'
-                            ? `Letters, digits and _. This node picks it at once${named === null ? '' : `, starting from a copy of ${named}`}; other nodes can pick it too.`
-                            : 'Every node and schema using it follows the new name.')
+                            ? `Letters, digits and _. Saved in the workspace’s schemas folder for any flow here to use, and this node picks it at once${named === null ? '' : `, starting from a copy of ${named}`}.`
+                            : 'Its file is renamed, and every node and schema using it, in every flow here, follows.')
                     }
                     onCancel={closeNaming}
                     onConfirm={confirmName}
@@ -826,12 +851,12 @@ function SchemaField({
             {deleting && named !== null && (
                 <ConfirmDialog
                     title={`Delete ${named}?`}
-                    message={`Every node and schema using ${named} keeps a copy of it as its own, so nothing that uses it breaks; they just no longer share it.`}
+                    message={`Its file goes from the workspace’s schemas folder. Every node and schema using ${named}, in every flow here, keeps a copy of it as its own, so nothing that uses it breaks; they just no longer share it.`}
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(false)}
                     onConfirm={() => {
-                        onEditFlow((f) => deleteSchema(f, named));
                         setDeleting(false);
+                        void shelf.remove(named);
                     }}
                 />
             )}
@@ -839,48 +864,13 @@ function SchemaField({
     );
 }
 
-/** A schema as JSON text. A draft, so text that does not parse yet is never saved over the last good schema. */
-function SchemaText({value, hint, onChange}: {
-    value: JsonSchema;
-    hint: string;
-    onChange(schema: JsonSchema): void
-}): JSX.Element {
-    const [text, setText] = useState(() => JSON.stringify(value, null, 2));
-    const [error, setError] = useState<string | null>(null);
-
-    const edit = (next: string): void => {
-        setText(next);
-        try {
-            const parsed: unknown = JSON.parse(next);
-            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-                setError('The schema has to be a JSON object.');
-                return;
-            }
-            setError(null);
-            onChange(parsed as JsonSchema);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    };
-
-    return (
-        <div className="field">
-            <textarea rows={12} spellCheck={false} value={text} onChange={(e) => edit(e.target.value)}/>
-            <div className="hint">{error ?? hint}</div>
-        </div>
-    );
-}
-
 function ExtractorFields({
-                             nodeId,
                              config,
                              patch,
                              library,
                              available,
-                             flow,
-                             onEditFlow,
-                         }: Section<ExtractorConfig> & FlowEdit & {
-    nodeId: string;
+                             shelf,
+                         }: Section<ExtractorConfig> & SchemaProps & {
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
@@ -890,11 +880,9 @@ function ExtractorFields({
             <InputsField config={config} patch={patch} available={available}/>
 
             <OutputFields
-                nodeId={nodeId}
                 config={config}
                 patch={patch}
-                flow={flow}
-                onEditFlow={onEditFlow}
+                shelf={shelf}
                 hint="Later nodes read the result by this name. It is filled only on Valid."
             />
 
@@ -949,15 +937,12 @@ function SkillsField({config, patch, library}: Section<{ skills: string[] }> & {
 }
 
 function ProcessorFields({
-                             nodeId,
                              config,
                              patch,
                              library,
                              available,
-                             flow,
-                             onEditFlow,
-                         }: Section<ProcessorConfig> & FlowEdit & {
-    nodeId: string;
+                             shelf,
+                         }: Section<ProcessorConfig> & SchemaProps & {
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
@@ -975,11 +960,9 @@ function ProcessorFields({
             </Field>
 
             <OutputFields
-                nodeId={nodeId}
                 config={config}
                 patch={patch}
-                flow={flow}
-                onEditFlow={onEditFlow}
+                shelf={shelf}
                 optional
                 hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
             />
@@ -1323,8 +1306,6 @@ function DataSection({node, available, tokens}: {
 }
 
 interface Props {
-    /** The open flow: its named schemas, and the nodes that share each. */
-    flow: Flow;
     node: FlowNode | null;
     /** The workspace's skills, ticked by a node and kept from here. */
     library: Library;
@@ -1333,24 +1314,22 @@ interface Props {
     issues: FlowIssue[];
     /** Each slot's colour, as the canvas draws it. */
     tokens: DataTokens;
+    /** The workspace's named schemas, which a node's schema can be. */
+    shelf: SchemaShelf;
 
     onChange(node: FlowNode): void;
-
-    /** A change reaching past the node: a named schema made, edited, renamed or deleted. */
-    onEditFlow(edit: (flow: Flow) => Flow): void;
 
     onDelete(nodeId: string): void;
 }
 
 export function Inspector({
-                              flow,
                               node,
                               library,
                               available,
                               issues,
                               tokens,
                               onChange,
-                              onEditFlow,
+                              shelf,
                               onDelete,
                           }: Props): JSX.Element {
     if (!node) {
@@ -1394,12 +1373,12 @@ export function Inspector({
             {config.kind === 'trigger.outlook' && <TriggerFields key={node.id} config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'extractor' && (
-                <ExtractorFields key={node.id} nodeId={node.id} config={config} patch={patch} library={library}
-                                 available={available} flow={flow} onEditFlow={onEditFlow}/>
+                <ExtractorFields key={node.id} config={config} patch={patch} library={library}
+                                 available={available} shelf={shelf}/>
             )}
             {config.kind === 'processor' && (
-                <ProcessorFields key={node.id} nodeId={node.id} config={config} patch={patch} library={library}
-                                 available={available} flow={flow} onEditFlow={onEditFlow}/>
+                <ProcessorFields key={node.id} config={config} patch={patch} library={library}
+                                 available={available} shelf={shelf}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

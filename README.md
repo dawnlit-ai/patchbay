@@ -55,9 +55,10 @@ is deleting the folder.
 for, so the first time, macOS says it cannot check it for malicious software: open **System Settings → Privacy &
 Security** and click **Open Anyway** beside Patchbay.
 
-Flows and skills live in a **workspace** — a folder of yours, holding `flows/` and `skills/`. Settings, runs and logs
-live in the app's data folder, `%APPDATA%\Patchbay\workspace` on Windows and
-`~/Library/Application Support/Patchbay/workspace` on a Mac. Updating or deleting the app leaves both where they are.
+Flows, and the skills and schemas they share, live in a **workspace** — a folder of yours, holding `flows/`,
+`skills/` and `schemas/`. Settings, runs and logs live in the app's data folder, `%APPDATA%\Patchbay\workspace` on
+Windows and `~/Library/Application Support/Patchbay/workspace` on a Mac. Updating or deleting the app leaves both where
+they are.
 
 A downloaded copy updates itself in the background; **Settings → Updates** says what it found and has **Restart to
 update**. Choose the channel there too: **Stable** for published releases, or **Nightly** for a build of each day's

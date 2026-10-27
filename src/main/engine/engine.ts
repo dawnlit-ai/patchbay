@@ -2,6 +2,7 @@ import { EMAIL_SLOT, type Flow, type FlowNode, outputPorts, requires } from '@sh
 import { type EmailEnvelope, now, type Pass, type PassUnderWay, type Run, type TraceEvent } from '@shared/trace';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
+import { workspaceSchemas } from '../store/schemaStore';
 import { indexRun, saveRun } from '../store/traceStore';
 
 /** Walks one email through one flow: each node picks one output port, and the engine follows its one edge. */
@@ -92,6 +93,8 @@ export async function executeRun(request: RunRequest): Promise<Run> {
     publish();
 
     const scratchDir = runScratchDir(runId);
+    // Read once, as the run starts, so a schema edited while it is under way does not change it halfway.
+    const schemas = workspaceSchemas();
     let current: FlowNode | undefined = start;
     let seq = 0;
 
@@ -142,7 +145,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             const outcome = await executeNode({
                 flowId: flow.id,
                 node,
-                schemas: flow.schemas,
+                schemas,
                 email,
                 data,
                 scratchDir,

@@ -252,7 +252,13 @@ export function SkillShelf({library, picked, onPick}: ShelfProps): JSX.Element {
             {deleting && (
                 <ConfirmDialog
                     title="Delete skill"
-                    message={`Delete “${deleting}” from “${workspaceName}”? Its whole folder goes with it, and every flow here that ticks it loses it.`}
+                    message={`Delete
+                    “
+                    ${deleting}
+                    ” from
+                    “
+                    ${workspaceName}
+                    ”? Its whole folder goes with it, and every flow here that ticks it loses it.`}
                     confirmLabel="Delete"
                     onCancel={() => setDeleting(null)}
                     onConfirm={() => {

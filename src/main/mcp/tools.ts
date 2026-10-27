@@ -7,7 +7,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
     checkSlots,
     connectNodes,
-    deleteSchema,
     type Flow,
     type FlowNode,
     makeNode,
@@ -17,7 +16,7 @@ import {
     type OfferedModel,
     outputPorts,
     parseFlow,
-    renameSchema,
+    schemaUsers,
     SLOT_NAME,
     triggerConfig,
 } from '@shared/flow';
@@ -28,9 +27,10 @@ import type { QueuedRun, Watcher } from '../engine/watcher';
 import { logEntries, logEntriesOn } from '../log';
 import * as outlook from '../outlook/bridge';
 import * as flowStore from '../store/flowStore';
+import * as schemaStore from '../store/schemaStore';
 import * as skillStore from '../store/skillStore';
-import { rewatch } from '../store/skillWatch';
-import { flowsDirAt, skillsDirAt, workspaceRoot } from '../paths';
+import { rewatch } from '../store/folderWatch';
+import { flowsDirAt, schemasDirAt, skillsDirAt, workspaceRoot } from '../paths';
 import { readmeFile } from '../store/workspaceStore';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
@@ -66,8 +66,9 @@ const MAX_DETAIL_CHARS = 4_000;
 export const INSTRUCTIONS = `Patchbay wires email-processing flows on a canvas.
 
 Everything here is in the workspace open in the app: a folder holding its flows
-in flows/ and the skills they share in skills/. Every step of every flow works in
-that folder. get_workspace says which it is; only the person can open another.
+in flows/, the skills they share in skills/ and the schemas they share in
+schemas/. Every step of every flow works in that folder. get_workspace says which
+it is; only the person can open another.
 
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
@@ -104,10 +105,11 @@ rather than a fan-out. The five node kinds:
 A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.
 
-A schema used in more than one place can be named once for the flow with
-set_schema, then a node's \`schema\` set to {"$ref": "#/schemas/<name>"}. A field
-inside a schema can refer to one the same way, so a named schema can be built
-out of others. get_flow lists the flow's \`schemas\`.
+A schema used in more than one place can be named once for the whole workspace
+with set_schema, as schemas/<name>.json, then a node's \`schema\` in any flow set
+to {"$ref": "#/schemas/<name>"}. A field inside a schema can refer to one the same
+way, so a named schema can be built out of others. list_schemas gives them, and
+the nodes in each flow that use each one.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
@@ -158,7 +160,7 @@ function describeNode(flow: Flow, node: FlowNode) {
 }
 
 const describeFlow = (flow: Flow) => {
-    const {available, issues} = checkSlots(flow);
+    const {available, issues} = checkSlots(flow, schemaStore.workspaceSchemas());
     return {
         id: flow.id,
         name: flow.name,
@@ -169,11 +171,23 @@ const describeFlow = (flow: Flow) => {
             slotsOnArrival: available.has(node.id) ? [...available.get(node.id)!.keys()] : undefined,
         })),
         edges: flow.edges,
-        schemas: flow.schemas,
         // Errors keep the flow from being watched; warnings do not.
         slotIssues: issues,
     };
 };
+
+/** The workspace's named schemas, each with the nodes in each flow that use it, directly or through another. */
+function describeSchemas() {
+    const schemas = schemaStore.workspaceSchemas();
+    const flows = flowStore.listFlows();
+    return schemaStore.listSchemas().map((entry) => ({
+        ...entry,
+        usedBy: flows.flatMap((flow) => {
+            const nodes = schemaUsers(flow, schemas, entry.name).map((node) => node.id);
+            return nodes.length > 0 ? [{flowId: flow.id, flowName: flow.name, nodes}] : [];
+        }),
+    }));
+}
 
 /** Enough of an email to choose one, and nothing of what it says. */
 const describeEmail = (email: EmailEnvelope) => ({
@@ -228,7 +242,7 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     const before = requireFlow(flowId);
     const edited = edit(before);
     const flow = flowStore.saveFlow(parseFlow(edited, before.id, before.name));
-    host.changed({flows: true, skills: false});
+    host.changed({flows: true, skills: false, schemas: false});
     return {flow, droppedEdges: edited.edges.length - flow.edges.length};
 }
 
@@ -252,13 +266,20 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Get the workspace',
             description:
-                'The workspace open in the app: its folder, which every step of every flow works in, the folders its flows and skills are kept in, and the README.md at the top of its folder if it has one — for a workspace that is a repository, the repository’s own, worth reading before changing its flows. There is no tool that opens another: switching closes the person’s canvases.',
+                'The workspace open in the app: its folder, which every step of every flow works in, the folders its flows, skills and schemas are kept in, and the README.md at the top of its folder if it has one — for a workspace that is a repository, the repository’s own, worth reading before changing its flows. There is no tool that opens another: switching closes the person’s canvases.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },
         () => {
             const path = workspaceRoot();
-            return json({name: basename(path), path, flows: flowsDirAt(), skills: skillsDirAt(), readme: readmeFile()});
+            return json({
+                name: basename(path),
+                path,
+                flows: flowsDirAt(),
+                skills: skillsDirAt(),
+                schemas: schemasDirAt(),
+                readme: readmeFile(),
+            });
         },
     );
 
@@ -311,7 +332,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({name}) => {
             const flow = flowStore.createFlow(name);
-            host.changed({flows: true, skills: false});
+            host.changed({flows: true, skills: false, schemas: false});
             return json(describeFlow(flow));
         },
     );
@@ -340,7 +361,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const {file} = flowStore.entryFor(flow);
             const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
-            host.changed({flows: true, skills: false});
+            host.changed({flows: true, skills: false, schemas: false});
             return text(
                 `Deleted "${flow.name}", ${file}.` +
                 (cancelled > 0 ? ` ${cancelled} queued run(s) of it were cancelled first.` : ''),
@@ -492,26 +513,41 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
     const schemaNameArg = z
         .string()
         .regex(SLOT_NAME, 'Letters, digits and _ only, not starting with a digit.')
-        .describe('What nodes refer to it by, as {"$ref": "#/schemas/<name>"}.');
+        .describe('Its file is schemas/<name>.json, and nodes refer to it as {"$ref": "#/schemas/<name>"}.');
+
+    const schemasChanged = (flows: boolean): void => host.changed({flows, skills: false, schemas: true});
+
+    server.registerTool(
+        'list_schemas',
+        {
+            title: 'List schemas',
+            description:
+                'The workspace’s named schemas, which every flow in it shares: each one’s file and JSON Schema, and the nodes in each flow that use it, directly or through another named schema. A file a node cannot use — not valid JSON, or a name a reference cannot spell — is listed with a `problem` and no schema.',
+            inputSchema: {},
+            annotations: {readOnlyHint: true},
+        },
+        () => {
+            workspaceRoot();
+            return json(describeSchemas());
+        },
+    );
 
     server.registerTool(
         'set_schema',
         {
             title: 'Name a schema',
             description:
-                'Add a named schema to a flow, or replace the one of that name. Every node and schema referring to it uses the new one at once. A field may refer to another named schema as {"$ref": "#/schemas/<name>"}.',
+                'Add a named schema to the workspace, as schemas/<name>.json, or replace the one of that name. Every node in every flow referring to it uses the new one at once. A field may refer to another named schema as {"$ref": "#/schemas/<name>"}.',
             inputSchema: {
-                flowId: flowIdArg,
                 name: schemaNameArg,
                 schema: z.record(z.string(), z.unknown()).describe('A JSON Schema object.'),
             },
         },
-        ({flowId, name, schema}) => {
-            const {flow} = editFlow(host, flowId, (current) => ({
-                ...current,
-                schemas: {...current.schemas, [name]: schema},
-            }));
-            return json(describeFlow(flow));
+        ({name, schema}) => {
+            schemaStore.saveSchema(name, schema);
+            rewatch();
+            schemasChanged(false);
+            return json(describeSchemas().find((entry) => entry.name === name));
         },
     );
 
@@ -519,18 +555,14 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         'rename_schema',
         {
             title: 'Rename a schema',
-            description: 'Rename one of a flow’s named schemas. Every reference to it, in nodes and in other schemas, follows.',
-            inputSchema: {flowId: flowIdArg, name: z.string(), to: schemaNameArg},
+            description:
+                'Rename one of the workspace’s named schemas, and its file. Every reference to it, in every flow’s nodes and in other schemas, follows.',
+            inputSchema: {name: z.string(), to: schemaNameArg},
         },
-        ({flowId, name, to}) => {
-            const {flow} = editFlow(host, flowId, (current) => {
-                if (!Object.hasOwn(current.schemas, name)) throw new Error(`"${current.name}" has no schema "${name}".`);
-                if (to !== name && Object.hasOwn(current.schemas, to)) {
-                    throw new Error(`"${current.name}" already has a schema "${to}".`);
-                }
-                return renameSchema(current, name, to);
-            });
-            return json(describeFlow(flow));
+        ({name, to}) => {
+            flowStore.renameSchema(name, to);
+            schemasChanged(true);
+            return json(describeSchemas().find((entry) => entry.name === to));
         },
     );
 
@@ -539,13 +571,21 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a schema',
             description:
-                'Remove one of a flow’s named schemas. Each node and schema that referred to it is given a copy of it in its place, so nothing that used it breaks.',
-            inputSchema: {flowId: flowIdArg, name: z.string()},
+                'Remove one of the workspace’s named schemas, and its file. Each node, in every flow, and each schema that referred to it is given a copy of it in its place, so nothing that used it breaks.',
+            inputSchema: {name: z.string()},
             annotations: {idempotentHint: true},
         },
-        ({flowId, name}) => {
-            const {flow} = editFlow(host, flowId, (current) => deleteSchema(current, name));
-            return json(describeFlow(flow));
+        ({name}) => {
+            const users = describeSchemas().find((entry) => entry.name === name)?.usedBy;
+            if (!users) return text(`The workspace has no schema "${name}", so nothing was deleted.`);
+            flowStore.removeSchema(name);
+            schemasChanged(true);
+            return text(
+                `Deleted the schema "${name}".` +
+                (users.length > 0
+                    ? ` These flows' nodes using it each keep a copy of their own: ${users.map((u) => u.flowName).join(', ')}.`
+                    : ''),
+            );
         },
     );
 
@@ -589,7 +629,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         ({name, content}) => {
             const summary = skillStore.saveSkill(name, content);
             rewatch();
-            host.changed({flows: false, skills: true});
+            host.changed({flows: false, skills: true, schemas: false});
             const front = skillStore.parseFrontmatter(content);
             return json({
                 ...summary,
@@ -612,7 +652,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({name}) => {
             skillStore.removeSkill(name);
-            host.changed({flows: false, skills: true});
+            host.changed({flows: false, skills: true, schemas: false});
             const tickedBy = flowStore
                 .listFlows()
                 .filter((flow) =>
@@ -657,7 +697,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const before = new Set(skillStore.listSkills().map((s) => s.name));
             const imported = skillStore.importSkillsFrom(from, names);
             rewatch();
-            host.changed({flows: false, skills: true});
+            host.changed({flows: false, skills: true, schemas: false});
             const missing = names?.filter((name) => !imported.includes(name)) ?? [];
             return json({
                 imported,

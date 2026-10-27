@@ -27,7 +27,7 @@ export interface NodeContext {
     /** The flow being run, in the open workspace, whose folder its steps work in. */
     flowId: string;
     node: FlowNode;
-    /** The flow's named schemas, which the node's schema may refer to. */
+    /** The workspace's named schemas, which the node's schema may refer to. */
     schemas: Schemas;
     email: EmailEnvelope;
     /** Slots earlier nodes on this path filled, by name. */

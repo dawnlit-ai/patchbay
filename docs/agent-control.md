@@ -21,19 +21,23 @@ flow is refused rather than saved over it: the canvas says so, and shows the flo
 | Workspace | `get_workspace`                                                               |
 | Flows     | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`         |
 | Graph     | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`             |
-| Schemas   | `set_schema`, `rename_schema`, `delete_schema`                                |
+| Schemas   | `list_schemas`, `set_schema`, `rename_schema`, `delete_schema`                |
 | Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`    |
 | Mailbox   | `list_accounts`, `list_folders`, `list_recent_emails`                         |
 | Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`     |
 | Runs      | `list_runs`, `get_run`, `get_console`                                         |
 | Settings  | `get_settings`, `list_server_tools`                                           |
 
-Every tool works on the workspace open in the app: its flows, its skills and its runs.
+Every tool works on the workspace open in the app: its flows, its skills, its schemas and its runs.
 
 `get_flow` hands back each node with the output ports its configuration currently gives it, which is what makes wiring
 possible without guessing. Everything an agent writes goes through the same repair an opened flow file gets, so a
 value of the wrong type falls back to its default rather than reaching a run — and an edge left hanging by an edit is
 dropped, with the tool that dropped it saying how many.
+
+Named schemas are the workspace's, not a flow's: `set_schema` writes `schemas/<name>.json`, which a node in any flow
+picks as `{"$ref": "#/schemas/<name>"}`, and `list_schemas` says which nodes in which flows use each one.
+`rename_schema` and `delete_schema` carry the change through every flow naming it.
 
 `write_skill` writes one `SKILL.md` into the workspace's library; a skill with scripts or references beside it comes in
 whole through `import_skills`, from a folder on this machine, optionally narrowed to the names wanted. `delete_skill`

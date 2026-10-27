@@ -1,7 +1,15 @@
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { findTriggers, type Flow } from '@shared/flow';
-import type { FlowEntry, Readme, WorkspaceInfo } from '@shared/ipc';
+import {
+    findTriggers,
+    type Flow,
+    type JsonSchema,
+    nodeSchema,
+    schemaRefs,
+    type Schemas,
+    schemaUsers,
+} from '@shared/flow';
+import type { FlowEntry, Readme, SchemaSummary, WorkspaceInfo } from '@shared/ipc';
 import type { AboutInfo, EngineStatus, SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
@@ -11,23 +19,26 @@ import { NewWorkspaceDialog } from './components/NewWorkspaceDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { fileStem, RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { SettingsButton } from './components/SettingsButton';
+import { SchemaDialog } from './components/SchemaDialog';
+import { SchemaFields } from './components/SchemaFields';
 import { skillTemplate } from './components/SkillLibrary';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { ago } from './format';
+import { isObject } from './schemaShape';
 import { useTheme } from './theme';
 
 /**
- * The start window: the open workspace's flows, the skills they share and its
- * README, and what can be done to each without opening a canvas. With no
- * workspace open, the ones opened before, and making or opening another.
+ * The start window: the open workspace's flows, the skills and schemas they
+ * share and its README, and what can be done to each without opening a canvas.
+ * With no workspace open, the ones opened before, and making or opening another.
  */
 
 /** Newest work first is the useful default; by name is for finding one you know. */
 type Sort = 'recent' | 'name';
 
 /** Which part of the workspace the main pane shows. */
-type Tab = 'flows' | 'skills' | 'readme';
+type Tab = 'flows' | 'skills' | 'schemas' | 'readme';
 
 type Dialog =
     | { kind: 'new' }
@@ -39,6 +50,11 @@ type Dialog =
     | { kind: 'delete'; entry: FlowEntry }
     | { kind: 'new-skill' }
     | { kind: 'delete-skill'; name: string }
+    /** Making one (`name` null), perhaps under a name some node already uses, or changing one. */
+    | { kind: 'edit-schema'; name: string | null; suggested?: string }
+    | { kind: 'duplicate-schema'; name: string }
+    | { kind: 'rename-schema'; name: string }
+    | { kind: 'delete-schema'; name: string }
     /** Leaving the open workspace stops what it is doing; asked about first. */
     | { kind: 'switch'; question: Question; go(): void };
 
@@ -66,10 +82,26 @@ function ticksOf(flow: Flow): Set<string> {
     );
 }
 
+/** The fields a schema lists, or null when it is not a group of fields. */
+const fieldNames = (schema: JsonSchema): string[] | null =>
+    isObject(schema.properties) ? Object.keys(schema.properties) : null;
+
+/** The nodes in each flow that use a named schema, directly or through another: “pre-alerts (3 nodes)”. */
+function usedIn(entries: FlowEntry[], schemas: Schemas, name: string): string[] {
+    return entries.flatMap(({flow}) => {
+        const nodes = schemaUsers(flow, schemas, name).length;
+        return nodes === 0 ? [] : [`“${flow.name}” (${nodes} node${nodes === 1 ? '' : 's'})`];
+    });
+}
+
 /** Names as a sentence lists them: “A”, “A and B”, “A, B and C”. */
 function listed(names: string[]): string {
-    const quoted = names.map((name) => `“${name}”`);
-    return quoted.length < 2 ? (quoted[0] ?? '') : `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}`;
+    return together(names.map((name) => `“${name}”`));
+}
+
+/** Phrases as a sentence joins them: A, A and B, A, B and C. */
+function together(phrases: string[]): string {
+    return phrases.length < 2 ? (phrases[0] ?? '') : `${phrases.slice(0, -1).join(', ')} and ${phrases.at(-1)}`;
 }
 
 /**
@@ -89,6 +121,18 @@ function Where({path}: { path: string }): JSX.Element {
     );
 }
 
+/**
+ * Buttons under the picked row. A double-click or a key pressed on one is the
+ * button's alone: the row's own would open the item as well.
+ */
+function RowActions({children}: { children: ReactNode }): JSX.Element {
+    return (
+        <div className="row-actions" onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            {children}
+        </div>
+    );
+}
+
 export function Welcome(): JSX.Element {
     /** Undefined until main says; null when no workspace is open. */
     const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
@@ -97,6 +141,8 @@ export function Welcome(): JSX.Element {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[] | null>(null);
     const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+    const [schemaList, setSchemaList] = useState<SchemaSummary[] | null>(null);
+    const [selectedSchema, setSelectedSchema] = useState<string | null>(null);
     /** Undefined until read; null when the workspace has none. */
     const [readme, setReadme] = useState<Readme | null | undefined>(undefined);
     const [tab, setTab] = useState<Tab>('flows');
@@ -105,8 +151,9 @@ export function Welcome(): JSX.Element {
     const [dialog, setDialog] = useState<Dialog | null>(null);
     /** The flow a right-click landed on, and where it landed. */
     const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
-    /** The same for a skill. */
+    /** The same for a skill, and for a schema. */
     const [skillMenu, setSkillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+    const [schemaMenu, setSchemaMenu] = useState<{ name: string; x: number; y: number } | null>(null);
     /** The workspaces menu, or one recent workspace's, and where it opened. */
     const [workspaceMenu, setWorkspaceMenu] = useState<{
         items: MenuItem[];
@@ -122,9 +169,14 @@ export function Welcome(): JSX.Element {
     const [theme, setTheme] = useTheme();
     const rows = useRef(new Map<string, HTMLDivElement>());
     const skillRows = useRef(new Map<string, HTMLDivElement>());
+    const schemaRows = useRef(new Map<string, HTMLDivElement>());
 
     const refreshSkills = useCallback(() => {
         void window.api.skills.list().then(setSkills);
+    }, []);
+
+    const refreshSchemas = useCallback(() => {
+        void window.api.schemas.list().then(setSchemaList);
     }, []);
 
     const refresh = useCallback(() => {
@@ -136,9 +188,10 @@ export function Welcome(): JSX.Element {
             setSelectedId((current) => (list.some((e) => e.flow.id === current) ? current : null));
         });
         refreshSkills();
+        refreshSchemas();
         // Edited in another app: coming back to this window is what re-reads it.
         void window.api.workspace.readme().then(setReadme);
-    }, [refreshSkills]);
+    }, [refreshSkills, refreshSchemas]);
 
     useEffect(() => {
         refresh();
@@ -151,15 +204,19 @@ export function Welcome(): JSX.Element {
     // Canvases, agents and editors write the workspace too: re-read on their changes and on focus.
     useEffect(() => {
         const off = window.api.on.workspaceChanged((change) => {
-            if (change.flows) refresh();
-            else if (change.skills) refreshSkills();
+            if (change.flows) {
+                refresh();
+                return;
+            }
+            if (change.skills) refreshSkills();
+            if (change.schemas) refreshSchemas();
         });
         window.addEventListener('focus', refresh);
         return () => {
             off();
             window.removeEventListener('focus', refresh);
         };
-    }, [refresh, refreshSkills]);
+    }, [refresh, refreshSkills, refreshSchemas]);
 
     const watched = new Set(status?.watching.map((w) => w.flowId));
 
@@ -195,6 +252,37 @@ export function Welcome(): JSX.Element {
     const inLibrary = new Set(skills?.map((s) => s.name));
     const missing =
         skills === null ? [] : [...tickedIn.keys()].filter((name) => !inLibrary.has(name) && matches(name)).toSorted();
+
+    /** The named schemas a node can use, by name. */
+    const schemas: Schemas = Object.fromEntries(
+        (schemaList ?? []).flatMap((s) => (s.schema ? [[s.name, s.schema]] : [])),
+    );
+    const shownSchemas = (schemaList ?? [])
+        .filter((s) =>
+            matches(s.name, typeof s.schema?.description === 'string' ? s.schema.description : '', ...(s.schema ? (fieldNames(s.schema) ?? []) : [])),
+        )
+        .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
+    const schemaSelected = shownSchemas.find((s) => s.name === selectedSchema) ?? shownSchemas[0] ?? null;
+
+    // Named by a node or by another schema, but not in the folder: deleted or
+    // renamed outside the app since, or named by a flow imported from elsewhere.
+    const namedBy = new Map<string, string[]>();
+    const nameIt = (name: string, by: string): void => {
+        const list = namedBy.get(name) ?? [];
+        if (!list.includes(by)) namedBy.set(name, [...list, by]);
+    };
+    for (const {flow} of entries ?? []) {
+        for (const node of flow.nodes) {
+            const schema = nodeSchema(node);
+            for (const name of schema ? schemaRefs(schema) : []) nameIt(name, `“${flow.name}”`);
+        }
+    }
+    for (const {name: holder, schema} of schemaList ?? []) {
+        for (const name of schema ? schemaRefs(schema) : []) nameIt(name, `the schema ${holder}`);
+    }
+    const inFolder = new Set(schemaList?.map((s) => s.name));
+    const missingSchemas =
+        schemaList === null ? [] : [...namedBy.keys()].filter((name) => !inFolder.has(name) && matches(name)).toSorted();
 
     // ── Workspaces ─────────────────────────────────────────────────────────
 
@@ -395,6 +483,130 @@ export function Welcome(): JSX.Element {
         {label: 'Delete…', separator: true, danger: true, onSelect: () => setDialog({kind: 'delete-skill', name})},
     ];
 
+    // ── Schemas ────────────────────────────────────────────────────────────
+
+    /**
+     * Open its file in the system's app for `.json` files, or show it in its
+     * folder. The list follows the folder, so a save there shows here unasked.
+     */
+    const handOffSchema = (how: 'open' | 'reveal', name: string): Promise<void> =>
+        attempt(async () => {
+            try {
+                await window.api.schemas[how](name);
+            } catch (e) {
+                // Gone since the list was read: the list catches up as the banner says so.
+                refreshSchemas();
+                throw e;
+            }
+        });
+
+    /**
+     * What the edit dialog saves: a new schema written, or one renamed, rewritten,
+     * or both. Resolves to why it could not be, for the dialog to show while it
+     * stays open with the edits, or null once it is written.
+     */
+    const saveSchema = async (from: string | null, to: string, schema: JsonSchema | null): Promise<string | null> => {
+        try {
+            if (from === null) {
+                await window.api.schemas.create(to, schema ?? {});
+            } else {
+                if (to !== from) {
+                    await window.api.schemas.rename(from, to);
+                    // Should the rest fail, the dialog edits it under the name it has now.
+                    setDialog({kind: 'edit-schema', name: to});
+                }
+                if (schema) await window.api.schemas.save(to, schema);
+            }
+            setSelectedSchema(to);
+            setDialog(null);
+            return null;
+        } catch (e) {
+            return (e as Error).message;
+        } finally {
+            refresh();
+        }
+    };
+
+    /** A copy under a name of its own, to start a new one from an old one. */
+    const duplicateSchema = (from: string, to: string): Promise<void> =>
+        attempt(async () => {
+            const source = schemaList?.find((s) => s.name === from)?.schema;
+            if (!source) throw new Error(`“${from}” is no longer in this workspace’s schemas folder.`);
+            await window.api.schemas.create(to, source);
+            refreshSchemas();
+            setSelectedSchema(to);
+        });
+
+    /** The first name past `name` the folder does not hold, in any case. */
+    const freeSchemaName = (name: string): string => {
+        const taken = new Set(schemaList?.map((s) => s.name.toLowerCase()));
+        let free = `${name}2`;
+        for (let n = 3; taken.has(free.toLowerCase()); n++) free = `${name}${n}`;
+        return free;
+    };
+
+    /** Who uses a schema, for the edit dialog to say under its name. */
+    const usage = (name: string): string => {
+        const users = usedIn(entries ?? [], schemas, name);
+        return users.length === 0
+            ? 'No node in any flow here uses it yet.'
+            : `Used in ${together(users)}. A change here reaches every one of them.`;
+    };
+
+    /** Renaming or deleting one rewrites the flows that name it, so both lists are read again. */
+    const renameSchema = (from: string, to: string): Promise<void> =>
+        attempt(async () => {
+            try {
+                await window.api.schemas.rename(from, to);
+                setSelectedSchema(to);
+            } finally {
+                refresh();
+            }
+        });
+
+    const removeSchema = (name: string): Promise<void> =>
+        attempt(async () => {
+            try {
+                await window.api.schemas.remove(name);
+            } finally {
+                refresh();
+            }
+        });
+
+    /** What deleting a schema means for the nodes that use it. */
+    const unsharing = (name: string): string => {
+        const users = usedIn(entries ?? [], schemas, name);
+        if (users.length === 0) return 'No node in any flow here uses it.';
+        return `The nodes using it in ${together(users)} each keep a copy as their own, so nothing breaks; they just no longer share it.`;
+    };
+
+    /**
+     * Edit it in the dialog — or, for a file the form cannot read, in the
+     * system's app for `.json` files, where it can be put right.
+     */
+    const editSchema = (entry: SchemaSummary): void => {
+        if (entry.schema) setDialog({kind: 'edit-schema', name: entry.name});
+        else void handOffSchema('open', entry.name);
+    };
+
+    /** The actions for one schema, shown in its row's context menu. */
+    const schemaActions = (entry: SchemaSummary): MenuItem[] => [
+        ...(entry.schema ? [{label: 'Edit…', onSelect: () => editSchema(entry)}] : []),
+        {label: 'Rename…', onSelect: () => setDialog({kind: 'rename-schema', name: entry.name})},
+        ...(entry.schema ? [{
+            label: 'Duplicate…',
+            onSelect: () => setDialog({kind: 'duplicate-schema', name: entry.name})
+        }] : []),
+        {label: 'Open JSON file', separator: true, onSelect: () => void handOffSchema('open', entry.name)},
+        {label: 'Show in folder', onSelect: () => void handOffSchema('reveal', entry.name)},
+        {
+            label: 'Delete…',
+            separator: true,
+            danger: true,
+            onSelect: () => setDialog({kind: 'delete-schema', name: entry.name}),
+        },
+    ];
+
     // ── README ─────────────────────────────────────────────────────────────
 
     /** Written from a template and opened to be filled in; shown here once it is saved and this window looked at. */
@@ -433,6 +645,14 @@ export function Welcome(): JSX.Element {
         skillRows.current.get(next.name)?.focus();
     };
 
+    const moveSchema = (from: SchemaSummary, delta: number): void => {
+        const at = shownSchemas.indexOf(from);
+        const next = shownSchemas[Math.min(shownSchemas.length - 1, Math.max(0, at + delta))];
+        if (!next || next === from) return;
+        setSelectedSchema(next.name);
+        schemaRows.current.get(next.name)?.focus();
+    };
+
     /** The actions for one flow, shown in its row's context menu. */
     const actions = (entry: FlowEntry): MenuItem[] => [
         {label: 'Open', onSelect: () => void open(entry.flow)},
@@ -447,8 +667,9 @@ export function Welcome(): JSX.Element {
 
     const noFlows = entries !== null && entries.length === 0;
     const noSkills = skills !== null && skills.length === 0;
+    const noSchemas = schemaList !== null && schemaList.length === 0;
     /** Nothing in the list shown, so nothing to filter or order. */
-    const nothingYet = tab === 'flows' ? noFlows : noSkills;
+    const nothingYet = tab === 'flows' ? noFlows : tab === 'skills' ? noSkills : noSchemas;
 
     /** Opens a menu under a button, as a right-click would at the pointer. */
     const menuUnder = (e: { currentTarget: HTMLElement }, label: string, items: MenuItem[]): void => {
@@ -475,9 +696,9 @@ export function Welcome(): JSX.Element {
                             <div className="lede">
                                 <h1>{workspace.name}</h1>
                                 <p>
-                                    A workspace keeps flows and the skills they share in one folder. Double-click a
-                                    flow to draw it or a skill to edit it, right-click either for everything else, or
-                                    start something new.
+                                    A workspace keeps flows, and the skills and schemas they share, in one folder.
+                                    Double-click a flow to draw it, or a skill or schema to edit it; right-click any of
+                                    them for everything else, or start something new.
                                 </p>
                             </div>
 
@@ -494,6 +715,14 @@ export function Welcome(): JSX.Element {
                                         ↓ Import flow file…
                                     </button>
                                 </>
+                            ) : tab === 'schemas' ? (
+                                <button
+                                    className="primary wide"
+                                    title="Name it and list its fields; it is saved in the workspace’s schemas folder"
+                                    onClick={() => setDialog({kind: 'edit-schema', name: null})}
+                                >
+                                    ＋ New schema
+                                </button>
                             ) : tab === 'readme' ? (
                                 // One there is opened from the tab's own header.
                                 readme === null && (
@@ -524,8 +753,9 @@ export function Welcome(): JSX.Element {
 
                             <div className="section-title">Workspace</div>
                             <div className="side-note">
-                                Flows are kept in its <code>flows</code> folder, the skills they share in{' '}
-                                <code>skills</code>, and every run works in it.
+                                Flows are kept in its <code>flows</code> folder, the skills and schemas they share
+                                in{' '}
+                                <code>skills</code> and <code>schemas</code>, and every run works in it.
                             </div>
                             <code className="path">{workspace.path}</code>
                             <button className="wide" onClick={() => void attempt(() => window.api.workspace.reveal())}>
@@ -647,6 +877,14 @@ export function Welcome(): JSX.Element {
                                     onClick={() => setTab('skills')}
                                 >
                                     Skills <span className="count">{skills?.length ?? 0}</span>
+                                </button>
+                                <button
+                                    role="radio"
+                                    aria-checked={tab === 'schemas'}
+                                    title="The named schemas every flow here shares, kept in the workspace’s schemas folder"
+                                    onClick={() => setTab('schemas')}
+                                >
+                                    Schemas <span className="count">{schemaList?.length ?? 0}</span>
                                 </button>
                                 <button
                                     role="radio"
@@ -823,6 +1061,25 @@ export function Welcome(): JSX.Element {
                                                     {users.length > 0 ? `ticked in ${listed(users)}` : 'ticked in no flow'} ·
                                                     edited {ago(skill.updatedAt)}
                                                 </div>
+                                                {skill === skillSelected && (
+                                                    <RowActions>
+                                                        <button
+                                                            title="Opens it in the app your system gives .md files. This list follows what you save there."
+                                                            onClick={() => void handOff('open', skill.name)}
+                                                        >
+                                                            Edit SKILL.md
+                                                        </button>
+                                                        <button
+                                                            className="danger"
+                                                            onClick={() => setDialog({
+                                                                kind: 'delete-skill',
+                                                                name: skill.name
+                                                            })}
+                                                        >
+                                                            Delete…
+                                                        </button>
+                                                    </RowActions>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -841,6 +1098,145 @@ export function Welcome(): JSX.Element {
                                                 error port. Import it, or untick it on the canvas.
                                             </div>
                                         </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {tab === 'schemas' && (
+                            <div className="flow-list" role="listbox" aria-label="Schemas">
+                                {(schemaList === null || workspace === undefined) &&
+                                    <div className="empty">Loading…</div>}
+                                {noSchemas && missingSchemas.length === 0 && workspace && (
+                                    <div className="empty">
+                                        No schemas in {workspace.name} yet. A schema named here, in its{' '}
+                                        <code>schemas</code> folder, can be picked by any Extractor or Processor in any
+                                        of its flows, so each fills the same shape. <b>New schema</b> writes one from a
+                                        template; a node’s <b>New…</b> on the canvas names the schema it has.
+                                    </div>
+                                )}
+                                {schemaList !== null && !noSchemas && shownSchemas.length === 0 && missingSchemas.length === 0 && (
+                                    <div className="empty">Nothing matches “{query}”.</div>
+                                )}
+                                {shownSchemas.map((entry) => {
+                                    const users = entry.schema ? usedIn(entries ?? [], schemas, entry.name) : [];
+                                    const fields = entry.schema ? fieldNames(entry.schema) : null;
+                                    const description =
+                                        typeof entry.schema?.description === 'string' ? entry.schema.description : '';
+                                    const active = entry === schemaSelected;
+                                    return (
+                                        <div
+                                            key={entry.name}
+                                            ref={(el) => {
+                                                if (el) schemaRows.current.set(entry.name, el);
+                                                else schemaRows.current.delete(entry.name);
+                                            }}
+                                            role="option"
+                                            aria-selected={active}
+                                            tabIndex={0}
+                                            className={`flow-row${active ? ' active' : ''}`}
+                                            onClick={() => setSelectedSchema(entry.name)}
+                                            onDoubleClick={() => editSchema(entry)}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                setSelectedSchema(entry.name);
+                                                const box = e.currentTarget.getBoundingClientRect();
+                                                setSchemaMenu({
+                                                    name: entry.name,
+                                                    x: e.clientX || box.left + 16,
+                                                    y: e.clientY || box.bottom - 6,
+                                                });
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') editSchema(entry);
+                                                else if (e.key === 'ArrowDown') moveSchema(entry, 1);
+                                                else if (e.key === 'ArrowUp') moveSchema(entry, -1);
+                                                else return;
+                                                e.preventDefault();
+                                            }}
+                                        >
+                                            <div className="grow">
+                                                <div className="title">
+                                                    {entry.name}
+                                                    {entry.problem ? (
+                                                        <span className="badge err" title={entry.problem}>
+                                                            cannot be used
+                                                        </span>
+                                                    ) : (
+                                                        users.length === 0 && (
+                                                            <span className="badge"
+                                                                  title="No node in any flow here uses it">
+                                                                unused
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
+                                                <div className="meta desc">
+                                                    {entry.problem ?? (description || 'No description')}
+                                                </div>
+                                                {!active && fields && fields.length > 0 && (
+                                                    <div className="meta fields">{fields.join(' · ')}</div>
+                                                )}
+                                                <div className="meta">
+                                                    {fields && `${fields.length} field${fields.length === 1 ? '' : 's'} · `}
+                                                    {users.length > 0 ? `used in ${together(users)}` : 'used in no flow'} ·
+                                                    edited {ago(entry.updatedAt)}
+                                                </div>
+                                                {active && entry.schema && <SchemaFields schema={entry.schema}/>}
+                                                {active && (
+                                                    <RowActions>
+                                                        <button onClick={() => editSchema(entry)}>
+                                                            {entry.schema ? 'Edit…' : 'Open JSON file'}
+                                                        </button>
+                                                        {entry.schema && (
+                                                            <button
+                                                                onClick={() => setDialog({
+                                                                    kind: 'duplicate-schema',
+                                                                    name: entry.name
+                                                                })}
+                                                            >
+                                                                Duplicate…
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            className="danger"
+                                                            onClick={() => setDialog({
+                                                                kind: 'delete-schema',
+                                                                name: entry.name
+                                                            })}
+                                                        >
+                                                            Delete…
+                                                        </button>
+                                                    </RowActions>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {missingSchemas.map((name) => (
+                                    <div key={`missing:${name}`} className="flow-row missing">
+                                        <div className="grow">
+                                            <div className="title">
+                                                {name}
+                                                <span className="badge err">not in this workspace</span>
+                                            </div>
+                                            <div className="meta">
+                                                Named by {together(namedBy.get(name) ?? [])}, but there is no{' '}
+                                                <code>schemas/{name}.json</code>, so the nodes that use it are flagged
+                                                on the canvas and stop at their error port. Create it here, put the
+                                                file back, or pick another schema on those nodes.
+                                            </div>
+                                        </div>
+                                        <button
+                                            className="fixed"
+                                            onClick={() => setDialog({
+                                                kind: 'edit-schema',
+                                                name: null,
+                                                suggested: name
+                                            })}
+                                        >
+                                            Create it…
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -881,6 +1277,20 @@ export function Welcome(): JSX.Element {
                     label={skillMenu.name}
                     items={skillActions(skillMenu.name)}
                     onClose={() => setSkillMenu(null)}
+                />
+            )}
+
+            {schemaMenu && (
+                <ContextMenu
+                    x={schemaMenu.x}
+                    y={schemaMenu.y}
+                    label={schemaMenu.name}
+                    items={
+                        schemaList?.find((s) => s.name === schemaMenu.name)
+                            ? schemaActions(schemaList.find((s) => s.name === schemaMenu.name)!)
+                            : []
+                    }
+                    onClose={() => setSchemaMenu(null)}
                 />
             )}
 
@@ -976,7 +1386,7 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete' && (
                 <ConfirmDialog
                     title="Delete flow"
-                    message={`Delete “${dialog.entry.flow.name}”? Its file, ${fileStem(dialog.entry.file)}.json, is deleted from the workspace’s flows folder. The skills it ticks stay, since every flow here shares them, and so do runs already recorded. This cannot be undone.`}
+                    message={`Delete “${dialog.entry.flow.name}”? Its file, ${fileStem(dialog.entry.file)}.json, is deleted from the workspace’s flows folder. The skills and schemas it uses stay, since every flow here shares them, and so do runs already recorded. This cannot be undone.`}
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
@@ -1012,6 +1422,74 @@ export function Welcome(): JSX.Element {
                         const {name} = dialog;
                         setDialog(null);
                         void removeSkill(name);
+                    }}
+                />
+            )}
+
+            {dialog?.kind === 'edit-schema' && (
+                <SchemaDialog
+                    name={dialog.name}
+                    suggested={dialog.suggested}
+                    schema={
+                        dialog.name === null
+                            ? undefined
+                            : (schemaList?.find((s) => s.name === dialog.name)?.schema ?? undefined)
+                    }
+                    taken={schemaList?.map((s) => s.name) ?? []}
+                    named={Object.keys(schemas)}
+                    usage={dialog.name === null ? undefined : usage(dialog.name)}
+                    onCancel={() => setDialog(null)}
+                    onSave={(to, schema) => saveSchema(dialog.name, to, schema)}
+                    onDelete={
+                        dialog.name === null
+                            ? undefined
+                            : () => setDialog({kind: 'delete-schema', name: dialog.name!})
+                    }
+                />
+            )}
+
+            {dialog?.kind === 'duplicate-schema' && (
+                <NameDialog
+                    title={`Duplicate ${dialog.name}`}
+                    label="Schema name"
+                    initial={freeSchemaName(dialog.name)}
+                    confirmLabel="Duplicate"
+                    hint="A copy of its fields under a name of its own, to change without changing the one it came from."
+                    onCancel={() => setDialog(null)}
+                    onConfirm={(to) => {
+                        const {name} = dialog;
+                        setDialog(null);
+                        void duplicateSchema(name, to);
+                    }}
+                />
+            )}
+
+            {dialog?.kind === 'rename-schema' && (
+                <NameDialog
+                    title={`Rename ${dialog.name}`}
+                    label="Schema name"
+                    initial={dialog.name}
+                    confirmLabel="Rename"
+                    hint="Its file is renamed, and every node and schema using it, in every flow here, follows."
+                    onCancel={() => setDialog(null)}
+                    onConfirm={(to) => {
+                        const {name} = dialog;
+                        setDialog(null);
+                        if (to !== name) void renameSchema(name, to);
+                    }}
+                />
+            )}
+
+            {dialog?.kind === 'delete-schema' && workspace && (
+                <ConfirmDialog
+                    title="Delete schema"
+                    message={`Delete ${dialog.name} from ${workspace.name}? Its file, schemas/${dialog.name}.json, is deleted. ${unsharing(dialog.name)} This cannot be undone.`}
+                    confirmLabel="Delete"
+                    onCancel={() => setDialog(null)}
+                    onConfirm={() => {
+                        const {name} = dialog;
+                        setDialog(null);
+                        void removeSchema(name);
                     }}
                 />
             )}

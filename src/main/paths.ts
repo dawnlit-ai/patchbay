@@ -8,8 +8,8 @@ import { toFolderName } from '@shared/naming';
 /**
  * Two roots. The app's own data — settings, runs, logs, watermarks — lives under
  * userData. A workspace is a folder of the user's: its flows in `flows/`, the
- * skills they share in `skills/`, and it is the directory every run of them
- * works in. One is open at a time.
+ * skills they share in `skills/` and the schemas in `schemas/`, and it is the
+ * directory every run of them works in. One is open at a time.
  */
 let data: string | null = null;
 
@@ -105,6 +105,9 @@ export const flowsDir = (): string => ensureAt(flowsDirAt());
 /** Where the workspace's `<name>/SKILL.md` folders are. Does not create it: for reading. */
 export const skillsDirAt = (): string => join(workspaceRoot(), 'skills');
 export const skillsDir = (): string => ensureAt(skillsDirAt());
+/** Where the workspace's named schemas are, a `<name>.json` each. Does not create it: for reading. */
+export const schemasDirAt = (): string => join(workspaceRoot(), 'schemas');
+export const schemasDir = (): string => ensureAt(schemasDirAt());
 
 // ── Where each flow is ───────────────────────────────────────────────────
 

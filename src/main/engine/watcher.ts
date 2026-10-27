@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
+import { workspaceSchemas } from '../store/schemaStore';
 import { getSettings } from '../store/settingsStore';
 import {
     checkSlots,
@@ -150,7 +151,7 @@ export class Watcher {
                     : `No trigger in "${flow.name}" names a mailbox yet.`,
             );
         }
-        const unfilled = checkSlots(flow).issues.filter((issue) => issue.severity === 'error');
+        const unfilled = checkSlots(flow, workspaceSchemas()).issues.filter((issue) => issue.severity === 'error');
         if (unfilled.length > 0) {
             throw new Error(`Not watching "${flow.name}": ${unfilled.map((issue) => issue.message).join(' ')}`);
         }

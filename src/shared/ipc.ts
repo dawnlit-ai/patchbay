@@ -1,6 +1,6 @@
 /** The one contract between renderer and main; the preload builds `window.api` from it. */
 
-import type { Flow, MailScope } from './flow';
+import type { Flow, JsonSchema, MailScope } from './flow';
 import type { EmailEnvelope, Run, RunSummary } from './trace';
 import type { LogEntry } from './log';
 import type {
@@ -20,6 +20,7 @@ import type {
 export interface WorkspaceChange {
     flows: boolean;
     skills: boolean;
+    schemas: boolean;
 }
 
 /** The README.md at the top of the open workspace's folder, which the start window shows. */
@@ -30,15 +31,30 @@ export interface Readme {
 }
 
 /**
+ * One of the open workspace's named schemas: `schemas/<name>.json`, which any
+ * node in any of its flows can pick.
+ */
+export interface SchemaSummary {
+    /** The file's name without `.json`, which a node refers to it by. */
+    name: string;
+    /** Null when the file is not a JSON object, and `problem` says why. */
+    schema: JsonSchema | null;
+    problem?: string;
+    /** Absolute path to the file. */
+    file: string;
+    updatedAt: string;
+}
+
+/**
  * Which canvas a flow opens on when one is already up: the window last used,
  * whose flow it replaces, or a second window beside it.
  */
 export type OpenWhere = 'current' | 'new';
 
 /**
- * A folder holding flows and the skills they share: `flows/<name>.json` and
- * `skills/<name>/SKILL.md`. One is open at a time, and its folder is where every
- * one of its runs works.
+ * A folder holding flows and the skills and schemas they share:
+ * `flows/<name>.json`, `skills/<name>/SKILL.md` and `schemas/<name>.json`. One is
+ * open at a time, and its folder is where every one of its runs works.
  */
 export interface WorkspaceInfo {
     /** The folder's own name, which is what the workspace is called. */
@@ -137,7 +153,7 @@ export interface Api {
         current(): Promise<WorkspaceInfo | null>;
         /** Workspaces opened before, the last one first, the open one included. */
         recent(): Promise<WorkspaceInfo[]>;
-        /** Open a folder as the workspace. Its `flows` and `skills` folders are made when first written. */
+        /** Open a folder as the workspace. Its `flows`, `skills` and `schemas` folders are made when first written. */
         open(path: string): Promise<WorkspaceInfo>;
         /** Ask for a folder, then open it. Null if cancelled. */
         pickAndOpen(): Promise<WorkspaceInfo | null>;
@@ -249,6 +265,25 @@ export interface Api {
         remove(name: string): Promise<void>;
         /** Ask the user for SKILL.md files, then copy each one's skill into the library. */
         pickAndImport(): Promise<{ imported: string[]; skipped: string[] } | null>;
+    };
+    /**
+     * The open workspace's named schemas, in its `schemas` folder, which every flow
+     * in it shares. Edits made elsewhere are picked up by watching the folder.
+     */
+    schemas: {
+        list(): Promise<SchemaSummary[]>;
+        /** Write a new one. Refused when the workspace already has one of that name, in any case. */
+        create(name: string, schema: JsonSchema): Promise<SchemaSummary>;
+        /** Write over one, or write it new. */
+        save(name: string, schema: JsonSchema): Promise<SchemaSummary>;
+        /** Rename its file, and every reference to it in the workspace's flows and other schemas with it. */
+        rename(from: string, to: string): Promise<void>;
+        /** Delete its file. Each node and schema that used it keeps a copy of it as its own. */
+        remove(name: string): Promise<void>;
+        /** Open its file in the system's app for `.json` files. */
+        open(name: string): Promise<void>;
+        /** Show its file in the file manager. */
+        reveal(name: string): Promise<void>;
     };
     engine: {
         /** Watching is switched on and off per flow. */
@@ -384,6 +419,14 @@ export const IPC = {
     skillsReveal: 'skills:reveal',
     skillsRemove: 'skills:remove',
     skillsPickAndImport: 'skills:pickAndImport',
+
+    schemasList: 'schemas:list',
+    schemasCreate: 'schemas:create',
+    schemasSave: 'schemas:save',
+    schemasRename: 'schemas:rename',
+    schemasRemove: 'schemas:remove',
+    schemasOpen: 'schemas:open',
+    schemasReveal: 'schemas:reveal',
 
     engineStart: 'engine:start',
     engineStop: 'engine:stop',
