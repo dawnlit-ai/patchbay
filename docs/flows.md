@@ -44,14 +44,15 @@ step replies to it or files it.
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
 both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
 it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor always
-reads the email, and any slots it ticks besides.
+reads the email, and any slots it ticks besides. The inspector's *Reads* list names the schema each slot carries
+beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.
 
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
 for its type. Every slot has a colour of its own — the email's, then one per slot a node fills — and a wire takes the
 colour of the newest slot it carries: the one its port adds, or else what the step before handed on. So a wire's
 colour matches the chip of the slot it brings to the next card. A wire stays grey until a trigger reaches it. The
-inspector's *Data* section spells out the rest: what the node reads, what every path into it is sure
-to bring, and what leaves by each port.
+inspector's *Data* section spells out the rest: what every path into the node is sure to bring, and what leaves by
+each port.
 
 A slot counts at a node only if **every** path from a trigger to it fills that slot. A Processor reading `order`
 behind both an Extractor's *Valid* port and a Categorizer branch that skips the Extractor is flagged on the canvas,

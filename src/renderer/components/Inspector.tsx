@@ -19,7 +19,6 @@ import {
     type ProcessorConfig,
     provides,
     refName,
-    requires,
     schemaRef,
     type Schemas,
     shortId,
@@ -1185,17 +1184,24 @@ function InputsField({
                 />
                 The email — its body, and its attachments if allowed below
             </label>
-            {[...offered, ...stranded].map((name) => (
-                <label className="check" key={name}>
-                    <input
-                        type="checkbox"
-                        checked={config.inputs.includes(name)}
-                        onChange={(e) => toggle(name, e.target.checked)}
-                    />
-                    {name}
-                    {stranded.includes(name) && <span className="hint"> — not filled on every path here</span>}
-                </label>
-            ))}
+            {[...offered, ...stranded].map((name) => {
+                const type = available?.get(name);
+                return (
+                    <label className="check" key={name}>
+                        <input
+                            type="checkbox"
+                            checked={config.inputs.includes(name)}
+                            onChange={(e) => toggle(name, e.target.checked)}
+                        />
+                        {name}
+                        {type ? (
+                            <span className="slot-type">{slotTypeLabel(type)}</span>
+                        ) : (
+                            <span className="hint"> — not filled on every path here</span>
+                        )}
+                    </label>
+                );
+            })}
             <div className="gap"/>
         </>
     );
@@ -1216,28 +1222,22 @@ function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
     );
 }
 
-/** One slot as a row: its name in its colour, and its type or why there is none. */
-function SlotRow({name, token, type, problem}: {
-    name: string;
-    token?: string;
-    type?: string;
-    problem?: string
-}): JSX.Element {
+/** One slot as a row: its name in its colour, and its type. */
+function SlotRow({name, token, type}: { name: string; token?: string; type: string }): JSX.Element {
     return (
         <div className="slot-row">
             <span className={`slot-chip ${tint(token)}`}>{name}</span>
-            <span className={problem ? 'slot-problem' : 'slot-type'}>{problem ?? type}</span>
+            <span className="slot-type">{type}</span>
         </div>
     );
 }
 
-/** What the node reads, what reaches it, and what leaves by each port. */
+/** What reaches the node, and what leaves by each port. */
 function DataSection({node, available, tokens}: {
     node: FlowNode;
     available: Available | undefined;
     tokens: DataTokens
 }): JSX.Element {
-    const reads = requires(node);
     const ports = outputPorts(node);
     const arriving = [...(available ?? new Map())];
 
@@ -1247,24 +1247,6 @@ function DataSection({node, available, tokens}: {
 
             {hasInput(node.kind) && (
                 <>
-                    {reads.length > 0 && <Legend label="Reads"/>}
-                    {reads.map((name) => {
-                        const type = available?.get(name);
-                        let problem: string | undefined;
-                        if (!available) problem = 'not known until a trigger reaches this node';
-                        else if (!type) problem = 'not filled on every path here';
-                        // Coloured only once it is sure to arrive; the problem says why not.
-                        return (
-                            <SlotRow
-                                key={name}
-                                name={name}
-                                token={type && tokens.get(name)}
-                                type={type && slotTypeLabel(type)}
-                                problem={problem}
-                            />
-                        );
-                    })}
-
                     <Legend
                         label="Arrives with"
                         hint={available ? 'Every path here fills these.' : 'No trigger reaches this node yet.'}

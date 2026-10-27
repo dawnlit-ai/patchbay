@@ -407,11 +407,15 @@ export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema
     return {...flow, nodes: flow.nodes.map((node) => editNodeSchema(node, edit))};
 }
 
-/** A slot's type as the canvas and inspector name it: a named schema's name, else e.g. "JSON · 3 fields". */
+/**
+ * A slot's type as the canvas and inspector name it: a named schema's name, else
+ * "No schema yet" for a node that has picked none, else e.g. "JSON · 3 fields".
+ */
 export function slotTypeLabel(type: SlotType): string {
     if (type.kind === 'email') return 'Email';
     const named = refName(type.schema);
     if (named !== null) return named;
+    if (Object.keys(type.schema).length === 0) return 'No schema yet';
     const properties = type.schema.properties;
     if (typeof properties !== 'object' || properties === null) return 'JSON';
     const count = Object.keys(properties).length;

@@ -2483,10 +2483,6 @@ button.add-field:hover:not(:disabled) {
     color: var(--muted);
 }
 
-.slot-problem {
-    color: var(--err);
-}
-
 .slot-row .port-name {
     min-width: 72px;
     color: var(--muted);
