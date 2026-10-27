@@ -1,10 +1,11 @@
 import { app } from 'electron';
-import { mkdirSync, readdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { currentWorkspace, isFolder, samePath, setWorkspaceState, workspaceState } from '../paths';
+import { currentWorkspace, isFolder, samePath, setWorkspaceState, workspaceRoot, workspaceState } from '../paths';
+import { listFlows } from './flowStore';
 import { seedStarterSkill } from './skillStore';
 import { toFolderName } from '@shared/naming';
-import type { WorkspaceInfo } from '@shared/ipc';
+import type { Readme, WorkspaceInfo } from '@shared/ipc';
 
 /**
  * Which folder is the open workspace, and the ones opened before it. A workspace
@@ -77,4 +78,49 @@ export function createWorkspace(name: string, location: string): WorkspaceInfo {
     setWorkspaceState({...workspaceState(), location: parent});
     seedStarterSkill();
     return opened;
+}
+
+// ── README ───────────────────────────────────────────────────────────────
+// Optional: the README.md at the top of the workspace folder — a repository's
+// own, for a workspace opened on one. The start window shows it; the app never
+// needs it.
+
+/** The README.md at the top of the workspace folder, in whatever case it is spelled, or null for none. */
+export function readmeFile(): string | null {
+    const root = workspaceRoot();
+    const entry = readdirSync(root, {withFileTypes: true}).find(
+        (e) => (e.isFile() || e.isSymbolicLink()) && e.name.toLowerCase() === 'readme.md',
+    );
+    return entry ? join(root, entry.name) : null;
+}
+
+export function readReadme(): Readme | null {
+    const file = readmeFile();
+    if (!file) return null;
+    return {path: file, content: readFileSync(file, 'utf8'), updatedAt: statSync(file).mtime.toISOString()};
+}
+
+/** Start one from a template naming the workspace and its flows. Refused when it has one. */
+export function createReadme(): string {
+    if (readmeFile()) throw new Error('This workspace already has a README. Edit that one.');
+    const root = workspaceRoot();
+    const flows = listFlows().map((flow) => `- **${flow.name}** — what it picks up, and what it does with it.`);
+    const file = join(root, 'README.md');
+    writeFileSync(
+        file,
+        `# ${basename(root)}
+
+What these flows are for, which mailboxes they watch, and what someone taking them over should know.
+
+## Flows
+
+${flows.length > 0 ? flows.join('\n') : '- …'}
+
+## Skills
+
+Kept in \`skills/\` and shared by every flow here. Note any that need a tool, an account or a file set up first.
+`,
+        {flag: 'wx'},
+    );
+    return file;
 }

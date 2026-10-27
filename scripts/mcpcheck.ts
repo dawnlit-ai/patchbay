@@ -13,6 +13,7 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
+    renameSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -46,11 +47,11 @@ async function main(): Promise<void> {
     const {duplicateFlow, getFlow, importFlowFile, saveFlowFrom, setFlowFileName} = await import(
         '../src/main/store/flowStore'
         );
-    const {createSkill, listSkills, locateSkill, missingSkills, skillPluginFor} = await import(
+    const {createSkill, listSkills, locateSkill, missingSkills, workspaceSkillPlugin} = await import(
         '../src/main/store/skillStore'
         );
     const {stopWatchingSkills, watchSkills} = await import('../src/main/store/skillWatch');
-    const {createWorkspace, openWorkspace} = await import('../src/main/store/workspaceStore');
+    const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
 
     console.log('app data:', data);
     saveSettings({...getSettings(), agentControl: {enabled: true, port: PORT, token: TOKEN}});
@@ -123,7 +124,9 @@ async function main(): Promise<void> {
     );
     check('a second of the same name is numbered past it', createWorkspace('Checked workspace', home).path === join(home, 'checked-workspace-2'));
     openWorkspace(root);
-    check('get_workspace names the one open', (JSON.parse(await call('get_workspace')) as { path: string }).path === root);
+    check('get_workspace names the one open', (JSON.parse(await call('get_workspace')) as {
+        path: string
+    }).path === root);
 
     const flowId = (JSON.parse(await call('create_flow', {name: 'Wired by an agent'})) as { id: string }).id;
     check(
@@ -283,16 +286,20 @@ async function main(): Promise<void> {
     await call('delete_flow', {flowId: other});
     await call('import_skills', {dir: shelf, names: ['alpha']});
 
-    // A run gets a copy of just the skills it ticks, as a plugin.
-    const plugin = skillPluginFor(['alpha', 'check-skill', 'missing']);
+    // A run gets a copy of every skill in the workspace, whatever its node ticks, as a plugin.
+    const plugin = workspaceSkillPlugin();
+    const everySkill = listSkills().map((s) => s.name);
     check(
-        'a run gets only the ticked skills, folder and all, as a plugin',
+        'a run gets every skill in the workspace, folder and all, as a plugin',
+        plugin !== null &&
         existsSync(join(plugin.path, '.claude-plugin', 'plugin.json')) &&
         existsSync(join(plugin.path, 'skills', 'alpha', 'references', 'notes.md')) &&
-        existsSync(join(plugin.path, 'skills', 'check-skill', 'SKILL.md')) &&
-        !existsSync(join(plugin.path, 'skills', 'summarize-and-file')) &&
-        !existsSync(join(plugin.path, 'skills', 'missing')),
+        everySkill.every((name) => existsSync(join(plugin.path, 'skills', name, 'SKILL.md'))) &&
+        JSON.stringify(plugin.names) === JSON.stringify(everySkill) &&
+        readdirSync(join(plugin.path, 'skills')).length === everySkill.length,
+        plugin?.names.join(', '),
     );
+    if (!plugin) throw new Error('no plugin to check');
     plugin.dispose();
     check(
         'the run’s copy goes, and the library stays',
@@ -534,6 +541,7 @@ async function main(): Promise<void> {
         (JSON.parse(await call('list_skills')) as unknown[]).length === 0,
     );
     check('and only its own runs', !(await call('list_runs', {limit: 50})).includes(first));
+    check('a run there gets no skills: none come from the other workspace, or from anywhere else', workspaceSkillPlugin() === null);
     check('and looking writes nothing into its folder', readdirSync(away).length === 0);
     openWorkspace(root);
     check(
@@ -541,6 +549,34 @@ async function main(): Promise<void> {
         (await call('list_runs', {limit: 50})).includes(first) && (await call('list_flows')).includes(flowId),
     );
     rmSync(away, {recursive: true, force: true});
+
+    // A README is optional, at the top of the workspace, started from a template, and found in whatever case it is spelled.
+    const readmeOf = async (): Promise<string | null> =>
+        (JSON.parse(await call('get_workspace')) as { readme: string | null }).readme;
+    check('a workspace has no README until one is written', readReadme() === null && (await readmeOf()) === null);
+    const readme = createReadme();
+    const started = readReadme()?.content ?? '';
+    check(
+        'a README starts from a template naming the workspace and its flows',
+        readme === join(root, 'README.md') &&
+        started.startsWith('# checked-workspace\n') &&
+        started.includes('**Wired by an agent**'),
+    );
+    check('get_workspace points an agent at it', (await readmeOf()) === readme);
+    let rewritten = false;
+    try {
+        createReadme();
+        rewritten = true;
+    } catch {
+        // Refused, as it should be.
+    }
+    check('a second is refused rather than written over the first', !rewritten && readReadme()?.content === started);
+    renameSync(readme, join(root, 'readme.md'));
+    check('one spelled in lower case is found too', readReadme()?.path === join(root, 'readme.md'));
+    renameSync(join(root, 'readme.md'), join(root, 'notes.md'));
+    writeFileSync(join(root, 'flows', 'README.md'), '# The flows folder’s own\n');
+    check('a README inside the flows folder is not the workspace’s', readReadme() === null);
+    rmSync(join(root, 'flows', 'README.md'));
 
     // The console: what the app did outside any one run, this session's and a day's.
     check(

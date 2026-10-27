@@ -38,7 +38,10 @@ export interface AgentRunRequest {
      * run's own working directory does not hold.
      */
     skillPlugins?: string[];
+    /** The skills the run may use, as `<plugin>:<skill>`: every one in the workspace, and no other. */
     skills?: string[];
+    /** Those of `skills` the step's prompt says to load before anything else: the node's ticks. */
+    followSkills?: string[];
     allowedTools: string[];
     /** `[]` disables every built-in tool — right for a pure classification call. */
     tools?: string[];

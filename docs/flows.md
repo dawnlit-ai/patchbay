@@ -16,10 +16,11 @@ of concurrent activity.
   why.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
   and puts the result in a named slot. It leaves by *Valid* when every required field was in the email and the result
-  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*. Like a Processor, it can tick
-  skills, read slots earlier nodes filled, and take tools from the MCP servers in Settings; unlike one, it cannot draft
-  a reply, move the email or run commands.
-- **Processor** — runs Claude with the skills you tick, holding [tools scoped to this one email](skills.md#the-email-scoped-tools).
+  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*. Like a Processor, it has the
+  workspace's skills, reads slots earlier nodes filled, and takes tools from the MCP servers in Settings; unlike one,
+  it cannot draft a reply, move the email or run commands.
+- **Processor** — runs Claude with the workspace's [skills](skills.md), loading the ones you tick first, and holding
+  [tools scoped to this one email](skills.md#the-email-scoped-tools).
   It leaves by *Done*, by *Needs review* when it finished but a person has to decide or check something, or by
   *Error*. Give it an output slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be
   split into steps that each hand their work to the next — and a run that stops shows which step it stopped at.
@@ -90,18 +91,24 @@ one that contains itself, is flagged on the canvas and leaves by *Error* if it r
 
 ## Workspaces and flow files
 
-A **workspace** is a folder holding flows and the skills they share:
+A **workspace** is a folder holding flows, the skills they share, and an optional README:
 
 ```
 <workspace>/
 ├─ flows/<name>.json        one file per flow
-└─ skills/<name>/SKILL.md   the library every flow here ticks from
+├─ skills/<name>/SKILL.md   the library every flow here ticks from
+└─ README.md                optional: what the workspace is for
 ```
 
 One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether
 a trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
-lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). **☰ Flows** in the
-canvas's top bar brings it back. **Switch workspace…** opens another one you have used, any folder, or a new one.
+lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). Its **README**
+tab shows the `README.md` at the top of the workspace folder — a repository's own README, for a workspace that is one.
+**Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
+with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab
+shows what was saved when you come back to the window. Links in
+it copy their target rather than opening it, and images show as their alt text. **☰ Flows** in the canvas's top bar
+brings it back. **Switch workspace…** opens another one you have used, any folder, or a new one.
 Switching stops watching every flow and closes every canvas, so it asks first when either would happen, and it is
 refused while a run is under way or waiting.
 

@@ -1,10 +1,11 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { findTriggers, type Flow } from '@shared/flow';
-import type { FlowEntry, WorkspaceInfo } from '@shared/ipc';
+import type { FlowEntry, Readme, WorkspaceInfo } from '@shared/ipc';
 import type { AboutInfo, EngineStatus, SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
+import { Markdown } from './components/Markdown';
 import { NameDialog } from './components/NameDialog';
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
@@ -17,16 +18,16 @@ import { ago } from './format';
 import { useTheme } from './theme';
 
 /**
- * The start window: the open workspace's flows and the skills they share, and
- * what can be done to either without opening a canvas. With no workspace open,
- * the ones opened before, and making or opening another.
+ * The start window: the open workspace's flows, the skills they share and its
+ * README, and what can be done to each without opening a canvas. With no
+ * workspace open, the ones opened before, and making or opening another.
  */
 
 /** Newest work first is the useful default; by name is for finding one you know. */
 type Sort = 'recent' | 'name';
 
-/** Which of the workspace's two lists the main pane shows. */
-type Tab = 'flows' | 'skills';
+/** Which part of the workspace the main pane shows. */
+type Tab = 'flows' | 'skills' | 'readme';
 
 type Dialog =
     | { kind: 'new' }
@@ -96,6 +97,8 @@ export function Welcome(): JSX.Element {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [skills, setSkills] = useState<SkillSummary[] | null>(null);
     const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+    /** Undefined until read; null when the workspace has none. */
+    const [readme, setReadme] = useState<Readme | null | undefined>(undefined);
     const [tab, setTab] = useState<Tab>('flows');
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>('recent');
@@ -105,7 +108,12 @@ export function Welcome(): JSX.Element {
     /** The same for a skill. */
     const [skillMenu, setSkillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
     /** The workspaces menu, or one recent workspace's, and where it opened. */
-    const [workspaceMenu, setWorkspaceMenu] = useState<{ items: MenuItem[]; label: string; x: number; y: number } | null>(
+    const [workspaceMenu, setWorkspaceMenu] = useState<{
+        items: MenuItem[];
+        label: string;
+        x: number;
+        y: number
+    } | null>(
         null,
     );
     const [about, setAbout] = useState<AboutInfo | null>(null);
@@ -128,6 +136,8 @@ export function Welcome(): JSX.Element {
             setSelectedId((current) => (list.some((e) => e.flow.id === current) ? current : null));
         });
         refreshSkills();
+        // Edited in another app: coming back to this window is what re-reads it.
+        void window.api.workspace.readme().then(setReadme);
     }, [refreshSkills]);
 
     useEffect(() => {
@@ -385,6 +395,26 @@ export function Welcome(): JSX.Element {
         {label: 'Delete…', separator: true, danger: true, onSelect: () => setDialog({kind: 'delete-skill', name})},
     ];
 
+    // ── README ─────────────────────────────────────────────────────────────
+
+    /** Written from a template and opened to be filled in; shown here once it is saved and this window looked at. */
+    const writeReadme = (): Promise<void> =>
+        attempt(async () => {
+            await window.api.workspace.createReadme();
+            refresh();
+        });
+
+    const editReadme = (): Promise<void> =>
+        attempt(async () => {
+            try {
+                await window.api.workspace.editReadme();
+            } catch (e) {
+                // Gone since it was read: show that, as the banner says why.
+                refresh();
+                throw e;
+            }
+        });
+
     // ── Keyboard ───────────────────────────────────────────────────────────
 
     const move = (from: FlowEntry, delta: number): void => {
@@ -464,6 +494,17 @@ export function Welcome(): JSX.Element {
                                         ↓ Import flow file…
                                     </button>
                                 </>
+                            ) : tab === 'readme' ? (
+                                // One there is opened from the tab's own header.
+                                readme === null && (
+                                    <button
+                                        className="primary wide"
+                                        title="Writes a README.md at the top of the workspace folder from a template, and opens it"
+                                        onClick={() => void writeReadme()}
+                                    >
+                                        ＋ Write a README
+                                    </button>
+                                )
                             ) : (
                                 <>
                                     <button className="primary wide" onClick={() => setDialog({kind: 'new-skill'})}>
@@ -548,7 +589,8 @@ export function Welcome(): JSX.Element {
                         <div className="flow-list" role="listbox" aria-label="Recent workspaces">
                             {recent.length === 0 && (
                                 <div className="empty">
-                                    None yet. <b>New workspace</b> makes a folder for your flows, or <b>Open folder</b>{' '}
+                                    None yet. <b>New workspace</b> makes a folder for your flows, or <b>Open
+                                    folder</b>{' '}
                                     uses one you have.
                                 </div>
                             )}
@@ -606,9 +648,29 @@ export function Welcome(): JSX.Element {
                                 >
                                     Skills <span className="count">{skills?.length ?? 0}</span>
                                 </button>
+                                <button
+                                    role="radio"
+                                    aria-checked={tab === 'readme'}
+                                    title="The README.md at the top of the workspace folder, if it has one"
+                                    onClick={() => setTab('readme')}
+                                >
+                                    README
+                                </button>
                             </div>
                             <span className="spacer"/>
-                            {!nothingYet && (
+                            {tab === 'readme' && readme && (
+                                <>
+                                    <span className="readme-file">edited {ago(readme.updatedAt)}</span>
+                                    <button
+                                        className="ghost compact"
+                                        title={`${readme.path}\nOpens it in the app your system opens .md files with`}
+                                        onClick={() => void editReadme()}
+                                    >
+                                        Open {readme.path.split(/[\\/]/).pop()}
+                                    </button>
+                                </>
+                            )}
+                            {tab !== 'readme' && !nothingYet && (
                                 <>
                                     <input
                                         className="compact"
@@ -678,7 +740,8 @@ export function Welcome(): JSX.Element {
                                             <div className="title">
                                                 {entry.flow.name}
                                                 {watched.has(entry.flow.id) ? (
-                                                    <span className="badge ok" title="A trigger in this flow is being polled">
+                                                    <span className="badge ok"
+                                                          title="A trigger in this flow is being polled">
                                                         <span className="dot live"/> watching
                                                     </span>
                                                 ) : (
@@ -702,8 +765,10 @@ export function Welcome(): JSX.Element {
                                 {(skills === null || workspace === undefined) && <div className="empty">Loading…</div>}
                                 {noSkills && missing.length === 0 && workspace && (
                                     <div className="empty">
-                                        No skills in {workspace.name} yet. <b>New skill</b> writes one from a template into
-                                        its <code>skills</code> folder, and <b>Import skills</b> copies in ones you have.
+                                        No skills in {workspace.name} yet. <b>New skill</b> writes one from a template
+                                        into
+                                        its <code>skills</code> folder, and <b>Import skills</b> copies in ones you
+                                        have.
                                     </div>
                                 )}
                                 {skills !== null && !noSkills && shownSkills.length === 0 && missing.length === 0 && (
@@ -747,7 +812,8 @@ export function Welcome(): JSX.Element {
                                                 <div className="title">
                                                     {skill.name}
                                                     {users.length === 0 && (
-                                                        <span className="badge" title="No node in any flow here ticks it">
+                                                        <span className="badge"
+                                                              title="No node in any flow here ticks it">
                                                             unused
                                                         </span>
                                                     )}
@@ -769,13 +835,29 @@ export function Welcome(): JSX.Element {
                                                 <span className="badge err">not in this workspace</span>
                                             </div>
                                             <div className="meta">
-                                                Ticked in {listed(tickedIn.get(name) ?? [])}, but there is no such skill in
+                                                Ticked in {listed(tickedIn.get(name) ?? [])}, but there is no such skill
+                                                in
                                                 the <code>skills</code> folder, so the nodes that tick it stop at their
                                                 error port. Import it, or untick it on the canvas.
                                             </div>
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        )}
+
+                        {tab === 'readme' && (
+                            <div className="readme-view">
+                                {readme === undefined && <div className="empty">Loading…</div>}
+                                {readme === null && workspace && (
+                                    <div className="empty">
+                                        {workspace.name} has no README. It is optional: a <code>README.md</code> at the
+                                        top of the workspace folder, for what these flows are for and what someone
+                                        looking after them should know. For a workspace that is a repository, it is the
+                                        repository’s own README. <b>Write a README</b> starts one from a template.
+                                    </div>
+                                )}
+                                {readme && <Markdown source={readme.content}/>}
                             </div>
                         )}
                     </div>

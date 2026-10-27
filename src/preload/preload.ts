@@ -40,6 +40,9 @@ const api: Api = {
         pickLocation: (current) => call(IPC.workspacePickLocation, current),
         forget: (path) => call(IPC.workspaceForget, path),
         reveal: () => call(IPC.workspaceReveal),
+        readme: () => call(IPC.workspaceReadme),
+        createReadme: () => call(IPC.workspaceCreateReadme),
+        editReadme: () => call(IPC.workspaceEditReadme),
     },
     flows: {
         entries: () => call(IPC.flowsEntries),

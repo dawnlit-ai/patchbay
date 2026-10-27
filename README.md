@@ -24,7 +24,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
 - **Outlook Trigger** — polls the folders you tick through the real Outlook client, and starts one run per new email.
 - **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why.
 - **Extractor** — pulls fields out of the email into a JSON Schema you give it, for later steps to read.
-- **Processor** — runs Claude with the [skills](docs/skills.md) you tick, holding tools scoped to this one email.
+- **Processor** — runs Claude with the workspace's [skills](docs/skills.md), the ones you tick first, holding tools
+  scoped to this one email.
 - **Terminal** — ends a path and records a disposition.
 
 Each node hands the email out of exactly **one** output port, so a run is a readable path rather than a cloud of

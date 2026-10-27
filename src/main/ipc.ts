@@ -241,6 +241,13 @@ export function registerIpc(): void {
         const failure = await shell.openPath(workspaceRoot());
         if (failure) throw new Error(failure);
     });
+    handle(IPC.workspaceReadme, () => (workspaceStore.currentWorkspaceInfo() ? workspaceStore.readReadme() : null));
+    handle(IPC.workspaceCreateReadme, () => openInEditor(workspaceStore.createReadme()));
+    handle(IPC.workspaceEditReadme, () => {
+        const file = workspaceStore.readmeFile();
+        if (!file) throw new Error('This workspace has no README any more: it was moved or deleted outside the app.');
+        return openInEditor(file);
+    });
 
     handle(IPC.flowsEntries, () => (workspaceStore.currentWorkspaceInfo() ? flowStore.listFlowEntries() : []));
     handleCanvasSave();

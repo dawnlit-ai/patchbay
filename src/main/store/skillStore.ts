@@ -58,16 +58,21 @@ function writeManifest(pluginDir: string): void {
 }
 
 /**
- * The plugin a run loads its ticked skills from. The workspace's `skills` folder
- * is not in plugin layout, and writing a manifest into the user's folder is not
- * the app's place, so the ticked skills are copied into a temporary one — which
- * also keeps an edit made mid-run out of it. `dispose` removes the copy.
+ * The plugin a run loads its skills from: every skill in the workspace, so a
+ * step can use any of them, and the only skills it gets. The workspace's
+ * `skills` folder is not in plugin layout, and writing a manifest into the
+ * user's folder is not the app's place, so the skills are copied into a
+ * temporary one — which also keeps an edit made mid-run out of it. Null when the
+ * workspace has none. `dispose` removes the copy.
  */
-export function skillPluginFor(names: string[]): { path: string; dispose(): void } {
+export function workspaceSkillPlugin(): { path: string; names: string[]; dispose(): void } | null {
+    const names = listSkills()
+        .map((skill) => skill.name)
+        .filter(isValidSkillName);
+    if (names.length === 0) return null;
     const root = mkdtempSync(join(tmpdir(), 'patchbay-skills-'));
     writeManifest(root);
     for (const name of names) {
-        if (!isValidSkillName(name) || !existsSync(skillFile(name))) continue;
         // Dereferenced, so a link inside a skill is copied as content, not as a way back into the folder.
         cpSync(join(skillsDirAt(), name), join(root, 'skills', name), {recursive: true, dereference: true});
     }
@@ -78,7 +83,7 @@ export function skillPluginFor(names: string[]): { path: string; dispose(): void
             // A copy left in the temp folder is harmless; failing a finished run over it is not.
         }
     };
-    return {path: root, dispose};
+    return {path: root, names, dispose};
 }
 
 interface Frontmatter {

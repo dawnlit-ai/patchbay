@@ -18,7 +18,7 @@ import type { AgentMcpServer, AgentRunRequest } from '../agents';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { getSettings } from '../store/settingsStore';
-import { missingSkills, SKILL_PLUGIN, skillPluginFor } from '../store/skillStore';
+import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
 
@@ -97,18 +97,20 @@ function settingsServers(mcpTools: string[]): { servers: Record<string, AgentMcp
     return {servers, allowed};
 }
 
-/** The ticks as Claude names them: each skill of the workspace's plugin, `workspace:<name>`. */
+/** Skills as Claude names them: each of the workspace's plugin, `workspace:<name>`. */
 const skillNames = (skills: string[]): string[] => skills.map((name) => `${SKILL_PLUGIN}:${name}`);
 
 /**
- * The workspace's library is not in plugin layout, so what a node ticks arrives
- * as a plugin holding copies of those skills — and only when it ticks any. The
- * plugin is disposed of once the run is over.
+ * Every skill in the workspace, loaded whatever the node ticks: a step can use
+ * any of them, and its ticks are the ones it is told to load first. Naming them
+ * all to the run is also what hides every other skill — none from outside the
+ * workspace reaches a step. The plugin is disposed of once the run is over.
  */
-function tickedSkills(skills: string[]): { plugins: string[] | undefined; dispose(): void } {
-    const plugin = skills.length > 0 ? skillPluginFor(skills) : null;
+function workspaceSkills(): { plugins: string[] | undefined; names: string[]; dispose(): void } {
+    const plugin = workspaceSkillPlugin();
     return {
         plugins: plugin ? [plugin.path] : undefined,
+        names: skillNames(plugin?.names ?? []),
         dispose: () => plugin?.dispose(),
     };
 }
@@ -319,18 +321,19 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         ...slotContext(ctx, config.inputs),
     ].join('\n');
 
-    const library = tickedSkills(config.skills);
+    const library = workspaceSkills();
 
     const result = await agents.run({
         prompt,
         ...modelsFor(config),
         cwd: workspaceRoot(),
         skillPlugins: library.plugins,
-        skills: ticked ? skillNames(config.skills) : undefined,
+        skills: library.names,
+        followSkills: skillNames(config.skills),
         additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
-        // Nothing that writes or runs a command: Skill to load what it ticks, and
-        // Read for the attachments it saves.
-        tools: [...(ticked ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
+        // Nothing that writes or runs a command: Skill to load the workspace's
+        // skills, and Read for the attachments it saves.
+        tools: [...(library.names.length > 0 ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
         allowedTools,
         mcpServers: {[EMAIL_SERVER_NAME]: server, ...extra.servers},
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
@@ -462,7 +465,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             : []),
     ].join('\n');
 
-    const library = tickedSkills(config.skills);
+    const library = workspaceSkills();
 
     const result = await agents.run({
         prompt,
@@ -473,12 +476,17 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         skillPlugins: library.plugins,
         // The scratch folder, where attachments are saved, is outside that directory.
         additionalDirectories: [ctx.scratchDir],
-        skills: config.skills.length > 0 ? skillNames(config.skills) : undefined,
+        skills: library.names,
+        followSkills: skillNames(config.skills),
         allowedTools,
         // Without file-system access the run still reads its own two folders,
         // which `dontAsk` allows; the shell goes, since `dontAsk` would let its
         // read-only commands through too, and "read-only" is the shell's own guess.
-        disallowedTools: config.allowFileSystem ? undefined : ['Bash', 'PowerShell'],
+        // With no skills in the workspace, no Skill tool either: nothing else is this step's to load.
+        disallowedTools: [
+            ...(config.allowFileSystem ? [] : ['Bash', 'PowerShell']),
+            ...(library.names.length > 0 ? [] : ['Skill']),
+        ],
         mcpServers: {[EMAIL_SERVER_NAME]: server, ...extra.servers},
         repeatableTools: REPEATABLE_EMAIL_TOOLS,
         signal: ctx.signal,

@@ -1,13 +1,6 @@
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-    checkSlots,
-    type Flow,
-    type FlowNode,
-    NODE_KIND_META,
-    NODE_KINDS,
-    triggerConfig,
-} from '@shared/flow';
+import { checkSlots, type Flow, type FlowNode, NODE_KIND_META, NODE_KINDS, triggerConfig, } from '@shared/flow';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import type { EngineStatus, SkillSummary } from '@shared/settings';

@@ -22,6 +22,13 @@ export interface WorkspaceChange {
     skills: boolean;
 }
 
+/** The README.md at the top of the open workspace's folder, which the start window shows. */
+export interface Readme {
+    path: string;
+    content: string;
+    updatedAt: string;
+}
+
 /**
  * Which canvas a flow opens on when one is already up: the window last used,
  * whose flow it replaces, or a second window beside it.
@@ -147,6 +154,12 @@ export interface Api {
         forget(path: string): Promise<WorkspaceInfo[]>;
         /** Show the open workspace's folder in the file manager. */
         reveal(): Promise<void>;
+        /** The README.md at the top of its folder, or null when it has none: it is optional. */
+        readme(): Promise<Readme | null>;
+        /** Write a README.md from a template, then open it as `editReadme` does. Refused when there is one. */
+        createReadme(): Promise<void>;
+        /** Open the README.md in the system's app for `.md` files. The start window re-reads it on focus. */
+        editReadme(): Promise<void>;
     };
     flows: {
         /** The open workspace's flows. */
@@ -330,6 +343,9 @@ export const IPC = {
     workspacePickLocation: 'workspace:pickLocation',
     workspaceForget: 'workspace:forget',
     workspaceReveal: 'workspace:reveal',
+    workspaceReadme: 'workspace:readme',
+    workspaceCreateReadme: 'workspace:createReadme',
+    workspaceEditReadme: 'workspace:editReadme',
 
     flowsEntries: 'flows:entries',
     flowsSave: 'flows:save',

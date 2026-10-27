@@ -3,9 +3,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
+    deleteSchema,
     type Disposition,
     DISPOSITIONS,
-    deleteSchema,
     EMAIL_SLOT,
     type ExtractorConfig,
     type Flow,
@@ -934,13 +934,13 @@ function ExtractorFields({
     );
 }
 
-/** The skills a node may invoke, ticked from the workspace's library — and the library itself, kept from here. */
+/** The skills a node loads first, ticked from the workspace's library — and the library itself, kept from here. */
 function SkillsField({config, patch, library}: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
     return (
         <>
             <Legend
                 label="Skills"
-                hint="Claude may invoke any skill you tick, and nothing else. Every flow in the workspace shares these."
+                hint="Every skill in the workspace is this step’s to use, and none from anywhere else. The ones you tick it loads before anything else."
             />
             <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({skills})}/>
             <div className="gap"/>
@@ -1361,7 +1361,8 @@ export function Inspector({
                 </div>
                 <div className="section-title">Skills</div>
                 <div className="hint block">
-                    Every flow in the workspace shares these. Processors and Extractors tick the ones they may use.
+                    Every flow in the workspace shares these, and every Processor and Extractor can use any of them. A
+                    node’s ticks are the ones it loads first.
                 </div>
                 <div className="library-alone">
                     <SkillShelf library={library}/>

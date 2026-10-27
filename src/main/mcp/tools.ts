@@ -31,6 +31,7 @@ import * as flowStore from '../store/flowStore';
 import * as skillStore from '../store/skillStore';
 import { rewatch } from '../store/skillWatch';
 import { flowsDirAt, skillsDirAt, workspaceRoot } from '../paths';
+import { readmeFile } from '../store/workspaceStore';
 import * as traceStore from '../store/traceStore';
 import { getSettings } from '../store/settingsStore';
 import { listServerTools } from '../tools/serverTools';
@@ -83,11 +84,13 @@ rather than a fan-out. The five node kinds:
 - extractor       — pulls fields out of the email into its JSON \`schema\` and
                     fills the slot named by \`output\`. Ports: "valid",
                     "invalid" and "error"; only "valid" fills the slot.
-                    Like a processor it ticks \`skills\`, reads \`inputs\`
+                    Like a processor it has the workspace's skills, ticks
+                    the \`skills\` it loads first, reads \`inputs\`
                     and gets the \`mcpTools\` it names, but it cannot draft
                     a reply, move the email or run commands.
-- processor       — runs Claude with the skills it ticks, by name, from the
-                    workspace's library, scoped to one email.
+- processor       — runs Claude scoped to one email, with every skill in
+                    the workspace and none from elsewhere. \`skills\` ticks,
+                    by name, the ones it loads before anything else.
                     Ports: "done", "review" (it needs a person) and "error".
                     With \`output\` and \`schema\` set, its result fills that
                     slot on "done" — how one step hands its work to the next.
@@ -249,13 +252,13 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Get the workspace',
             description:
-                'The workspace open in the app: its folder, which every step of every flow works in, and the folders its flows and skills are kept in. There is no tool that opens another: switching closes the person’s canvases.',
+                'The workspace open in the app: its folder, which every step of every flow works in, the folders its flows and skills are kept in, and the README.md at the top of its folder if it has one — for a workspace that is a repository, the repository’s own, worth reading before changing its flows. There is no tool that opens another: switching closes the person’s canvases.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },
         () => {
             const path = workspaceRoot();
-            return json({name: basename(path), path, flows: flowsDirAt(), skills: skillsDirAt()});
+            return json({name: basename(path), path, flows: flowsDirAt(), skills: skillsDirAt(), readme: readmeFile()});
         },
     );
 
@@ -553,7 +556,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List skills',
             description:
-                'The workspace’s library, which every flow in it shares. A Processor or Extractor ticks a skill by its name.',
+                'The workspace’s library, which every flow in it shares. Every Processor and Extractor can use any of these and no other skill; a node’s `skills` ticks, by name, the ones it loads first.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },

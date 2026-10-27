@@ -3,26 +3,34 @@
 ## Skills
 
 A skill is a `SKILL.md` file with frontmatter, exactly as Claude Code defines them. A workspace has **one library**, in
-its `skills` folder, and every flow in the workspace ticks from it:
+its `skills` folder, and it is the only one its flows use:
 
 ```
 <workspace>/skills/<name>/SKILL.md
 ```
 
-A node stores a tick as the skill's name, so editing a skill changes it for every flow here that ticks it. A flow saved
-while Patchbay had a global library and one per flow ticks the global one's skills as `global:<name>`; those read as the
+Every Processor and Extractor step is given the whole library, loaded automatically, and no skill from anywhere else —
+not `~/.claude/skills`, not a project's `.claude/skills`, not another workspace's. Claude picks a skill by its
+description, as it would in Claude Code, so a step can follow one skill that hands part of the job to another without
+either being ticked. What a node ticks are the skills it loads **before anything else**: its prompt names them, so the
+step starts from the skill meant for it rather than whichever one Claude judges closest.
+
+A node stores a tick as the skill's name, so editing a skill changes it for every flow here. A flow saved while
+Patchbay had a global library and one per flow ticks the global one's skills as `global:<name>`; those read as the
 plain name now.
 
 A new workspace starts with one starter skill. A folder opened as a workspace starts with whatever its `skills` folder
 holds — nothing, if it has none yet.
 
-A run is handed a copy of just the skills its node ticks, as a plugin Claude knows as `workspace`, so a trace shows a
-step loading `workspace:<name>`. A skill saved while a run is under way reaches the next run, not that one.
+A run is handed a copy of the library, as a plugin Claude knows as `workspace`, so a trace shows a step loading
+`workspace:<name>`. A skill saved while a run is under way reaches the next run, not that one. A workspace with no
+skills gives its steps none, and no Skill tool. On an agy model, the skills are copied to where agy reads them, and the
+step is told which to read first.
 
 ### Managing skills
 
-The list sits in a Processor's or Extractor's inspector, where a tick lets the node use a skill, and on its own when no
-node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
+The list sits in a Processor's or Extractor's inspector, where a tick makes the node load a skill first, and on its own
+when no node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
 `.md` files, and right-clicking a skill can also show its folder or delete it. **New** writes one from a template,
 ticks it on the node whose list it came from, and opens it. **Import…** copies chosen `SKILL.md` files into the
 library, each with the folder it sits in — which is how skills kept elsewhere, such as `~/.claude/skills`, come in.

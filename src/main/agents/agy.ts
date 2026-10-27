@@ -16,7 +16,7 @@ import { clock } from './usageGate';
  * The models the Antigravity CLI (`agy`) offers — Gemini, and the Claude and GPT
  * models beside it, each group on a quota of its own — for a node whose model is
  * stored as `agy:<id>`. Each run gets a workspace of its own, and a plugin in it
- * that hands agy the run's MCP servers and its ticked skills, with a hook that
+ * that hands agy the run's MCP servers and the workspace's skills, with a hook that
  * refuses every tool the node was not given: agy has no switch to leave its own
  * shell, browser or web search out. The hook can refuse but not grant. Headless,
  * agy calls an MCP tool only when the user's own agy settings allow it, so each
@@ -386,7 +386,7 @@ function skillRef(ref: string): { plugin?: string; name: string } {
 }
 
 /**
- * Each ticked skill, copied to where agy finds skills: `.agents/skills/<name>`.
+ * Each skill the run may use, copied to where agy finds skills: `.agents/skills/<name>`.
  * A plugin's comes from the plugin folders the request names, the working
  * directory's own from its `.claude/skills`.
  */
@@ -405,8 +405,9 @@ async function copySkills(request: AgentRunRequest, workspace: string): Promise<
 }
 
 /** How the node's Claude wording maps onto agy, after its prompt. */
-function environmentNotes(servers: string[], skills: string[], pluginNames: string[]): string[] {
-    const one = skills.length === 1;
+function environmentNotes(servers: string[], skills: string[], follow: string[], pluginNames: string[]): string[] {
+    const one = follow.length === 1;
+    const listed = (names: string[]): string => names.map((s) => `\`${s}\``).join(', ');
     const spelled = pluginNames.map((p) => `\`${p}:<name>\``).join(' or ');
     return [
         '',
@@ -419,8 +420,12 @@ function environmentNotes(servers: string[], skills: string[], pluginNames: stri
             : []),
         ...(skills.length > 0
             ? [
-                `Before anything else, read the skill${one ? '' : 's'} this step is given — ${skills.map((s) => `\`${s}\``).join(', ')}` +
-                `${spelled ? `, also written ${spelled}` : ''} — at .agents/skills/<name>/SKILL.md, and follow ${one ? 'it' : 'them'}. ` +
+                `The workspace's skills are at .agents/skills/<name>/SKILL.md: ${listed(skills)}` +
+                `${spelled ? `, each also written ${spelled}` : ''}. ` +
+                (follow.length > 0
+                    ? `Before anything else, read the skill${one ? '' : 's'} this step is given — ${listed(follow)} — and follow ${one ? 'it' : 'them'}; ` +
+                    'read another where the task or a skill calls for it. '
+                    : 'Read one where its name fits the task. ') +
                 'Where a skill says to load another with the Skill tool, read its SKILL.md; where it says Read, use view_file.',
             ]
             : []),
@@ -495,6 +500,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         servers = await pluginServers(request.mcpServers ?? {});
         const serverNames = Object.keys(request.mcpServers ?? {});
         const skills = await copySkills(request, workspace);
+        const follow = (request.followSkills ?? []).map((ref) => skillRef(ref).name).filter((name) => skills.includes(name));
         const pluginNames = [...new Set((request.skills ?? []).flatMap((ref) => skillRef(ref).plugin ?? []))];
         const folders = [...new Set([request.cwd, ...(request.additionalDirectories ?? [])])];
         // A Categorizer's one judgement reads nothing, so it is given no folder to read.
@@ -541,7 +547,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         }
         for (const folder of readable) args.push('--add-dir', folder);
 
-        const prompt = [request.prompt, ...(request.tools?.length === 0 && serverNames.length === 0 ? [] : environmentNotes(serverNames, skills, pluginNames))].join('\n');
+        const prompt = [request.prompt, ...(request.tools?.length === 0 && serverNames.length === 0 ? [] : environmentNotes(serverNames, skills, follow, pluginNames))].join('\n');
         request.onEvent({
             at: now(),
             type: 'prompt',
