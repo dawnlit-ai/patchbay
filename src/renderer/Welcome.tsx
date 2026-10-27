@@ -5,6 +5,7 @@ import {
     type Flow,
     type JsonSchema,
     nodeSchema,
+    schemaHolders,
     schemaRefs,
     type Schemas,
     schemaUsers,
@@ -14,6 +15,7 @@ import type { AboutInfo, EngineStatus, SkillSummary } from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { Markdown } from './components/Markdown';
+import { Modal } from './components/Modal';
 import { NameDialog } from './components/NameDialog';
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
@@ -573,12 +575,16 @@ export function Welcome(): JSX.Element {
             }
         });
 
-    /** What deleting a schema means for the nodes that use it. */
-    const unsharing = (name: string): string => {
-        const users = usedIn(entries ?? [], schemas, name);
-        if (users.length === 0) return 'No node in any flow here uses it.';
-        return `The nodes using it in ${together(users)} each keep a copy as their own, so nothing breaks; they just no longer share it.`;
-    };
+    /**
+     * Each node and schema still naming it. No node keeps a schema of its own, so
+     * while any does there is nowhere a copy could go, and deleting it is refused.
+     */
+    const holdersOf = (name: string): string[] =>
+        schemaHolders(
+            (entries ?? []).map((entry) => entry.flow),
+            schemas,
+            name,
+        );
 
     /**
      * Edit it in the dialog — or, for a file the form cannot read, in the
@@ -1386,7 +1392,19 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete' && (
                 <ConfirmDialog
                     title="Delete flow"
-                    message={`Delete “${dialog.entry.flow.name}”? Its file, ${fileStem(dialog.entry.file)}.json, is deleted from the workspace’s flows folder. The skills and schemas it uses stay, since every flow here shares them, and so do runs already recorded. This cannot be undone.`}
+                    message={`Delete
+                    “
+                    ${dialog.entry.flow.name}
+                    ”? Its file,
+                    ${fileStem(dialog.entry.file)}
+                    .
+                    json,
+                    is
+                    deleted
+                    from
+                    the
+                    workspace
+                    ’s flows folder. The skills and schemas it uses stay, since every flow here shares them, and so do runs already recorded. This cannot be undone.`}
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
@@ -1415,7 +1433,25 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete-skill' && workspace && (
                 <ConfirmDialog
                     title="Delete skill"
-                    message={`Delete “${dialog.name}” from ${workspace.name}? Its whole folder goes with it. ${losing(dialog.name)} This cannot be undone.`}
+                    message={`Delete
+                    “
+                    ${dialog.name}
+                    ” from
+                    ${workspace.name}
+                    ?
+                    Its
+                    whole
+                    folder
+                    goes
+                    with
+                    it
+                    .
+                    ${losing(dialog.name)}
+                    This
+                    cannot
+                    be
+                    undone
+                    .`}
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
@@ -1480,10 +1516,20 @@ export function Welcome(): JSX.Element {
                 />
             )}
 
-            {dialog?.kind === 'delete-schema' && workspace && (
+            {dialog?.kind === 'delete-schema' && workspace && holdersOf(dialog.name).length > 0 && (
+                <Modal
+                    title={`${dialog.name} is in use`}
+                    onClose={() => setDialog(null)}
+                    footer={<button className="primary" onClick={() => setDialog(null)}>OK</button>}
+                >
+                    {`It is named by ${together(holdersOf(dialog.name))}. Every schema is the workspace’s, so there is no copy to leave them: have those use another schema first — pick one on each node, or change the field — and then delete it.`}
+                </Modal>
+            )}
+
+            {dialog?.kind === 'delete-schema' && workspace && holdersOf(dialog.name).length === 0 && (
                 <ConfirmDialog
                     title="Delete schema"
-                    message={`Delete ${dialog.name} from ${workspace.name}? Its file, schemas/${dialog.name}.json, is deleted. ${unsharing(dialog.name)} This cannot be undone.`}
+                    message={`Delete ${dialog.name} from ${workspace.name}? Its file, schemas/${dialog.name}.json, is deleted. No node or schema uses it. This cannot be undone.`}
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {

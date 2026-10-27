@@ -14,16 +14,17 @@ of concurrent activity.
   one from one watched folder into another doesn't make it new again.
 - **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
   why.
-- **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the JSON Schema you give it,
-  and puts the result in a named slot. It leaves by *Valid* when every required field was in the email and the result
-  matches the schema, by *Incomplete* when something is missing or wrong, or by *Error*. Like a Processor, it has the
-  workspace's skills, reads slots earlier nodes filled, and takes tools from the MCP servers in Settings; unlike one,
-  it cannot draft a reply, move the email or run commands.
+- **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the [workspace
+  schema](#named-schemas) it names, and puts the result in a named slot. It leaves by *Valid* when every required
+  field was in the email and the result matches the schema, by *Incomplete* when something is missing or wrong, or by
+  *Error*. Like a Processor, it has the workspace's skills, reads slots earlier nodes filled, and takes tools from the
+  MCP servers in Settings; unlike one, it cannot draft a reply, move the email or run commands.
 - **Processor** — runs Claude with the workspace's [skills](skills.md), loading the ones you tick first, and holding
   [tools scoped to this one email](skills.md#the-email-scoped-tools).
   It leaves by *Done*, by *Needs review* when it finished but a person has to decide or check something, or by
-  *Error*. Give it an output slot and a JSON Schema and its result fills that slot on *Done*, so a long job can be
-  split into steps that each hand their work to the next — and a run that stops shows which step it stopped at.
+  *Error*. Give it an output slot and one of the workspace's schemas and its result fills that slot on *Done*, so a
+  long job can be split into steps that each hand their work to the next — and a run that stops shows which step it
+  stopped at.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -58,9 +59,10 @@ and the flow cannot be watched until that is fixed. A test run of such a flow st
 
 ### Named schemas
 
-A slot's schema can be one the node keeps to itself, or one **named** for the whole workspace, such as `Shipment`,
-which any Extractor or Processor in any of its flows can pick. Every node that picks it fills the same shape, and its
-port and chips name the slot's type `Shipment` rather than `JSON · 9 fields`.
+Every schema is the workspace's, **named** once, such as `Shipment`, and any Extractor or Processor in any of its
+flows can pick it. No node keeps a schema of its own: an Extractor, or a Processor with an output slot, names one of the
+workspace's, and is flagged on the canvas until it does. Every node that picks the same schema fills the same shape,
+and its port and chips name the slot's type `Shipment`.
 
 A schema is edited as a list of **fields**, with no JSON to write. Each field has a name, a kind (*Text*, *One of a
 list*, *Number*, *Whole number*, *Yes / no*, *Group of fields*, *List*, or one of the workspace's named schemas), a
@@ -70,12 +72,12 @@ fields. *JSON* beside *Fields* shows the same schema as JSON Schema, for anythin
 the form cannot show, such as a map from any name to a list, is edited as JSON where it stands. Whatever the form
 leaves alone, such as a list's `minItems`, is kept as it was.
 
-The inspector's *Schema* picker offers *This node's own* and each of the workspace's named schemas. **New…** names
-what the node has now and switches the node to it. On a named schema, the fields below it are the shared ones, so an
-edit changes it for every node in every flow that uses it; the hint under it says which. **Rename…** renames it and every
-reference to it, in every flow. **Delete…** gives each node that used it, in any flow, a copy of its own, so nothing
-breaks. Leaving a named schema for *This node's own* starts from a copy of it. Picking a named schema over one of the
-node's own replaces it, so the app asks first.
+The inspector's *Schema* picker offers each of the workspace's schemas. **New…** makes one and the node picks it at
+once, starting from a copy of the one the node had, if any. The fields below the picker are the shared ones, so an edit
+changes the schema for every node in every flow that uses it; the hint under it says which. **Rename…** renames it and
+every reference to it, in every flow. Deleting one is done from the start window's *Schemas* tab, and is refused while
+any node or other schema still names it: there is no copy of it a node could keep instead. The refusal says which ones
+name it.
 
 Named schemas live in the workspace's `schemas` folder, a file each named after it, holding the JSON Schema itself.
 A node or a field refers to one as `{"$ref": "#/schemas/<name>"}`, so one named schema can be built from others, such
@@ -103,10 +105,13 @@ runs. A name is letters, digits and `_`, and two that differ only in case are on
 keep them in one file.
 
 The app watches the `schemas` folder, so a file saved there in your editor, or brought in by a `git pull`, shows on
-every canvas as it happens. Flow files written before schemas were the workspace's kept theirs inside, under
-`schemas`; opening the workspace moves them into the folder. One the folder already has, the same to the letter, is
-left as it is, and one whose name the folder gives a different schema comes in under a numbered name, such as
-`Shipment2`, with the flow's references following it.
+every canvas as it happens. Flow files written before every schema was the workspace's kept them inside, under
+`schemas` or in a node's own `schema`; opening the workspace moves them into the folder. A node's own is named after
+the slot it fills, so `notice` becomes `Notice`, or after its flow and the slot, such as `RateRepliesAck`, when that
+name holds a different schema already. One the folder already has, the same to the letter, is named rather than copied.
+A flow-level one whose name the folder gives another comes in numbered, such as `Shipment2`. Either way the flow's
+references follow. A Processor that fills no slot never used its schema, so that schema is dropped. Importing a flow
+file does the same.
 
 ## Workspaces and flow files
 
@@ -123,16 +128,16 @@ A **workspace** is a folder holding flows, the skills and schemas they share, an
 One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether
 a trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
 lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). Its **Schemas**
-tab lists the [named schemas](#named-schemas): each one's description, its fields, the flows and nodes that use it, and
-when it was last edited. The one picked shows every field with its kind and description, and **Edit…**,
+tab lists the [named schemas](#named-schemas): each one's description, its fields, the flows and nodes that use it,
+and when it was last edited. The one picked shows every field with its kind and description, and **Edit…**,
 **Duplicate…** and **Delete…** under them. **New schema** and **Edit…** (or a double-click) open the schema in a
 dialog with its name and the same field editor as the inspector. Nothing is written until **Save**, renaming it there
-carries every flow along, and a click outside asks before it throws edits away. **Duplicate…** starts a new schema from
-a copy of an old one. Deleting one gives each node that used it a copy of its own, as the inspector does. Right-clicking
-one can also open its file in the app your system gives `.json` files, or show it in its folder; a file the form cannot
-read opens there instead. A schema some node names but the folder no longer holds is listed at the bottom, with
-**Create it…**. Its **README**
-tab shows the `README.md` at the top of the workspace folder — a repository's own README, for a workspace that is one.
+carries every flow along, and a click outside asks before it throws edits away. **Duplicate…** starts a new schema
+from a copy of an old one. Deleting one is refused while any node or schema names it, and the window says which.
+Right-clicking one can also open its file in the app your system gives `.json` files, or show it in its folder; a file
+the form cannot read opens there instead. A schema some node names but the folder no longer holds is listed at the
+bottom, with **Create it…**. Its **README** tab shows the `README.md` at the top of the workspace folder — a
+repository's own README, for a workspace that is one.
 **Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
 with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab
 shows what was saved when you come back to the window. Links in

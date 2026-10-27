@@ -287,16 +287,38 @@ async function main(): Promise<void> {
         (await fileOf(sharer)).includes('#/schemas/Cargo') &&
         !(await fileOf(sharer)).includes('#/schemas/Shipment'),
     );
-    await call('delete_schema', {name: 'Config'});
-    const cargo = readFileSync(schemaFile('Cargo'), 'utf8');
+    // No node keeps a schema of its own, so there is nowhere a copy of a deleted one
+    // could go: deleting one is refused while anything names it.
+    const refusal = async (name: string): Promise<string | null> => {
+        const result = await client.callTool({name: 'delete_schema', arguments: {name}});
+        return result.isError === true ? JSON.stringify(result.content) : null;
+    };
+    const heldBy = await refusal('Config');
     check(
-        'deleting one gives each schema that held it a copy, its own description kept',
-        !existsSync(schemaFile('Config')) && cargo.includes('output_dir') && cargo.includes('Its own.') && !cargo.includes('$ref'),
+        'a schema another is built from is not deleted, and the refusal names it',
+        heldBy !== null && heldBy.includes('the schema Cargo') && existsSync(schemaFile('Config')),
     );
-    await call('delete_schema', {name: 'Cargo'});
+    const namedBy = await refusal('Cargo');
     check(
-        'and each flow that used it a copy too',
-        (await fileOf(sharer)).includes('"bl_no"') && !(await fileOf(sharer)).includes('$ref') && !(await fileOf(flowId)).includes('$ref'),
+        'nor one a node names, and the refusal names the flow and the node',
+        namedBy !== null && namedBy.includes('Shares a schema') && existsSync(schemaFile('Cargo')),
+    );
+    await call('update_node', {flowId: sharer, nodeId: secondPuller, config: {schema: {}}});
+    await call('update_node', {flowId, nodeId: puller, config: {schema: {}}});
+    await call('delete_schema', {name: 'Cargo'});
+    await call('delete_schema', {name: 'Config'});
+    check('once nothing names it, it goes', !existsSync(schemaFile('Cargo')) && !existsSync(schemaFile('Config')));
+    check(
+        'a node naming no schema is flagged',
+        (await call('get_flow', {flowId: sharer})).includes('has no schema yet'),
+    );
+    const ownShape = await client.callTool({
+        name: 'update_node',
+        arguments: {flowId: sharer, nodeId: secondPuller, config: {schema: settingsShape}},
+    });
+    check(
+        'an agent cannot give a node a schema of its own',
+        ownShape.isError === true && JSON.stringify(ownShape.content).includes('never holds a schema of its own'),
     );
     await call('update_node', {flowId: sharer, nodeId: secondPuller, config: {schema: {$ref: '#/schemas/Nope'}}});
     check(
@@ -305,10 +327,11 @@ async function main(): Promise<void> {
     );
     await call('delete_flow', {flowId: sharer});
 
-    // A flow file from before schemas were the workspace's keeps them inside it.
-    // Opening the workspace moves them into its folder: one the folder has, the same
-    // to the letter, stays as it is; one whose name the folder gives another comes
-    // in under a free name, and what named it follows.
+    // A flow file from before every schema was the workspace's keeps them inside
+    // it, beside its nodes or in a node itself. Opening the workspace moves them
+    // into its folder: one the folder has, the same to the letter, stays as it is;
+    // one whose name the folder gives another comes in under a free name, and
+    // what named it follows.
     await call('set_schema', {name: 'Kept', schema: settingsShape});
     await call('set_schema', {name: 'Clash', schema: {type: 'object', properties: {mine: {type: 'string'}}}});
     const kept = readFileSync(schemaFile('Kept'), 'utf8');
@@ -326,6 +349,27 @@ async function main(): Promise<void> {
                     position: {x: 0, y: 0},
                     config: {output: 'pulled', schema: {$ref: '#/schemas/Clash'}},
                 },
+                {
+                    id: 'write',
+                    kind: 'processor',
+                    name: 'Write',
+                    position: {x: 260, y: 0},
+                    config: {output: 'notice', schema: {type: 'object', properties: {an_path: {type: 'string'}}}},
+                },
+                {
+                    id: 'again',
+                    kind: 'extractor',
+                    name: 'Again',
+                    position: {x: 520, y: 0},
+                    config: {output: 'kept', schema: settingsShape},
+                },
+                {
+                    id: 'quiet',
+                    kind: 'processor',
+                    name: 'Quiet',
+                    position: {x: 780, y: 0},
+                    config: {output: '', schema: {type: 'object', properties: {}}},
+                },
             ],
             edges: [],
             schemas: {
@@ -333,6 +377,24 @@ async function main(): Promise<void> {
                 Clash: {type: 'object', properties: {theirs: {type: 'string'}}},
                 Holder: {type: 'object', properties: {held: {$ref: '#/schemas/Clash'}}},
             },
+        }),
+    );
+    const alsoBefore = join(root, 'flows', 'also-before.json');
+    writeFileSync(
+        alsoBefore,
+        JSON.stringify({
+            id: 'also-before',
+            name: 'Also before',
+            nodes: [
+                {
+                    id: 'write',
+                    kind: 'processor',
+                    name: 'Write',
+                    position: {x: 0, y: 0},
+                    config: {output: 'notice', schema: {type: 'object', properties: {sent: {type: 'boolean'}}}},
+                },
+            ],
+            edges: [],
         }),
     );
     openWorkspace(root);
@@ -352,7 +414,36 @@ async function main(): Promise<void> {
         after.includes('#/schemas/Clash2') &&
         readFileSync(schemaFile('Holder'), 'utf8').includes('#/schemas/Clash2'),
     );
+    type FileNode = { id: string; config: { schema: unknown } };
+    const nodesOf = (file: string): FileNode[] => (JSON.parse(readFileSync(file, 'utf8')) as {
+        nodes: FileNode[]
+    }).nodes;
+    const schemaOn = (file: string, id: string): unknown => nodesOf(file).find((n) => n.id === id)?.config.schema;
+    const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+    // Flow files are read in name order, so also-before.json's comes first.
+    check(
+        'a schema a node kept to itself moves into the folder, named after its slot, and the node names it',
+        sameJson(schemaOn(alsoBefore, 'write'), {$ref: '#/schemas/Notice'}) &&
+        readFileSync(schemaFile('Notice'), 'utf8').includes('sent'),
+    );
+    check(
+        'one the folder already has to the letter is named, not copied',
+        sameJson(schemaOn(before, 'again'), {$ref: '#/schemas/Kept'}) && !existsSync(schemaFile('Kept2')),
+    );
+    check(
+        'one whose slot’s name the folder gives another is named after its flow too',
+        sameJson(schemaOn(before, 'write'), {$ref: '#/schemas/FromBeforeNotice'}) &&
+        readFileSync(schemaFile('FromBeforeNotice'), 'utf8').includes('an_path'),
+    );
+    check('one a Processor filling no slot kept, and never used, is dropped', sameJson(schemaOn(before, 'quiet'), {}));
+    check(
+        'and no node in either flow keeps a schema of its own',
+        [...nodesOf(before), ...nodesOf(alsoBefore)].every(
+            ({config}) => sameJson(config.schema, {}) || JSON.stringify(config.schema).startsWith('{"$ref":'),
+        ),
+    );
     await call('delete_flow', {flowId: 'from-before'});
+    await call('delete_flow', {flowId: 'also-before'});
 
     await call('write_skill', {
         name: 'check-skill',

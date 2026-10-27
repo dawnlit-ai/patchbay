@@ -37,7 +37,9 @@ dropped, with the tool that dropped it saying how many.
 
 Named schemas are the workspace's, not a flow's: `set_schema` writes `schemas/<name>.json`, which a node in any flow
 picks as `{"$ref": "#/schemas/<name>"}`, and `list_schemas` says which nodes in which flows use each one.
-`rename_schema` and `delete_schema` carry the change through every flow naming it.
+No node holds a schema of its own: `update_node` refuses one, and a new Extractor names none until it is given one.
+`rename_schema` carries the new name through every flow naming it. `delete_schema` is refused while any node or schema
+still names it, and the refusal says which.
 
 `write_skill` writes one `SKILL.md` into the workspace's library; a skill with scripts or references beside it comes in
 whole through `import_skills`, from a folder on this machine, optionally narrowed to the names wanted. `delete_skill`

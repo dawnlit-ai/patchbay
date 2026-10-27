@@ -402,8 +402,8 @@ export function App({initialFlowId}: Props): JSX.Element {
     };
 
     /**
-     * Renaming or deleting a named schema rewrites every flow that names it, this
-     * one perhaps among them. This window's own edits go out first, and it reads the
+     * Renaming a named schema rewrites every flow that names it, this one perhaps
+     * among them. This window's own edits go out first, and it reads the
      * flow and the schemas again after.
      */
     const rewriteSchemas = async (act: () => Promise<void>): Promise<boolean> => {
@@ -524,7 +524,6 @@ export function App({initialFlowId}: Props): JSX.Element {
                 );
             }),
         rename: (from, to) => rewriteSchemas(() => window.api.schemas.rename(from, to)),
-        remove: (name) => rewriteSchemas(() => window.api.schemas.remove(name)),
     };
 
     return (

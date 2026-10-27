@@ -2,14 +2,15 @@ import { readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs
 import { join } from 'node:path';
 import { schemasDir, schemasDirAt } from '../paths';
 import { writeJson } from './jsonFile';
-import { inlineSchema, type JsonSchema, repointSchema, type Schemas, SLOT_NAME } from '@shared/flow';
+import { type JsonSchema, repointSchema, type Schemas, SLOT_NAME } from '@shared/flow';
 import type { SchemaSummary } from '@shared/ipc';
 
 /**
  * The open workspace's named schemas: `schemas/<name>.json`, each a JSON Schema
  * object, shared by every flow in the workspace. A node or a field refers to one
- * by its file's name, as {"$ref": "#/schemas/<name>"}. Renaming or deleting one
- * also rewrites the flows that name it, which is flowStore's half.
+ * by its file's name, as {"$ref": "#/schemas/<name>"}, and no node keeps one of
+ * its own. Renaming one also rewrites the flows that name it, and deleting one is
+ * refused while they do, which is flowStore's half.
  */
 
 /** A name a reference can spell, which is what makes the file a schema a node can pick. */
@@ -127,11 +128,33 @@ export function renameSchemaFile(from: string, to: string): void {
     editOthers(to, (schema) => repointSchema(schema, from, to));
 }
 
-/** Delete the file. Each other schema that used it keeps a copy of it as its own first. */
+/** Delete the file. Whether anything still uses it is the caller's to have asked. */
 export function removeSchemaFile(name: string): void {
-    const {file, schema} = findSchema(name);
-    if (schema) editOthers(name, (other) => inlineSchema(other, name, schema));
-    rmSync(file, {force: true});
+    rmSync(findSchema(name).file, {force: true});
+}
+
+/**
+ * Put a schema a node kept to itself into the folder, and say what it is called
+ * there: the first of `wanted` that already holds it to the letter, else the
+ * first that is free, else the first numbered past the first of them.
+ */
+export function adoptNodeSchema(schema: JsonSchema, wanted: string[]): string {
+    const names = wanted.filter(isValidSchemaName);
+    if (names.length === 0) names.push('Schema');
+    const there = new Map(listSchemas().map((s) => [s.name.toLowerCase(), s]));
+    const same = names.find((name) => {
+        const held = there.get(name.toLowerCase());
+        return held?.name === name && JSON.stringify(held.schema) === JSON.stringify(schema);
+    });
+    if (same) return same;
+    let name = names.find((n) => !there.has(n.toLowerCase()));
+    if (!name) {
+        const base = names[0]!;
+        name = base;
+        for (let n = 2; there.has(name.toLowerCase()); n++) name = `${base}${n}`;
+    }
+    saveSchema(name, schema);
+    return name;
 }
 
 /**

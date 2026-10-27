@@ -187,11 +187,8 @@ function describe(node: FlowNode): string {
                 : 'No mailbox selected yet';
         case 'categorizer':
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;
-        case 'extractor': {
-            const fields = Object.keys((c.schema.properties as Record<string, unknown> | undefined) ?? {}).length;
-            const shape = refName(c.schema) ?? `${fields} field${fields === 1 ? '' : 's'}`;
-            return `→ ${c.output} · ${shape}${c.includeAttachments ? ' · reads attachments' : ''}`;
-        }
+        case 'extractor':
+            return `→ ${c.output} · ${refName(c.schema) ?? 'no schema yet'}${c.includeAttachments ? ' · reads attachments' : ''}`;
         case 'processor':
             return c.skills.length > 0
                 ? `skills: ${c.skills.join(', ')}`

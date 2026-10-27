@@ -16,6 +16,7 @@ import {
     type OfferedModel,
     outputPorts,
     parseFlow,
+    refName,
     schemaUsers,
     SLOT_NAME,
     triggerConfig,
@@ -82,8 +83,9 @@ rather than a fan-out. The five node kinds:
 - categorizer     — an if/else written in prose: each category is an output port
                     and Claude picks exactly one, with an "unmatched" port for
                     the rest.
-- extractor       — pulls fields out of the email into its JSON \`schema\` and
-                    fills the slot named by \`output\`. Ports: "valid",
+- extractor       — pulls fields out of the email into the workspace schema
+                    its \`schema\` names, and fills the slot named by
+                    \`output\`. Ports: "valid",
                     "invalid" and "error"; only "valid" fills the slot.
                     Like a processor it has the workspace's skills, ticks
                     the \`skills\` it loads first, reads \`inputs\`
@@ -93,8 +95,9 @@ rather than a fan-out. The five node kinds:
                     the workspace and none from elsewhere. \`skills\` ticks,
                     by name, the ones it loads before anything else.
                     Ports: "done", "review" (it needs a person) and "error".
-                    With \`output\` and \`schema\` set, its result fills that
-                    slot on "done" — how one step hands its work to the next.
+                    With \`output\` set and \`schema\` naming a workspace
+                    schema, its result fills that slot on "done" — how one
+                    step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
                     list_server_tools gives a server's.
 - terminal        — ends the path and records how the email came out, as
@@ -105,11 +108,12 @@ rather than a fan-out. The five node kinds:
 A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.
 
-A schema used in more than one place can be named once for the whole workspace
-with set_schema, as schemas/<name>.json, then a node's \`schema\` in any flow set
-to {"$ref": "#/schemas/<name>"}. A field inside a schema can refer to one the same
-way, so a named schema can be built out of others. list_schemas gives them, and
-the nodes in each flow that use each one.
+Every schema is the workspace's: schemas/<name>.json, made or replaced with
+set_schema. A node never holds one of its own; its \`schema\` names one, as
+{"$ref": "#/schemas/<name>"}, and a new extractor names none until you set it.
+A field inside a schema can name another the same way, so a schema can be built
+out of others. list_schemas gives them, and the nodes in each flow that use each
+one; delete_schema is refused while any node or schema still names it.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
@@ -245,6 +249,13 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     host.changed({flows: true, skills: false, schemas: false});
     return {flow, droppedEdges: edited.edges.length - flow.edges.length};
 }
+
+/** What a node's `schema` may hold: a reference to one of the workspace's, or nothing yet. */
+const isNamedOrNone = (schema: unknown): boolean =>
+    typeof schema === 'object' &&
+    schema !== null &&
+    !Array.isArray(schema) &&
+    (Object.keys(schema).length === 0 || refName(schema) !== null);
 
 /** A folder an agent named, with `~` expanded. Relative paths are refused: the agent can't know the app's cwd. */
 function absoluteDir(dir: string): string {
@@ -419,6 +430,12 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             },
         },
         ({flowId, nodeId, name, x, y, config}) => {
+            const schema = config?.schema;
+            if (schema !== undefined && !isNamedOrNone(schema)) {
+                throw new Error(
+                    'A node never holds a schema of its own: its `schema` names one of the workspace’s, as {"$ref": "#/schemas/<name>"}. Make it with set_schema first.',
+                );
+            }
             const {flow, droppedEdges} = editFlow(host, flowId, (current) => {
                 const node = requireNode(current, nodeId);
                 const next: FlowNode = {
@@ -571,21 +588,17 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Delete a schema',
             description:
-                'Remove one of the workspace’s named schemas, and its file. Each node, in every flow, and each schema that referred to it is given a copy of it in its place, so nothing that used it breaks.',
+                'Remove one of the workspace’s named schemas, and its file. Refused while a node in any flow, or another schema, still names it; the error says which. Point those at another schema first.',
             inputSchema: {name: z.string()},
-            annotations: {idempotentHint: true},
+            annotations: {destructiveHint: true, idempotentHint: true},
         },
         ({name}) => {
-            const users = describeSchemas().find((entry) => entry.name === name)?.usedBy;
-            if (!users) return text(`The workspace has no schema "${name}", so nothing was deleted.`);
+            if (!schemaStore.listSchemas().some((entry) => entry.name === name)) {
+                return text(`The workspace has no schema "${name}", so nothing was deleted.`);
+            }
             flowStore.removeSchema(name);
-            schemasChanged(true);
-            return text(
-                `Deleted the schema "${name}".` +
-                (users.length > 0
-                    ? ` These flows' nodes using it each keep a copy of their own: ${users.map((u) => u.flowName).join(', ')}.`
-                    : ''),
-            );
+            schemasChanged(false);
+            return text(`Deleted the schema "${name}".`);
         },
     );
 

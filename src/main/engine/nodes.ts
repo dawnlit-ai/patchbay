@@ -7,6 +7,7 @@ import {
     type ModelChoice,
     modelsInTurn,
     needsField,
+    nodeSchemaIssue,
     type ProcessorConfig,
     resolveNode,
     type Schemas,
@@ -565,14 +566,12 @@ function runTerminal(config: TerminalConfig): NodeOutcome {
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    let config: FlowNode['config'];
-    try {
-        // Filled in once, here, so every step below sees the schema whole.
-        config = resolveNode(ctx.schemas, ctx.node).config;
-    } catch (e) {
-        const message = `The schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
-        return {outPort: 'error', summary: message, error: message};
-    }
+    // None picked, one of its own, or a name the workspace lacks: the canvas flags
+    // all three, and a test run of a flow being drawn stops here.
+    const issue = nodeSchemaIssue(ctx.schemas, ctx.node);
+    if (issue) return {outPort: 'error', summary: issue, error: issue};
+    // Filled in once, here, so every step below sees the schema whole.
+    const config = resolveNode(ctx.schemas, ctx.node).config;
     switch (config.kind) {
         case 'trigger.outlook':
             return runTrigger(ctx.email);

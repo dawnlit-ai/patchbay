@@ -86,7 +86,11 @@ export interface CategorizerConfig {
 export interface ExtractorConfig {
     /** The slot later nodes read the result by, e.g. "order". */
     output: string;
-    /** JSON Schema the result has to match to leave by Valid. */
+    /**
+     * The workspace schema the result has to match to leave by Valid, named as
+     * {"$ref": "#/schemas/<name>"}: a node never keeps one of its own. Empty until
+     * one is picked.
+     */
     schema: JsonSchema;
     /** What to extract and from where, beyond what the schema's descriptions say. */
     instruction: string;
@@ -120,7 +124,10 @@ export interface ProcessorConfig {
      * Done. Empty fills nothing: the node reports how it went and hands on no data.
      */
     output: string;
-    /** JSON Schema that result has to match. Unused while `output` is empty. */
+    /**
+     * The workspace schema that result has to match, named as an Extractor's is.
+     * Unused, and empty, while `output` is empty.
+     */
     schema: JsonSchema;
     /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
     models: ModelChoice[];
@@ -243,11 +250,11 @@ export const EMAIL_SLOT: Slot = {name: 'email', type: {kind: 'email'}};
 export const SLOT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // ── Named schemas ────────────────────────────────────────────────────────
-// A workspace names a schema once, as a file in its `schemas` folder, and a
-// node's schema in any of its flows stands for it as {"$ref": "#/schemas/<name>"}.
-// So can any field inside a schema, which lets one named schema be built out of
-// others. A run fills every reference in before the schema is used, so nothing
-// downstream ever sees one.
+// Every schema is the workspace's: a file in its `schemas` folder, named once.
+// A node's schema in any of its flows only ever stands for one, as
+// {"$ref": "#/schemas/<name>"}. So can any field inside a schema, which lets one
+// named schema be built out of others. A run fills every reference in before
+// the schema is used, so nothing downstream ever sees one.
 
 export type Schemas = Record<string, JsonSchema>;
 
@@ -341,6 +348,23 @@ function editNodeSchema(node: FlowNode, edit: (schema: JsonSchema) => JsonSchema
     return {...node, config: {...config, schema: edit(config.schema)}};
 }
 
+/**
+ * What keeps a node's schema from being used, said as a sentence, or null when
+ * nothing does. A node that hands a result on names one of the workspace's
+ * schemas; one that names none, or keeps a schema of its own, cannot run.
+ */
+export function nodeSchemaIssue(schemas: Schemas, node: FlowNode): string | null {
+    const schema = nodeSchema(node);
+    if (schema === undefined) return null;
+    if (refName(schema) === null) {
+        return Object.keys(schema).length === 0
+            ? `${node.name} has no schema yet: pick one of the workspace's, or make one with New….`
+            : `${node.name} keeps a schema of its own, and every schema is the workspace's: name it with New… to move it there.`;
+    }
+    const problem = schemaProblem(schemas, schema);
+    return problem && `${node.name}'s schema cannot be used: ${problem}.`;
+}
+
 /** `node` with every reference in its schema filled in, as a run needs it. Throws, saying why, when one cannot be. */
 export function resolveNode(schemas: Schemas, node: FlowNode): FlowNode {
     if (nodeSchema(node) === undefined) return node;
@@ -355,15 +379,28 @@ export function schemaUsers(flow: Flow, schemas: Schemas, name: string): FlowNod
     });
 }
 
+/**
+ * Who names the schema `name` itself, each said as a sentence lists it: every
+ * node naming it, as “<flow>” (<node>), then every other named schema built from
+ * it. Deleting one is refused while this holds anything.
+ */
+export function schemaHolders(flows: Flow[], schemas: Schemas, name: string): string[] {
+    const nodes = flows.flatMap((flow) =>
+        flow.nodes
+            .filter((node) => 'schema' in node.config && refName(node.config.schema) === name)
+            .map((node) => `“${flow.name}” (${node.name})`),
+    );
+    const holders = Object.entries(schemas)
+        .filter(([other, schema]) => other !== name && schemaRefs(schema).includes(name))
+        .map(([other]) => `the schema ${other}`);
+    return [...nodes, ...holders];
+}
+
 /** `schema` with every reference to `from` pointing at `to` instead: a rename, followed. */
 export function repointSchema(schema: JsonSchema, from: string, to: string): JsonSchema {
     return mapRefs(schema, (name, ref) => (name === from ? {...ref, $ref: `${SCHEMA_REF}${to}`} : ref)) as JsonSchema;
 }
 
-/** `schema` with every reference to `name` replaced by a copy of `named`, its own from then on: a delete, survived. */
-export function inlineSchema(schema: JsonSchema, name: string, named: JsonSchema): JsonSchema {
-    return mapRefs(schema, (ref, holder) => (ref === name ? fillRef(named, holder) : holder)) as JsonSchema;
-}
 
 /** `flow` with each node's schema put through `edit`, which is how a rename or a delete reaches the flows. */
 export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema): Flow {
@@ -529,15 +566,8 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
                 message: `${node.name} reads nothing: give it the email, data from an earlier node, or both.`,
             });
         }
-        const schema = nodeSchema(node);
-        const schemaIssue = schema && schemaProblem(schemas, schema);
-        if (schemaIssue) {
-            issues.push({
-                nodeId: node.id,
-                severity: 'error',
-                message: `${node.name}'s schema cannot be used: ${schemaIssue}.`,
-            });
-        }
+        const schemaIssue = nodeSchemaIssue(schemas, node);
+        if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
         for (const name of requires(node)) {
             if (held.has(name)) continue;
             issues.push({
@@ -632,16 +662,8 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
             return {
                 kind,
                 output: 'extracted',
-                schema: {
-                    type: 'object',
-                    properties: {
-                        reference: {
-                            type: 'string',
-                            description: 'The order, invoice or ticket number the email is about.',
-                        },
-                    },
-                    required: ['reference'],
-                },
+                // Picked, or made, from the workspace's schemas in the inspector.
+                schema: {},
                 instruction: 'Take each field from what the sender wrote, not from the quoted thread below it.',
                 skills: [],
                 inputs: [],
@@ -657,7 +679,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 readEmail: true,
                 inputs: [],
                 output: '',
-                schema: {type: 'object', properties: {}},
+                schema: {},
                 models: models('high'),
                 allowDraftReply: false,
                 allowMoveEmail: false,

@@ -14,16 +14,25 @@ import {
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { getSkill, isValidSkillName, saveSkill } from './skillStore';
-import { adoptSchemas, findSchema, removeSchemaFile, renameSchemaFile } from './schemaStore';
+import {
+    adoptNodeSchema,
+    adoptSchemas,
+    findSchema,
+    removeSchemaFile,
+    renameSchemaFile,
+    workspaceSchemas,
+} from './schemaStore';
 import {
     editSchemas,
     emptyFlow,
     type Flow,
-    inlineSchema,
     type JsonSchema,
     parseFlow,
     parseSchemas,
+    refName,
     repointSchema,
+    schemaHolders,
+    schemaRef,
 } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
@@ -199,8 +208,9 @@ export function removeFlow(id: string): void {
 }
 
 // ── Named schemas ────────────────────────────────────────────────────────
-// The workspace's, a file each in its `schemas` folder, and named from any
-// flow's nodes, so renaming or deleting one rewrites the flows that name it.
+// Every schema is the workspace's, a file each in its `schemas` folder, and a
+// node only ever names one. So renaming one rewrites the flows that name it, and
+// deleting one is refused while anything does.
 
 /** Each flow whose nodes `edit` changes, saved with the change. */
 function editFlowSchemas(edit: (schema: JsonSchema) => JsonSchema): void {
@@ -217,33 +227,84 @@ export function renameSchema(from: string, to: string): void {
     if (to !== from) editFlowSchemas((schema) => repointSchema(schema, from, to));
 }
 
+/** Phrases as a sentence joins them: A, A and B, A, B and C. */
+const together = (phrases: string[]): string =>
+    phrases.length < 2 ? (phrases[0] ?? '') : `${phrases.slice(0, -1).join(', ')} and ${phrases.at(-1)}`;
+
 /**
- * Delete a schema. Each node and schema that used it is given a copy of it as
- * its own, so nothing that used it breaks; they just no longer share it.
+ * Delete a schema. Refused while a node in any flow, or another schema, still
+ * names it: no node keeps a schema of its own, so there is nowhere a copy could go.
  */
 export function removeSchema(name: string): void {
-    const {schema} = findSchema(name);
-    // The flows first: should one fail to save, the schema it names is still there.
-    if (schema) editFlowSchemas((own) => inlineSchema(own, name, schema));
+    findSchema(name);
+    const holders = schemaHolders(listFlows(), workspaceSchemas(), name);
+    if (holders.length > 0) {
+        throw new Error(`${name} is in use by ${together(holders)}. Have those use another schema first, then delete it.`);
+    }
     removeSchemaFile(name);
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** `rate replies`, `pre_alert` → RateReplies, PreAlert: the words run together, as a schema is named. */
+const pascal = (text: string): string =>
+    text
+        .split(/[^A-Za-z0-9]+/)
+        .filter(Boolean)
+        .map((word) => word[0]!.toUpperCase() + word.slice(1))
+        .join('');
+
+/** A schema a node in a flow file keeps to itself, and the slot it fills with it; null when it only names one. */
+function ownSchema(node: unknown): { schema: JsonSchema; output: string; used: boolean } | null {
+    if (!isObject(node) || (node.kind !== 'extractor' && node.kind !== 'processor')) return null;
+    const config = node.config;
+    if (!isObject(config) || !isObject(config.schema)) return null;
+    if (refName(config.schema) !== null || Object.keys(config.schema).length === 0) return null;
+    const output = typeof config.output === 'string' ? config.output : '';
+    // A Processor that fills no slot never uses its schema.
+    return {schema: config.schema, output, used: node.kind === 'extractor' || output !== ''};
+}
+
 /**
- * Named schemas used to be kept in each flow's file, under `schemas`. Move any a
- * file still carries into the workspace's folder, and take the key out of it. One
- * whose name the folder gives another schema comes in under a free name, and the
- * file's references follow it.
+ * Bring a flow file up to every schema being the workspace's, writing it only
+ * when something moved. Schemas it keeps under `schemas`, from before they were
+ * the workspace's, go into the folder, each under a free name when the folder
+ * gives its own to another, and the file's references follow. So does a schema
+ * a node keeps to itself: named after the slot it fills (`notice` → Notice), or
+ * after the flow and the slot when that name is taken (RateRepliesAck), and the
+ * node names it instead. One on a Processor that fills no slot is never used,
+ * and is dropped.
  */
 function adoptSchemasIn(file: string): void {
     const raw = readJson<unknown>(file, null);
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || !('schemas' in raw)) return;
-    const {schemas, ...rest} = raw as Record<string, unknown>;
-    let next: Record<string, unknown> = rest;
-    for (const [from, to] of adoptSchemas(parseSchemas(schemas))) next = repointSchema(next, from, to);
-    writeJson(file, next);
+    if (!isObject(raw)) return;
+    let next: Record<string, unknown> = raw;
+    let moved = false;
+    if ('schemas' in next) {
+        const {schemas, ...rest} = next;
+        next = rest;
+        for (const [from, to] of adoptSchemas(parseSchemas(schemas))) next = repointSchema(next, from, to);
+        moved = true;
+    }
+    if (Array.isArray(next.nodes)) {
+        const flowName = typeof next.name === 'string' ? next.name : '';
+        const nodes = next.nodes.map((node: unknown) => {
+            const own = ownSchema(node);
+            if (!own) return node;
+            moved = true;
+            const holder = node as { config: Record<string, unknown> };
+            if (!own.used) return {...holder, config: {...holder.config, schema: {}}};
+            const slot = pascal(own.output);
+            const name = adoptNodeSchema(own.schema, [slot, `${pascal(flowName)}${slot}`]);
+            return {...holder, config: {...holder.config, schema: schemaRef(name)}};
+        });
+        next = {...next, nodes};
+    }
+    if (moved) writeJson(file, next);
 }
 
-/** Bring every flow file in the workspace up to schemas kept in their own folder. Done as a workspace opens. */
+/** Bring every flow file in the workspace up to every schema being the workspace's. Done as a workspace opens. */
 export function adoptFlowSchemas(): void {
     for (const file of flowHomes().values()) adoptSchemasIn(file);
 }
@@ -272,8 +333,8 @@ function bundledSkills(raw: unknown): BundledSkill[] {
  * flow. One already in the workspace's `flows` is just read. The id inside is
  * kept unless a flow here already has it — then this is a copy, and gets one of
  * its own. Skills it carries go into the library, never over one already there,
- * and schemas into the schemas folder, under a name of their own when the
- * workspace has a different one by theirs.
+ * and schemas — whether the file keeps them beside its nodes or a node keeps
+ * one to itself — into the schemas folder, as opening a workspace moves them.
  */
 export function importFlowFile(path: string): Flow {
     const file = resolve(path);
@@ -313,7 +374,9 @@ export function importFlowFile(path: string): Flow {
         const {skills: _, schemas, ...rest} = fields;
         let graph: Record<string, unknown> = {...rest, id, name};
         for (const [from, to] of adoptSchemas(parseSchemas(schemas))) graph = repointSchema(graph, from, to);
-        flow = createIn(parseFlow(graph, id, name));
+        const created = createIn(parseFlow(graph, id, name));
+        adoptSchemasIn(flowFile(created.id));
+        flow = getFlow(created.id) ?? created;
     }
     for (const skill of bundledSkills(raw)) {
         // Never over a skill already there: other flows in the workspace use it.
