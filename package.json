@@ -19,7 +19,7 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "dist": "electron-forge package && node scripts/dist.mts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc",
     "bundle:check": "esbuild --bundle --platform=node --format=cjs --outdir=.selftest --out-extension:.js=.cjs --external:electron --external:@anthropic-ai/claude-agent-sdk --external:@dawnlit/outlook-bridge --log-level=warning",
     "mcpcheck": "npm run bundle:check -- scripts/mcpcheck.ts && electron .selftest/mcpcheck.cjs",
     "selftest": "npm run bundle:check -- scripts/selftest.ts && electron .selftest/selftest.cjs",

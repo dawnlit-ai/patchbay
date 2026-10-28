@@ -7,7 +7,7 @@ is that, for email: drag nodes onto a canvas, connect them port to port, and wat
 drew. Outlook supplies the mail, Claude does the thinking, and every pass is written down so you can work out afterward
 why an email went where it did.
 
-![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![by](https://img.shields.io/badge/by-Dawnlit-0f9d58) ![stack](https://img.shields.io/badge/Electron-44-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
+![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue) ![by](https://img.shields.io/badge/by-Dawnlit-0f9d58) ![stack](https://img.shields.io/badge/Electron-45-informational) ![stack](https://img.shields.io/badge/React-19-informational) ![stack](https://img.shields.io/badge/TypeScript-7-informational)
 
 ## What it does
 

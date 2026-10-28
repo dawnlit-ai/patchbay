@@ -1,11 +1,6 @@
 import { defineConfig } from 'vite';
-import { alias } from './vite.shared.mjs';
 
+// Forge already leaves out electron and Node's built-ins.
 export default defineConfig({
-    resolve: {alias},
-    build: {
-        rollupOptions: {
-            external: ['electron', /^node:/],
-        },
-    },
+    resolve: {tsconfigPaths: true},
 });
