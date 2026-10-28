@@ -103,8 +103,9 @@ jobs:
 
   discard:
     # A failed build leaves a half-filled draft behind; it goes, so the next one starts clean.
+    # A build that never got a runner ends cancelled, not failed, so look at its result.
     needs: [ prepare, build ]
-    if: failure() && needs.prepare.result == 'success' && needs.prepare.outputs.skip == 'false'
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip == 'false' && needs.build.result != 'success'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
