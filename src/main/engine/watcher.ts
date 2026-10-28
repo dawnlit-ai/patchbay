@@ -253,21 +253,13 @@ export class Watcher {
     }
 
     /**
-     * Whether a run of this flow is under way. Its directory is the working
-     * directory of that run, so whoever wants to move one asks first.
-     */
-    isFlowRunning(flowId: string): boolean {
-        return this.active.values().some((run) => run.flowId === flowId);
-    }
-
-    /**
-     * Before a flow is deleted or taken off the list: throws while a run of it is
-     * under way, and cancels its queued runs. Returns how many were cancelled.
+     * Before a flow is deleted: throws while a run of it is under way, and
+     * cancels its queued runs. Returns how many were cancelled.
      */
     clearForRemoval(flowId: string): number {
-        if (this.isFlowRunning(flowId)) {
+        if (this.active.values().some((run) => run.flowId === flowId)) {
             throw new Error(
-                'A run of this flow is in progress, so the flow cannot be deleted or removed from the list until the run finishes or is cancelled.',
+                'A run of this flow is in progress, so the flow cannot be deleted until the run finishes or is cancelled.',
             );
         }
         if (this.flowIds.delete(flowId)) {

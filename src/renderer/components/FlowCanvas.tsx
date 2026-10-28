@@ -281,7 +281,7 @@ function cssVar(name: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export interface FlowCanvasProps {
+interface Props {
     flow: Flow;
     selectedNodeId: string | null;
     highlight: CanvasHighlight | null;
@@ -313,7 +313,7 @@ export function FlowCanvas({
                                onSelect,
                                onRunOutlookDrag,
                                onRunOutlookSelected,
-                           }: FlowCanvasProps): JSX.Element {
+                           }: Props): JSX.Element {
     const wrapper = useRef<HTMLDivElement>(null);
     /**
      * The models the agents offer, which a dropped node starts on the first of when

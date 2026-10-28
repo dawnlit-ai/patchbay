@@ -379,25 +379,22 @@ function mcpGrants(allowedTools: string[], servers: string[]): string[] {
     });
 }
 
-/** A skill as Claude names it: `<plugin>:<name>` for a plugin's, a bare name for the working directory's. */
+/** A skill as Claude names it: `<plugin>:<name>`. */
 function skillRef(ref: string): { plugin?: string; name: string } {
     const colon = ref.indexOf(':');
     return colon < 0 ? {name: ref} : {plugin: ref.slice(0, colon), name: ref.slice(colon + 1)};
 }
 
 /**
- * Each skill the run may use, copied to where agy finds skills: `.agents/skills/<name>`.
- * A plugin's comes from the plugin folders the request names, the working
- * directory's own from its `.claude/skills`.
+ * Each skill the run may use, copied from the plugin folders the request names
+ * to where agy finds skills: `.agents/skills/<name>`.
  */
 async function copySkills(request: AgentRunRequest, workspace: string): Promise<string[]> {
     const copied: string[] = [];
     for (const ref of request.skills ?? []) {
-        const {plugin, name} = skillRef(ref);
-        const from = plugin
-            ? request.skillPlugins?.map((p) => join(p, 'skills', name)).find((p) => existsSync(p))
-            : join(request.cwd, '.claude', 'skills', name);
-        if (!from || !existsSync(from)) continue;
+        const {name} = skillRef(ref);
+        const from = request.skillPlugins?.map((p) => join(p, 'skills', name)).find((p) => existsSync(p));
+        if (!from) continue;
         await cp(from, join(workspace, '.agents', 'skills', name), {recursive: true, dereference: true});
         copied.push(name);
     }

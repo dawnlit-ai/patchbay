@@ -231,8 +231,8 @@ async function main(): Promise<void> {
     check('an edge left hanging is dropped and reported', dropped.includes('"droppedEdges": 1'));
 
     // A schema named once is the workspace's: a file in its schemas folder, which a
-    // node in any flow can pick, and which a rename or a delete carries through
-    // every flow naming it.
+    // node in any flow can pick, and which a rename carries through every flow
+    // naming it.
     const schemaFile = (name: string): string => join(root, 'schemas', `${name}.json`);
     const fileOf = async (id: string): Promise<string> =>
         readFileSync(

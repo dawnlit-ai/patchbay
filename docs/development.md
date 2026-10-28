@@ -83,7 +83,7 @@ src/
 │  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
-│  ├─ store/    the open workspace, its flows and skills, settings, run traces (files on disk)
+│  ├─ store/    the open workspace, its flows, skills and schemas, settings, run traces (files on disk)
 │  └─ ipc.ts    one handler per channel in shared/ipc.ts
 ├─ preload/     contextBridge — the renderer gets `window.api` and nothing else
 └─ renderer/    React Flow canvas, inspector, trace viewer
@@ -106,5 +106,5 @@ thinking, and take turns the moment they touch the mailbox.
 
 **The workspace's skills are handed over as a local plugin.** A run works in the workspace's folder with no Claude Code
 setting sources, so a workspace that is also a Claude Code project does not lend its steps its own settings and
-skills. Each run copies the skills its node ticks into a temporary plugin and deletes it afterwards — which keeps an
-edit made mid-run out of the run, and is where the `workspace:` prefix comes from.
+skills. Each run copies the library into a temporary plugin and deletes it afterwards — which keeps an edit made
+mid-run out of the run, and is where the `workspace:` prefix comes from.

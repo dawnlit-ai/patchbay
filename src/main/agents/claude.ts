@@ -290,7 +290,8 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         // A background run has no prompting surface, so anything not pre-approved
         // is denied rather than left hanging.
         permissionMode: 'dontAsk',
-        settingSources: request.settingSources ?? [],
+        // None: a workspace's own Claude Code settings and skills are not a step's.
+        settingSources: [],
         persistSession: false,
         includePartialMessages: request.onLive !== undefined,
         pathToClaudeCodeExecutable: exe,

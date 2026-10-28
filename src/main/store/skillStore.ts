@@ -24,7 +24,7 @@ import type { SkillDetail, SkillSummary } from '@shared/settings';
 /** Skill names become directory names and Agent SDK allowlist entries. */
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export function isValidSkillName(name: string): boolean {
+function isValidSkillName(name: string): boolean {
     return NAME_RE.test(name) && name.length <= 64;
 }
 

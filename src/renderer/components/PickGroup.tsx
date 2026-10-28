@@ -1,10 +1,10 @@
-import type { HTMLAttributes, JSX, ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { useRef, useState } from 'react';
 
 /** Past this many, a group starts folded, scrolls inside itself when open, and the list gets a filter. */
 const LONG_LIST = 8;
 
-interface Props<T> extends Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'children'> {
+interface Props<T> {
     title: string;
     /** The header's tooltip: what the group is. */
     tip?: string;
@@ -46,8 +46,6 @@ export function PickGroup<T>({
                                  note,
                                  empty,
                                  count,
-                                 className,
-                                 ...rest
                              }: Props<T>): JSX.Element {
     /** Null until the header is clicked: a short group starts open, and a long one where ticks are picked, folded. */
     const [chosen, setChosen] = useState<boolean | null>(null);
@@ -70,7 +68,7 @@ export function PickGroup<T>({
     }
 
     return (
-        <div className={`pick-group${className ? ` ${className}` : ''}`} {...rest}>
+        <div className="pick-group">
             <div className="pick-group-head">
                 <button
                     className="pick-group-toggle"

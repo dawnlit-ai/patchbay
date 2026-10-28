@@ -143,7 +143,6 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         publish();
         try {
             const outcome = await executeNode({
-                flowId: flow.id,
                 node,
                 schemas,
                 email,

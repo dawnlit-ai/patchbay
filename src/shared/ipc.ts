@@ -197,10 +197,7 @@ export interface Api {
         setFileName(flowId: string, fileName: string): Promise<FlowEntry>;
         /** Show the flow's file in the file manager. */
         reveal(flowId: string): Promise<void>;
-        /**
-         * Ask for a flow file, then copy it into the workspace, with any skills it
-         * carries that the workspace does not have yet. Null if cancelled.
-         */
+        /** Ask for a flow file, then copy it into the workspace. Null if cancelled. */
         pickAndImport(): Promise<Flow | null>;
     };
     settings: {

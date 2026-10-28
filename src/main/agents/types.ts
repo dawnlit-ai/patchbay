@@ -58,8 +58,6 @@ export interface AgentRunRequest {
     repeatableTools?: string[];
     /** When set, the run is constrained to this shape and `structured` is filled. */
     jsonSchema?: Record<string, unknown>;
-    /** Claude Code's setting sources. None by default: a workspace's own Claude Code settings are not a step's. */
-    settingSources?: ('user' | 'project' | 'local')[];
     signal?: AbortSignal;
 
     onEvent(event: TraceEvent): void;

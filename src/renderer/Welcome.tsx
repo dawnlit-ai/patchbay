@@ -555,7 +555,7 @@ export function Welcome(): JSX.Element {
             : `Used in ${together(users)}. A change here reaches every one of them.`;
     };
 
-    /** Renaming or deleting one rewrites the flows that name it, so both lists are read again. */
+    /** Renaming one rewrites the flows that name it, so both lists are read again. */
     const renameSchema = (from: string, to: string): Promise<void> =>
         attempt(async () => {
             try {
@@ -571,7 +571,7 @@ export function Welcome(): JSX.Element {
             try {
                 await window.api.schemas.remove(name);
             } finally {
-                refresh();
+                refreshSchemas();
             }
         });
 
@@ -715,7 +715,7 @@ export function Welcome(): JSX.Element {
                                     </button>
                                     <button
                                         className="wide"
-                                        title="Copies it into this workspace, with any skills it carries that this workspace does not have"
+                                        title="Copies a flow file from elsewhere into this workspace’s flows folder"
                                         onClick={() => void importFile()}
                                     >
                                         ↓ Import flow file…
@@ -780,8 +780,8 @@ export function Welcome(): JSX.Element {
                             <div className="lede">
                                 <h1>Choose a workspace</h1>
                                 <p>
-                                    A workspace is a folder holding flows and the skills they share. Make a new one,
-                                    or open a folder you already keep them in — a git repository, say.
+                                    A workspace is a folder holding flows and the skills and schemas they share. Make
+                                    a new one, or open a folder you already keep them in — a git repository, say.
                                 </p>
                             </div>
 
@@ -790,7 +790,7 @@ export function Welcome(): JSX.Element {
                             </button>
                             <button
                                 className="wide"
-                                title="Its flows are read from its flows folder and its skills from its skills folder, each made when first needed"
+                                title="Its flows, skills and schemas are read from its flows, skills and schemas folders, each made when first needed"
                                 onClick={() => void pickWorkspace()}
                             >
                                 ↓ Open folder…
@@ -1392,19 +1392,11 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete' && (
                 <ConfirmDialog
                     title="Delete flow"
-                    message={`Delete
-                    “
-                    ${dialog.entry.flow.name}
-                    ”? Its file,
-                    ${fileStem(dialog.entry.file)}
-                    .
-                    json,
-                    is
-                    deleted
-                    from
-                    the
-                    workspace
-                    ’s flows folder. The skills and schemas it uses stay, since every flow here shares them, and so do runs already recorded. This cannot be undone.`}
+                    message={
+                        `Delete “${dialog.entry.flow.name}”? Its file, ${fileStem(dialog.entry.file)}.json, is ` +
+                        'deleted from the workspace’s flows folder. The skills and schemas it uses stay, since ' +
+                        'every flow here shares them, and so do runs already recorded. This cannot be undone.'
+                    }
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
@@ -1433,25 +1425,22 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete-skill' && workspace && (
                 <ConfirmDialog
                     title="Delete skill"
-                    message={`Delete
-                    “
-                    ${dialog.name}
-                    ” from
-                    ${workspace.name}
-                    ?
-                    Its
-                    whole
-                    folder
-                    goes
-                    with
-                    it
-                    .
-                    ${losing(dialog.name)}
-                    This
-                    cannot
-                    be
-                    undone
-                    .`}
+                    message={
+                        `Delete
+                        “
+                        ${dialog.name}
+                        ” from
+                        ${workspace.name}
+                        ?
+                        Its
+                        whole
+                        folder
+                        goes
+                        with
+                        it
+                        . ` +
+                        `${losing(dialog.name)} This cannot be undone.`
+                    }
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
@@ -1529,31 +1518,20 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete-schema' && workspace && holdersOf(dialog.name).length === 0 && (
                 <ConfirmDialog
                     title="Delete schema"
-                    message={`Delete
-                    ${dialog.name} from
-                    ${workspace.name}
-                    ?
-                    Its
-                    file,
-                    schemas/
-                    ${dialog.name}
-                    .
-                    json,
-                    is
-                    deleted
-                    .
-                    No
-                    node
-                    or
-                    schema
-                    uses
-                    it
-                    .
-                    This
-                    cannot
-                    be
-                    undone
-                    .`}
+                    message={
+                        `Delete
+                        ${dialog.name} from
+                        ${workspace.name}
+                        ?
+                        Its
+                        file,
+                        schemas/
+                        ${dialog.name}
+                        .
+                        json,
+                        is ` +
+                        'deleted. No node or schema uses it. This cannot be undone.'
+                    }
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {

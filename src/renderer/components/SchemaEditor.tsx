@@ -331,7 +331,7 @@ function Choices({values, onChange}: { values: string[]; onChange(values: string
 }
 
 /** A schema as JSON text. A draft, so text that does not parse yet is never saved over the last good schema. */
-export function SchemaText({value, hint, rows = 12, onChange}: {
+function SchemaText({value, hint, rows = 12, onChange}: {
     value: JsonSchema;
     hint: string;
     rows?: number;

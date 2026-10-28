@@ -79,8 +79,8 @@ export function NewWorkspaceDialog({onCancel, onConfirm}: Props): JSX.Element {
                 {where !== '' && (
                     <div className="hint">
                         Makes <code>{`${where}${separator}${toFolderName(trimmed, 'workspace')}`}</code>, numbered if
-                        that is taken. Its flows are kept in its <code>flows</code> folder and the skills they share
-                        in <code>skills</code>, and every run works in it.
+                        that is taken. Its flows are kept in its <code>flows</code> folder, the skills and schemas they
+                        share in <code>skills</code> and <code>schemas</code>, and every run works in it.
                     </div>
                 )}
             </div>

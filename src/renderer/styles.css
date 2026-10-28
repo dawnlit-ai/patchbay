@@ -316,7 +316,7 @@ code {
 }
 
 /* Anything that answers a click has to opt out of the drag region. */
-.topbar button, .topbar select, .topbar .badge {
+.topbar button {
     -webkit-app-region: no-drag;
 }
 
@@ -1169,15 +1169,6 @@ button.wide {
     line-height: 1.55;
 }
 
-.set-page .set-label .mono {
-    font-family: var(--mono);
-    font-size: 12px;
-}
-
-.set-page .set-label .path {
-    overflow-wrap: anywhere;
-}
-
 /* The agents, a card each, in the order their models are listed. */
 .agent-list {
     display: flex;
@@ -1716,10 +1707,6 @@ button.wide {
     align-items: center;
     gap: 8px;
     min-height: 26px;
-}
-
-.pick-row[draggable="true"] {
-    cursor: grab;
 }
 
 .pick-row > .check,

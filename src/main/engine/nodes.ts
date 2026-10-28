@@ -25,8 +25,6 @@ import * as outlook from '../outlook/bridge';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
-    /** The flow being run, in the open workspace, whose folder its steps work in. */
-    flowId: string;
     node: FlowNode;
     /** The workspace's named schemas, which the node's schema may refer to. */
     schemas: Schemas;
@@ -566,8 +564,8 @@ function runTerminal(config: TerminalConfig): NodeOutcome {
 }
 
 export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
-    // None picked, one of its own, or a name the workspace lacks: the canvas flags
-    // all three, and a test run of a flow being drawn stops here.
+    // None picked, or a name the workspace lacks: the canvas flags both, and a
+    // test run of a flow being drawn stops here.
     const issue = nodeSchemaIssue(ctx.schemas, ctx.node);
     if (issue) return {outPort: 'error', summary: issue, error: issue};
     // Filled in once, here, so every step below sees the schema whole.

@@ -354,10 +354,13 @@ export function registerIpc(): void {
         rewatch();
         return saved;
     });
-    // These rewrite the flows that name the schema, so every window re-reads its flows too.
-    const schemaAndFlows: WorkspaceChange = {flows: true, skills: false, schemas: true};
-    handleWrite(schemaAndFlows, IPC.schemasRename, (from: string, to: string) => flowStore.renameSchema(from, to));
-    handleWrite(schemaAndFlows, IPC.schemasRemove, (name: string) => flowStore.removeSchema(name));
+    // Renaming rewrites the flows that name the schema, so every window re-reads its flows too.
+    handleWrite({flows: true, skills: false, schemas: true}, IPC.schemasRename, (from: string, to: string) =>
+        flowStore.renameSchema(from, to),
+    );
+    handleWrite({flows: false, skills: false, schemas: true}, IPC.schemasRemove, (name: string) =>
+        flowStore.removeSchema(name),
+    );
     handle(IPC.schemasOpen, (name: string) => openInEditor(schemaStore.locateSchema(name)));
     handle(IPC.schemasReveal, (name: string) => shell.showItemInFolder(schemaStore.locateSchema(name)));
 

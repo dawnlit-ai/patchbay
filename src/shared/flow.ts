@@ -137,8 +137,8 @@ export interface ProcessorConfig {
     allowSaveAttachments: boolean;
     /**
      * Read, Write, Edit and Bash anywhere on the machine. Off, Claude reads only
-     * the flow's folder and the run folder, writes only through `save_file`, and
-     * has no shell.
+     * the workspace's folder and the run folder, writes only through `save_file`,
+     * and has no shell.
      */
     allowFileSystem: boolean;
     /**
@@ -591,7 +591,7 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
 // ── Defaults ─────────────────────────────────────────────────────────────
 
 /** The alias rather than a dated id, so new nodes get the newest Opus the account offers. */
-export const DEFAULT_MODEL = 'opus';
+const DEFAULT_MODEL = 'opus';
 
 /** A model stored as `agy:<id>` runs through the Antigravity CLI rather than on Claude. */
 export const AGY_MODEL_PREFIX = 'agy:';

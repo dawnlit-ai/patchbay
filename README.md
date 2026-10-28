@@ -23,7 +23,7 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
 
 - **Outlook Trigger** — polls the folders you tick through the real Outlook client, and starts one run per new email.
 - **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why.
-- **Extractor** — pulls fields out of the email into a JSON Schema you give it, for later steps to read.
+- **Extractor** — pulls fields out of the email into a workspace schema you pick, for later steps to read.
 - **Processor** — runs Claude with the workspace's [skills](docs/skills.md), the ones you tick first, holding tools
   scoped to this one email.
 - **Terminal** — ends a path and records a disposition.
@@ -81,9 +81,9 @@ without them, but a Categorizer, Extractor or Processor runs on one. Patchbay in
 
 ## First run
 
-1. The welcome window asks for a workspace. **New workspace** makes a folder for your flows and the skills they
-   share; **Open folder…** uses one you already have, such as a git repository. Then **New flow** gives you a canvas.
-   Drag an **Outlook Trigger** onto it and choose a mailbox.
+1. The welcome window asks for a workspace. **New workspace** makes a folder for your flows and the skills and schemas
+   they share; **Open folder…** uses one you already have, such as a git repository. Then **New flow** gives you a
+   canvas. Drag an **Outlook Trigger** onto it and choose a mailbox.
 2. Drag a **Categorizer** onto the canvas and describe two or three kinds of email you actually get. Drag from the
    trigger's *On email* port to its input.
 3. Drag a **Processor** per branch, tick a skill, and connect it.
