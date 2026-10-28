@@ -775,7 +775,7 @@ function SchemaField({
                     className="fixed"
                     onClick={() => setNaming('new')}
                     title={
-                        named !== null
+                        shown
                             ? `Make a new schema from a copy of ${named}, and pick it here`
                             : 'Make a new schema in the workspace, and pick it here'
                     }
@@ -789,15 +789,15 @@ function SchemaField({
                 )}
             </div>
 
-            {shown ? (
+            {named !== null && shown ? (
                 <SchemaEditor
                     // Remounted with each schema picked, so one's drafts never land on another.
-                    key={named ?? ''}
+                    key={named}
                     value={shown}
                     // Any of the workspace's but the one shown: a schema cannot hold itself.
                     named={names.filter((name) => name !== named)}
-                    hint={`${sharedWith(shelf.users(named!))}. It is the workspace’s, in schemas/${named}.json, so an edit here changes it for every node that picks it.`}
-                    onChange={(next) => shelf.save(named!, next)}
+                    hint={`${sharedWith(shelf.users(named))}. It is the workspace’s, in schemas/${named}.json, so an edit here changes it for every node that picks it.`}
+                    onChange={(next) => shelf.save(named, next)}
                 />
             ) : (
                 <div className="hint block">
@@ -818,9 +818,8 @@ function SchemaField({
                     hint={
                         nameError ??
                         (naming === 'new'
-                            ? `Letters, digits and _. Saved in the workspace’s schemas folder for any flow here to use, and this node picks it at once${
-                                named !== null ? `, starting from a copy of ${named}` : ''
-                            }.`
+                            ? 'Letters, digits and _. Saved in the workspace’s schemas folder for any flow here to ' +
+                            `use, and this node picks it at once${shown ? `, starting from a copy of ${named}` : ''}.`
                             : 'Its file is renamed, and every node and schema using it, in every flow here, follows.')
                     }
                     onCancel={closeNaming}

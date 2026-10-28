@@ -399,7 +399,6 @@ export function repointSchema(schema: JsonSchema, from: string, to: string): Jso
     return mapRefs(schema, (name, ref) => (name === from ? {...ref, $ref: `${SCHEMA_REF}${to}`} : ref)) as JsonSchema;
 }
 
-
 /** `flow` with each node's schema put through `edit`, which is how a rename reaches the flows. */
 export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema): Flow {
     return {...flow, nodes: flow.nodes.map((node) => editNodeSchema(node, edit))};

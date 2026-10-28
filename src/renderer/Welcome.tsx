@@ -88,7 +88,7 @@ function ticksOf(flow: Flow): Set<string> {
 const fieldNames = (schema: JsonSchema): string[] | null =>
     isObject(schema.properties) ? Object.keys(schema.properties) : null;
 
-/** The nodes in each flow that use a named schema, directly or through another: “pre-alerts (3 nodes)”. */
+/** The nodes in each flow that use a named schema, directly or through another: “Invoices” (3 nodes). */
 function usedIn(entries: FlowEntry[], schemas: Schemas, name: string): string[] {
     return entries.flatMap(({flow}) => {
         const nodes = schemaUsers(flow, schemas, name).length;
@@ -1366,7 +1366,7 @@ export function Welcome(): JSX.Element {
                     label="Flow name"
                     initial={`${dialog.entry.flow.name} copy`}
                     confirmLabel="Duplicate"
-                    hint="Saved beside it, in a file of its own. It ticks the same skills, which the workspace shares."
+                    hint="Saved beside it, in a file of its own. It uses the same skills and schemas, which the workspace shares."
                     onCancel={() => setDialog(null)}
                     onConfirm={(name) => {
                         const {entry} = dialog;
@@ -1393,9 +1393,10 @@ export function Welcome(): JSX.Element {
                 <ConfirmDialog
                     title="Delete flow"
                     message={
-                        `Delete “${dialog.entry.flow.name}”? Its file, ${fileStem(dialog.entry.file)}.json, is ` +
-                        'deleted from the workspace’s flows folder. The skills and schemas it uses stay, since ' +
-                        'every flow here shares them, and so do runs already recorded. This cannot be undone.'
+                        `Delete “${dialog.entry.flow.name}”? ` +
+                        `Its file, ${fileStem(dialog.entry.file)}.json, is deleted from the workspace’s flows folder. ` +
+                        'The skills and schemas it uses stay, since every flow here shares them, and so do runs ' +
+                        'already recorded. This cannot be undone.'
                     }
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
@@ -1426,19 +1427,8 @@ export function Welcome(): JSX.Element {
                 <ConfirmDialog
                     title="Delete skill"
                     message={
-                        `Delete
-                        “
-                        ${dialog.name}
-                        ” from
-                        ${workspace.name}
-                        ?
-                        Its
-                        whole
-                        folder
-                        goes
-                        with
-                        it
-                        . ` +
+                        `Delete “${dialog.name}” ` +
+                        `from ${workspace.name}? Its whole folder goes with it. ` +
                         `${losing(dialog.name)} This cannot be undone.`
                     }
                     confirmLabel="Delete"
@@ -1519,18 +1509,10 @@ export function Welcome(): JSX.Element {
                 <ConfirmDialog
                     title="Delete schema"
                     message={
-                        `Delete
-                        ${dialog.name} from
-                        ${workspace.name}
-                        ?
-                        Its
-                        file,
-                        schemas/
-                        ${dialog.name}
-                        .
-                        json,
-                        is ` +
-                        'deleted. No node or schema uses it. This cannot be undone.'
+                        `Delete ${dialog.name} ` +
+                        `from ${workspace.name}? ` +
+                        `Its file, schemas/${dialog.name}.json, is deleted. ` +
+                        'No node or schema uses it. This cannot be undone.'
                     }
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}

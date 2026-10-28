@@ -13,7 +13,7 @@ import { toFolderName } from '@shared/naming';
  */
 let data: string | null = null;
 
-/** Called `workspace` on disk, from before a workspace was a folder of the user's own. */
+/** Where the app keeps its own files in `<userData>`: settings, workspaces, watermarks, runs and logs. */
 export function dataRoot(): string {
     if (!data) {
         data = join(app.getPath('userData'), 'workspace');

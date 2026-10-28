@@ -14,15 +14,7 @@ import {
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { findSchema, removeSchemaFile, renameSchemaFile, workspaceSchemas } from './schemaStore';
-import {
-    editSchemas,
-    emptyFlow,
-    type Flow,
-    type JsonSchema,
-    parseFlow,
-    repointSchema,
-    schemaHolders,
-} from '@shared/flow';
+import { editSchemas, emptyFlow, type Flow, parseFlow, repointSchema, schemaHolders, } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 
@@ -32,10 +24,7 @@ import type { FlowEntry, SaveOutcome } from '@shared/ipc';
  * watermarks are keyed by it.
  */
 
-/**
- * A flow file, repaired the way an import is, so a node saved before a config
- * field existed arrives with that field's default rather than without it.
- */
+/** A flow file, read through `parseFlow` so a missing or bad field falls back to its default. */
 function readFlowFile(path: string): Flow | null {
     const raw = readJson<Record<string, unknown> | null>(path, null);
     if (!raw || typeof raw.id !== 'string') return null;
@@ -177,13 +166,14 @@ export function createFlow(name: string): Flow {
 /**
  * Copy the graph handed over (what is on screen, unsaved edits included) into a
  * new flow. Node ids are kept, as they only need to be unique within a flow;
- * watermarks are not. The skills it ticks are the workspace's, so both share them.
+ * watermarks are not. The skills and schemas it uses are the workspace's, so both
+ * share them.
  */
 export function duplicateFlow(source: Flow, name: string): Flow {
     return createIn({...source, id: randomUUID(), name});
 }
 
-/** Deletes a flow's file, and its watermarks. The skills it ticked are the workspace's, and stay. */
+/** Deletes a flow's file, and its watermarks. The skills and schemas it used are the workspace's, and stay. */
 export function removeFlow(id: string): void {
     rmSync(flowFile(id), {force: true});
     forgetFlowHomes();
@@ -201,19 +191,15 @@ export function removeFlow(id: string): void {
 // node only ever names one. So renaming one rewrites the flows that name it, and
 // deleting one is refused while anything does.
 
-/** Each flow whose nodes `edit` changes, saved with the change. */
-function editFlowSchemas(edit: (schema: JsonSchema) => JsonSchema): void {
-    for (const flow of listFlows()) {
-        const next = editSchemas(flow, edit);
-        if (JSON.stringify(next.nodes) !== JSON.stringify(flow.nodes)) saveFlow(next);
-    }
-}
-
 /** Rename a schema, and every reference to it, in the workspace's flows and its other schemas. */
 export function renameSchema(from: string, to: string): void {
     // First, since it is the half that refuses: a name taken, or the schema gone.
     renameSchemaFile(from, to);
-    if (to !== from) editFlowSchemas((schema) => repointSchema(schema, from, to));
+    if (to === from) return;
+    for (const flow of listFlows()) {
+        const next = editSchemas(flow, (schema) => repointSchema(schema, from, to));
+        if (JSON.stringify(next.nodes) !== JSON.stringify(flow.nodes)) saveFlow(next);
+    }
 }
 
 /** Phrases as a sentence joins them: A, A and B, A, B and C. */

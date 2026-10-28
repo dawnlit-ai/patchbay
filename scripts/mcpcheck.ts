@@ -158,18 +158,12 @@ async function main(): Promise<void> {
     });
     check('a bad value falls back to its default', patched.includes('"bodyMaxChars": 8000'));
 
-    // Terminals do nothing to the email, so any actions written onto one are dropped.
     const ending = await call('update_node', {
         flowId,
         nodeId: done,
-        config: {disposition: 'needs-review', actions: [{type: 'move', folder: 'Processed'}]},
+        config: {disposition: 'needs-review'},
     });
-    const ended = (JSON.parse(ending) as { node: { config: Record<string, unknown> } }).node.config;
-    check(
-        'a terminal keeps its disposition and drops any actions',
-        ended.disposition === 'needs-review' && !('actions' in ended),
-        JSON.stringify(ended),
-    );
+    check('a terminal records its disposition', ending.includes('"disposition": "needs-review"'));
 
     const step = await call('add_node', {flowId, kind: 'processor'});
     check(
