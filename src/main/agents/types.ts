@@ -3,9 +3,15 @@ import type { AgentStatus, ModelOption } from '@shared/ipc';
 import type { AgentId, AgentSetting } from '@shared/settings';
 import type { LiveText, TraceEvent } from '@shared/trace';
 
-/** An MCP server a run is handed: a command to start, or one this process serves itself. */
+/**
+ * An MCP server a run is handed: a command to start, an address to connect to,
+ * or one this process serves itself. A command's `cwd` is the folder it is
+ * started in; absent, the agent's own.
+ */
 export type AgentMcpServer =
-    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
+    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+    | { type: 'http'; url: string; headers?: Record<string, string> }
+    | { type: 'sse'; url: string; headers?: Record<string, string> }
     | { type: 'sdk'; name: string; instance: McpServer };
 
 /**

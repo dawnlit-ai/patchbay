@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
     AccountInfo,
@@ -12,7 +12,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { type LiveText, now, truncate } from '@shared/trace';
-import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult } from './types';
+import { withToolPath } from './toolPath';
+import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 import { clock, holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
@@ -266,6 +267,35 @@ interface Attempt {
     acted: boolean;
 }
 
+/**
+ * The run's MCP servers as the SDK takes them. It has no folder of a command's
+ * own to start it in — Claude Code starts each in the run's — so a server whose
+ * definition names another is refused rather than started where its relative
+ * paths lead elsewhere.
+ */
+function claudeServers(servers: Record<string, AgentMcpServer>, cwd: string): NonNullable<Options['mcpServers']> {
+    const out: NonNullable<Options['mcpServers']> = {};
+    for (const [name, server] of Object.entries(servers)) {
+        if (server.type === 'sdk' || server.type === 'http' || server.type === 'sse') {
+            out[name] = server;
+        } else {
+            if (server.cwd && resolve(server.cwd) !== resolve(cwd)) {
+                throw new Error(
+                    `MCP server "${name}" has to start in ${server.cwd}, and Claude starts every server in ${cwd}. ` +
+                    'Take its cwd out of its definition, or pick an agy model for this node.',
+                );
+            }
+            out[name] = {
+                type: 'stdio',
+                command: server.command,
+                ...(server.args ? {args: server.args} : {}),
+                ...(server.env ? {env: server.env} : {}),
+            };
+        }
+    }
+    return out;
+}
+
 async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
     const exe = resolveClaudePath(host.claudeExecutable());
     // Unavailable rather than failed: a fallback on another agent can still take the step.
@@ -279,6 +309,13 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     const toolNames = new Map<string, string>();
     const repeatable = new Set([...REPEATABLE_TOOLS, ...(request.repeatableTools ?? [])]);
 
+    let mcpServers: NonNullable<Options['mcpServers']>;
+    try {
+        mcpServers = claudeServers(request.mcpServers ?? {}, request.cwd);
+    } catch (e) {
+        return settle(request, {error: e instanceof Error ? e.message : String(e), acted: false});
+    }
+
     const options: Options = {
         model: request.model,
         cwd: request.cwd,
@@ -286,7 +323,9 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         // Only the servers this app passes in. Otherwise the run would inherit the
         // machine's Claude Code config and behave differently on another desktop.
         strictMcpConfig: true,
-        mcpServers: request.mcpServers ?? {},
+        mcpServers,
+        // Claude Code finds each server's command on its own PATH, and the server inherits it.
+        env: withToolPath(process.env),
         // A background run has no prompting surface, so anything not pre-approved
         // is denied rather than left hanging.
         permissionMode: 'dontAsk',

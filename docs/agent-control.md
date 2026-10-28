@@ -1,9 +1,9 @@
 # Letting an agent drive it
 
 There are two kinds of MCP server in this app, pointing opposite ways. A Processor is *handed* servers — the
-[email-scoped one](skills.md#the-email-scoped-tools), plus whatever you add under **Settings → MCP servers**. This one
-is the other direction: Patchbay's own, which an agent connects *to* in order to drive the app. Switch it on under
-**Settings → Agent control** and paste the command shown there into a terminal:
+[email-scoped one](skills.md#the-email-scoped-tools), plus whatever you add under **Settings → MCP servers** or allow
+from the workspace's `.mcp.json`. This one is the other direction: Patchbay's own, which an agent connects *to* in order
+to drive the app. Switch it on under **Settings → Agent control** and paste the command shown there into a terminal:
 
 ```bash
 claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"

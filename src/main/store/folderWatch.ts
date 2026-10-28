@@ -4,15 +4,56 @@ import { currentWorkspace } from '../paths';
 import type { WorkspaceChange } from '@shared/ipc';
 
 /**
- * Skills and schemas are edited and deleted outside the app, so the open
- * workspace's folders of them are watched, and a change is passed on once it
- * settles, saying which of the two it was in.
+ * Skills, schemas and MCP server files are edited and deleted outside the app,
+ * so the open workspace's folders of them are watched, and a change is passed
+ * on once it settles, saying which of them it was in.
  */
 
-/** The folders watched, and what a change in each one is. */
-const FOLDERS: { name: string; change: WorkspaceChange }[] = [
-    {name: 'skills', change: {flows: false, skills: true, schemas: false}},
-    {name: 'schemas', change: {flows: false, skills: false, schemas: true}},
+interface Target {
+    recursive: boolean;
+    change: WorkspaceChange;
+
+    /** Whether a file event in this folder is one to pass on; absent means every event is. */
+    filter?(name: string): boolean;
+}
+
+/** The folders watched inside a workspace, and what a change in each one is. */
+const FOLDERS: { name: string; target: Target }[] = [
+    {name: 'skills', target: {recursive: true, change: {flows: false, skills: true, schemas: false}}},
+    {name: 'schemas', target: {recursive: true, change: {flows: false, skills: false, schemas: true}}},
+    {
+        name: '',
+        target: {
+            recursive: false,
+            change: {flows: false, skills: false, schemas: false, mcp: true},
+            filter: (name) =>
+                name.startsWith('.mcp.json') || name === '.vscode' || name === '.cursor' || name === '.gemini',
+        },
+    },
+    {
+        name: '.vscode',
+        target: {
+            recursive: false,
+            change: {flows: false, skills: false, schemas: false, mcp: true},
+            filter: (name) => name.startsWith('mcp.json'),
+        },
+    },
+    {
+        name: '.cursor',
+        target: {
+            recursive: false,
+            change: {flows: false, skills: false, schemas: false, mcp: true},
+            filter: (name) => name.startsWith('mcp.json'),
+        },
+    },
+    {
+        name: '.gemini',
+        target: {
+            recursive: false,
+            change: {flows: false, skills: false, schemas: false, mcp: true},
+            filter: (name) => name.startsWith('settings.json'),
+        },
+    },
 ];
 
 /** An editor's save is several events — a temp file, a rename — and one re-read covers them. */
@@ -29,21 +70,24 @@ function changed(path: string, change: WorkspaceChange): void {
         path,
         setTimeout(() => {
             settling.delete(path);
+            rewatch();
             onChange?.(change);
         }, SETTLE_MS),
     );
 }
 
 /**
- * What to watch: the open workspace's `skills` and `schemas` folders alone.
- * Watching the workspace as a whole could mean a repository's `node_modules`.
+ * What to watch: the open workspace's `skills` and `schemas` folders, and the
+ * top of the workspace and `.vscode`, `.cursor` and `.gemini` without descending
+ * into anything else — watching the whole workspace recursively could mean a
+ * repository's `node_modules`.
  */
-function roots(): Map<string, WorkspaceChange> {
+function roots(): Map<string, Target> {
     const root = currentWorkspace();
-    return new Map(root ? FOLDERS.map(({name, change}) => [join(root, name), change]) : []);
+    return new Map(root ? FOLDERS.map(({name, target}) => [name ? join(root, name) : root, target]) : []);
 }
 
-/** Start watching, and call `listener` whenever a skill or a schema may have changed on disk. */
+/** Start watching, and call `listener` whenever a skill, schema or MCP server file may have changed on disk. */
 export function watchFolders(listener: (change: WorkspaceChange) => void): void {
     onChange = listener;
     rewatch();
@@ -62,16 +106,20 @@ export function rewatch(): void {
         watcher.close();
         watchers.delete(path);
     }
-    for (const [path, change] of wanted) {
+    for (const [path, target] of wanted) {
         if (watchers.has(path) || !existsSync(path)) continue;
         try {
             // Not persistent: a watch is no reason to keep the process alive.
-            const watcher = watch(path, {recursive: true, persistent: false}, () => changed(path, change));
+            const watcher = watch(path, {recursive: target.recursive, persistent: false}, (_event, filename) => {
+                const name = typeof filename === 'string' ? filename : '';
+                if (name === 'skills' || name === 'schemas') rewatch();
+                if (!target.filter || !name || target.filter(name)) changed(path, target.change);
+            });
             // The folder went, or the drive did. Unhandled, this would throw in main.
             watcher.on('error', () => {
                 watcher.close();
                 if (watchers.get(path) === watcher) watchers.delete(path);
-                changed(path, change);
+                changed(path, target.change);
             });
             watchers.set(path, watcher);
         } catch {

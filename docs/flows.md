@@ -18,7 +18,7 @@ of concurrent activity.
   schema](#named-schemas) it names, and puts the result in a named slot. It leaves by *Valid* when every required
   field was in the email and the result matches the schema, by *Incomplete* when something is missing or wrong, or by
   *Error*. Like a Processor, it has the workspace's skills, reads slots earlier nodes filled, and takes tools from the
-  MCP servers in Settings; unlike one, it cannot draft a reply, move the email or run commands.
+  MCP servers in Settings or the workspace; unlike one, it cannot draft a reply, move the email or run commands.
 - **Processor** — runs Claude with the workspace's [skills](skills.md), loading the ones you tick first, and holding
   [tools scoped to this one email](skills.md#the-email-scoped-tools).
   It leaves by *Done*, by *Needs review* when it finished but a person has to decide or check something, or by
@@ -117,6 +117,7 @@ A **workspace** is a folder holding flows, the skills and schemas they share, an
 ├─ flows/<name>.json        one file per flow
 ├─ skills/<name>/SKILL.md   the library every flow here ticks from
 ├─ schemas/<name>.json      the named schemas every flow here can pick
+├─ .mcp.json                optional: MCP servers this workspace defines
 └─ README.md                optional: what the workspace is for
 ```
 
@@ -131,7 +132,10 @@ carries every flow along, and a click outside asks before it throws edits away. 
 from a copy of an old one. Deleting one is refused while any node or schema names it, and the window says which.
 Right-clicking one can also open its file in the app your system gives `.json` files, or show it in its folder; a file
 the form cannot read opens there instead. A schema some node names but the folder no longer holds is listed at the
-bottom, with **Create it…**. Its **README** tab shows the `README.md` at the top of the workspace folder — a
+bottom, with **Create it…**. Its **MCP** tab lists the [MCP servers](skills.md#mcp-servers) defined in the workspace
+(`.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`) and in Settings, which flows tick them,
+and the tools an allowed server offers, with **Allow**, **Block** and **Edit** on the picked row and **Create .mcp.json**
+in the rail. Its **README** tab shows the `README.md` at the top of the workspace folder — a
 repository's own README, for a workspace that is one.
 **Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
 with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab

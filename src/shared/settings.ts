@@ -1,18 +1,97 @@
 /** App-level settings, stored once per install rather than per flow. */
 
+/**
+ * How a server is reached: a command started on this computer, or an address.
+ * `http` is MCP's Streamable HTTP; `sse` the older HTTP+SSE, which agy does not speak.
+ */
+export type McpTransport = 'stdio' | 'http' | 'sse';
+
+export const MCP_TRANSPORTS: McpTransport[] = ['stdio', 'http', 'sse'];
+
 export interface McpServerSetting {
     /** Name Claude sees the tools under: they arrive as `mcp__<name>__*`. */
     name: string;
+    /** Absent in settings written before servers could be reached by address: a command. */
+    type?: McpTransport;
+    /** What starts a `stdio` server. */
     command: string;
     args: string[];
+    /** Added to a `stdio` server's environment. */
+    env?: Record<string, string>;
+    /** Where an `http` or `sse` server listens. */
+    url?: string;
+    /** Sent with every request to an `http` or `sse` server — an `Authorization`, usually. */
+    headers?: Record<string, string>;
     enabled: boolean;
 }
 
-/** One tool a server in Settings offers, as the server describes it. */
+/** One tool a server offers, as the server describes it. */
 export interface McpServerTool {
     name: string;
     description: string;
 }
+
+/**
+ * The workspace files whose MCP servers Patchbay finds on its own, as paths
+ * relative to the workspace, in the order a name defined twice is taken from.
+ */
+export const WORKSPACE_MCP_FILES = ['.mcp.json', '.vscode/mcp.json', '.cursor/mcp.json', '.gemini/settings.json'] as const;
+
+export type WorkspaceMcpFile = (typeof WORKSPACE_MCP_FILES)[number];
+
+/**
+ * Where a server a node can tick stands:
+ * - `allowed` — a run can be handed it: every server in Settings, and a workspace one allowed here.
+ * - `new` — found in the workspace and never allowed: nothing starts it until someone does.
+ * - `changed` — allowed once, but its file has changed what it starts since, so it waits to be allowed again.
+ * - `blocked` — found in the workspace and refused here.
+ * - `shadowed` — a server of that name in Settings, or in a file read earlier, is used instead.
+ * - `invalid` — its definition cannot be used as written; `problem` says why.
+ */
+export type McpServerState = 'allowed' | 'new' | 'changed' | 'blocked' | 'shadowed' | 'invalid';
+
+/**
+ * One MCP server as the windows list it: from Settings or found in the workspace.
+ * Holds no secrets: an environment or a header is listed by its name alone.
+ */
+export interface McpServerEntry {
+    name: string;
+    /** `settings`, or the workspace file it was found in, such as `.mcp.json`. */
+    source: 'settings' | WorkspaceMcpFile;
+    type: McpTransport;
+    /** What it starts or where it connects, as its definition words it, before any `${VAR}` is filled in. */
+    summary: string;
+    /** The names of the environment variables or headers it sets. */
+    envKeys: string[];
+    headerKeys: string[];
+    state: McpServerState;
+    /** Why it is `invalid` or `shadowed`. */
+    problem?: string;
+}
+
+/** Every MCP server a node in the open workspace could be handed, and the workspace files that could not be read. */
+export interface McpListing {
+    /** The open workspace's folder, or null with none open, when only Settings' servers are listed. */
+    workspace: string | null;
+    /** Settings' servers that are switched on first, then the workspace's in the order their files are read. */
+    servers: McpServerEntry[];
+    unreadable: { source: WorkspaceMcpFile; problem: string }[];
+}
+
+/** What starts a server or where it connects, in a line, as Settings and the inspector show it. */
+export function serverSummary(server: Pick<McpServerSetting, 'type' | 'command' | 'args' | 'url'>): string {
+    if ((server.type ?? 'stdio') !== 'stdio') return server.url ?? '';
+    return [server.command, ...server.args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(' ');
+}
+
+/**
+ * A server name Claude Code and agy both keep as it is, so `mcp__<name>__<tool>`
+ * names the same tools on either.
+ */
+export const isUsableServerName = (name: string): boolean => /^[A-Za-z0-9_-]+$/.test(name);
+
+/** The name of Patchbay's own email-scoped server in every run, which no other server may take. */
+export const EMAIL_SERVER_NAME = 'email';
 
 /** Patchbay's own MCP server, for an agent to drive the app. Off by default; loopback only, token required. */
 export interface AgentControlSettings {

@@ -18,7 +18,7 @@ import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } 
 import type { AgentMcpServer, AgentRunRequest } from '../agents';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
-import { getSettings } from '../store/settingsStore';
+import { requireServer, usableServers } from '../store/mcpStore';
 import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
@@ -77,21 +77,35 @@ function modelsFor({models}: { models: ModelChoice[] }): Pick<AgentRunRequest, '
 }
 
 /**
- * The MCP servers in Settings that `mcpTools` names anything of, and the
- * allowlist entries for what it names.
+ * The MCP servers in Settings or the workspace that `mcpTools` names anything
+ * of, and the allowlist entries for what it names. A server a node ticks that
+ * no run can be handed — not allowed in this workspace, switched off, or
+ * defined nowhere — stops the step with `problem` rather than running without
+ * the tools the node was built to use, as a missing skill does.
  */
-function settingsServers(mcpTools: string[]): { servers: Record<string, AgentMcpServer>; allowed: string[] } {
+function nodeServers(
+    mcpTools: string[],
+): { servers: Record<string, AgentMcpServer>; allowed: string[]; problem?: NodeOutcome } {
     const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
-    for (const extra of getSettings().mcpServers) {
-        if (!extra.enabled || !extra.name.trim()) continue;
-        const whole = `mcp__${extra.name}`;
+    for (const [name, {launch}] of usableServers()) {
+        const whole = `mcp__${name}`;
         // Only what the node names: a server's other tools stay refused, so an email
         // written to steer the agent cannot reach a tool the step never needed.
         const granted = mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
         if (granted.length === 0) continue;
-        servers[extra.name] = {type: 'stdio', command: extra.command, args: extra.args};
+        servers[name] = launch;
         allowed.push(...granted);
+    }
+    const unmet = mcpTools.find((t) => t.startsWith('mcp__') && !allowed.includes(t));
+    if (unmet !== undefined) {
+        try {
+            // Throws, saying what stands in the way of the server it names.
+            requireServer(unmet.slice('mcp__'.length).split('__')[0]!);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            return {servers, allowed, problem: {outPort: 'error', summary: message, error: message}};
+        }
     }
     return {servers, allowed};
 }
@@ -282,7 +296,8 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         onEvent: ctx.onEvent,
         actions: [],
     });
-    const extra = settingsServers(config.mcpTools);
+    const extra = nodeServers(config.mcpTools);
+    if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(capabilities), ...extra.allowed];
     if (config.includeAttachments) allowedTools.push('Read');
 
@@ -418,7 +433,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         actions,
     });
 
-    const extra = settingsServers(config.mcpTools);
+    const extra = nodeServers(config.mcpTools);
+    if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(config), ...extra.allowed];
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 

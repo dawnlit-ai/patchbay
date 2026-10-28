@@ -47,11 +47,34 @@ and a run reaching that node leaves by its error port naming the skill.
 
 A Processor or Extractor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or *All*
 of a server's — and a server with nothing ticked is not started for its run. So a step that reads mail from outside,
-and needs a record lookup, holds that lookup and not the same server's tool that sends mail. Add servers under
-**Settings → MCP servers**.
+and needs a record lookup, holds that lookup and not the same server's tool that sends mail.
 
-A skill that calls another app's MCP tools (`mcp__<server-name>__*`) needs that server added there, and the tools it
-calls ticked on the node, before it can run.
+Servers come from two places:
+
+- **Settings → MCP servers**, for servers available in every workspace on this install.
+- **The workspace itself**, detected from `.mcp.json` (Claude Code), `.vscode/mcp.json`, `.cursor/mcp.json` and
+  `.gemini/settings.json` in that order, with `${VAR}`, `${VAR:-default}`, `${env:VAR}` and `${workspaceFolder}` filled
+  in and commands started in the workspace's folder. Because a workspace's file can come from a cloned repository, a
+  server found there is not started — not even to list its tools — until you click **Allow** on it in the start
+  window's **MCP** tab, the inspector, or **Settings → MCP servers → In this workspace**. Editing what a server starts
+  asks again. A name defined in two files is taken from the first; one switched on in Settings wins over both.
+
+The start window's **MCP** tab lists them all with their state, which flows tick their tools, and (once allowed) the
+tools each offers. From there you can allow or block workspace servers, open or create `.mcp.json`, or see any server a
+flow ticks that is not in the workspace. These files are watched like the `skills` folder, so a server added in your
+editor or by a `git pull` shows as it happens.
+
+A node that ticks a server no run can be handed — not allowed yet, blocked, switched off in Settings, or defined
+nowhere — leaves by its error port saying which, rather than running without the tools it was built to use. So does
+one on a Claude model whose server's definition sets a `cwd` other than the workspace folder: Claude starts every
+server there. agy starts each where its definition says, but cannot reach a server over the older SSE transport.
+
+An app opened from the Finder or the Dock does not have a terminal's PATH, so a server's command — `npx`, `uvx`,
+`node` — is also looked for in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, both to list its tools and in
+a run. One installed by a version manager such as nvm or Volta lives elsewhere: give its full path.
+
+A skill that calls another app's MCP tools (`mcp__<server-name>__*`) needs that server in Settings or allowed in the
+workspace, and the tools it calls ticked on the node, before it can run.
 
 ## The email-scoped tools
 

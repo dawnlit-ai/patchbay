@@ -42,6 +42,9 @@ function safeSegment(name: string): string {
 /** Two of the three filesystems we run on ignore case. */
 const folded = (path: string): string => (process.platform === 'linux' ? resolve(path) : resolve(path).toLowerCase());
 
+/** A folder as a key, the same however its case or a trailing separator is written. */
+export const pathKey = folded;
+
 export function samePath(a: string, b: string): boolean {
     return folded(a) === folded(b);
 }
@@ -187,6 +190,11 @@ export const runsDir = (): string => {
 /** Per-run scratch space — saved attachments, files a skill writes. */
 export const runScratchDir = (runId: string): string => ensureAt(join(runsDir(), safeSegment(runId) + '.files'));
 export const settingsFile = (): string => join(dataRoot(), 'settings.json');
+/**
+ * Which servers found in each workspace's files have been allowed here. Kept in
+ * the app's data, not the workspace: a file that could allow itself would not be asked about.
+ */
+export const mcpTrustFile = (): string => join(dataRoot(), 'mcp-trust.json');
 export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
 /** The console's files, one JSONL per day. */

@@ -9,6 +9,7 @@ import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@sha
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import { serveOnLoopback } from './loopback';
+import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 import { clock } from './usageGate';
 
@@ -145,7 +146,8 @@ function runAgyCommand(
         const child = spawn(exe, args, {
             cwd: options.cwd,
             signal: options.signal,
-            env: {...process.env, [HOOK_EXE_ENV]: process.execPath},
+            // agy finds each MCP server's command on its own PATH, and the server inherits it.
+            env: withToolPath({...process.env, [HOOK_EXE_ENV]: process.execPath}),
         });
         let stderr = '';
         createInterface({input: child.stdout}).on('line', (line) => options.onLine?.(line));
@@ -344,6 +346,7 @@ async function agyStatus(exe: string): Promise<AgentStatus> {
 /** The run's MCP servers as agy's plugin config: the in-process ones served on loopback. */
 async function pluginServers(
     servers: Record<string, AgentMcpServer>,
+    defaultCwd: string,
 ): Promise<{ config: Record<string, unknown>; close(): Promise<void> }> {
     const config: Record<string, unknown> = {};
     const closers: (() => Promise<void>)[] = [];
@@ -356,10 +359,22 @@ async function pluginServers(
                 const hosted = await serveOnLoopback(server.instance);
                 closers.push(hosted.close);
                 config[name] = {serverUrl: hosted.url};
+            } else if (server.type === 'http') {
+                config[name] = {
+                    url: server.url,
+                    ...(server.headers ? {headers: server.headers} : {}),
+                };
+            } else if (server.type === 'sse') {
+                throw new Error(
+                    `MCP server "${name}" uses the older SSE transport, which agy does not support. ` +
+                    'Point it at a Streamable HTTP endpoint (type "http"), or pick a Claude model for this node.',
+                );
             } else {
                 config[name] = {
                     command: server.command,
-                    args: server.args ?? [], ...(server.env ? {env: server.env} : {})
+                    args: server.args ?? [],
+                    cwd: server.cwd ?? defaultCwd,
+                    ...(server.env ? {env: server.env} : {}),
                 };
             }
         }
@@ -494,7 +509,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
     const plugin = join(workspace, '.agents', 'plugins', PLUGIN);
     let servers: Awaited<ReturnType<typeof pluginServers>> | undefined;
     try {
-        servers = await pluginServers(request.mcpServers ?? {});
+        servers = await pluginServers(request.mcpServers ?? {}, request.cwd);
         const serverNames = Object.keys(request.mcpServers ?? {});
         const skills = await copySkills(request, workspace);
         const follow = (request.followSkills ?? []).map((ref) => skillRef(ref).name).filter((name) => skills.includes(name));

@@ -7,20 +7,23 @@ import type {
     AboutInfo,
     AgentControlStatus,
     EngineStatus,
+    McpListing,
     McpServerTool,
     Settings,
     SkillSummary,
     UpdateStatus,
+    WorkspaceMcpFile,
 } from './settings';
 
 /**
- * What an agent driving the app through its MCP server changed on disk, so the
- * window re-reads that and not the rest.
+ * What an agent driving the app through its MCP server, or an editor on disk,
+ * changed in the workspace, so the window re-reads that and not the rest.
  */
 export interface WorkspaceChange {
     flows: boolean;
     skills: boolean;
     schemas: boolean;
+    mcp?: boolean;
 }
 
 /** The README.md at the top of the open workspace's folder, which the start window shows. */
@@ -203,8 +206,18 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
-        /** The tools one of the MCP servers in Settings offers, asked of the server. */
+        /** Every MCP server in Settings and found in the open workspace, without secrets. */
+        servers(): Promise<McpListing>;
+        /** The tools one of the MCP servers offers, asked of the server. */
         serverTools(server: string): Promise<McpServerTool[]>;
+        /** Allow a server found in the workspace to run, or refuse it, as its file defines it now. */
+        trustServer(server: string, allowed: boolean): Promise<McpListing>;
+        /** Open one of the workspace's MCP server files in the system's app for `.json` files. */
+        openMcpFile(source: WorkspaceMcpFile): Promise<void>;
+        /** Show one of the workspace's MCP server files in the file manager. */
+        revealMcpFile(source: WorkspaceMcpFile): Promise<void>;
+        /** Write a `.mcp.json` at the top of the workspace folder if it has none, then open it. */
+        createMcpFile(): Promise<void>;
     };
     /**
      * The app's own MCP server. Switching it on and choosing its port are ordinary
@@ -391,7 +404,12 @@ export const IPC = {
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
+    settingsServers: 'settings:servers',
     settingsServerTools: 'settings:serverTools',
+    settingsTrustServer: 'settings:trustServer',
+    settingsOpenMcpFile: 'settings:openMcpFile',
+    settingsRevealMcpFile: 'settings:revealMcpFile',
+    settingsCreateMcpFile: 'settings:createMcpFile',
 
     agentControlStatus: 'agentControl:status',
     agentControlRegenerateToken: 'agentControl:regenerateToken',

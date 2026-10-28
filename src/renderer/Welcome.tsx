@@ -1,4 +1,4 @@
-import type { JSX, ReactNode } from 'react';
+import type { JSX, MouseEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     findTriggers,
@@ -11,7 +11,15 @@ import {
     schemaUsers,
 } from '@shared/flow';
 import type { FlowEntry, Readme, SchemaSummary, WorkspaceInfo } from '@shared/ipc';
-import type { AboutInfo, EngineStatus, SkillSummary } from '@shared/settings';
+import type {
+    AboutInfo,
+    EngineStatus,
+    McpListing,
+    McpServerEntry,
+    McpServerTool,
+    SkillSummary,
+    WorkspaceMcpFile,
+} from '@shared/settings';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { Markdown } from './components/Markdown';
@@ -40,7 +48,7 @@ import { useTheme } from './theme';
 type Sort = 'recent' | 'name';
 
 /** Which part of the workspace the main pane shows. */
-type Tab = 'flows' | 'skills' | 'schemas' | 'readme';
+type Tab = 'flows' | 'skills' | 'schemas' | 'mcp' | 'readme';
 
 type Dialog =
     | { kind: 'new' }
@@ -84,6 +92,25 @@ function ticksOf(flow: Flow): Set<string> {
     );
 }
 
+/** The MCP servers a flow's nodes tick, each once. */
+function mcpServersOf(flow: Flow): Set<string> {
+    const names = new Set<string>();
+    for (const node of flow.nodes) {
+        if (node.config.kind !== 'extractor' && node.config.kind !== 'processor') continue;
+        for (const entry of node.config.mcpTools) {
+            if (!entry.startsWith('mcp__')) continue;
+            const server = entry.slice('mcp__'.length).split('__')[0];
+            if (server) names.add(server);
+        }
+    }
+    return names;
+}
+
+const serverKey = (server: McpServerEntry): string => `${server.source}:${server.name}`;
+
+/** Its tools are asked for again once what it starts, or where it connects, has changed. */
+const toolsKey = (server: McpServerEntry): string => `${serverKey(server)}:${server.summary}`;
+
 /** The fields a schema lists, or null when it is not a group of fields. */
 const fieldNames = (schema: JsonSchema): string[] | null =>
     isObject(schema.properties) ? Object.keys(schema.properties) : null;
@@ -124,12 +151,25 @@ function Where({path}: { path: string }): JSX.Element {
 }
 
 /**
- * Buttons under the picked row. A double-click or a key pressed on one is the
- * button's alone: the row's own would open the item as well.
+ * Whether a click on a row unpicks it. A second click on the picked row does,
+ * but not the second click of a double-click, which opens it, nor the end of a
+ * drag that selected some of its text to copy.
+ */
+const unpicks = (e: MouseEvent, picked: boolean): boolean =>
+    picked && e.detail < 2 && (window.getSelection()?.isCollapsed ?? true);
+
+/**
+ * Buttons under the picked row. A click, double-click or key pressed on one is
+ * the button's alone: the row's own would unpick or open the item as well.
  */
 function RowActions({children}: { children: ReactNode }): JSX.Element {
     return (
-        <div className="row-actions" onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <div
+            className="row-actions"
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+        >
             {children}
         </div>
     );
@@ -140,11 +180,17 @@ export function Welcome(): JSX.Element {
     const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
     const [recent, setRecent] = useState<WorkspaceInfo[]>([]);
     const [entries, setEntries] = useState<FlowEntry[] | null>(null);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    /** Undefined before anything is picked; null when explicitly deselected. */
+    const [selectedId, setSelectedId] = useState<string | null | undefined>(undefined);
     const [skills, setSkills] = useState<SkillSummary[] | null>(null);
-    const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+    const [selectedSkill, setSelectedSkill] = useState<string | null | undefined>(undefined);
     const [schemaList, setSchemaList] = useState<SchemaSummary[] | null>(null);
-    const [selectedSchema, setSelectedSchema] = useState<string | null>(null);
+    const [selectedSchema, setSelectedSchema] = useState<string | null | undefined>(undefined);
+    const [mcpListing, setMcpListing] = useState<McpListing | null>(null);
+    const [selectedServer, setSelectedServer] = useState<string | null | undefined>(undefined);
+    const [serverTools, setServerTools] = useState<
+        Record<string, { tools: McpServerTool[] | null; error: string | null }>
+    >({});
     /** Undefined until read; null when the workspace has none. */
     const [readme, setReadme] = useState<Readme | null | undefined>(undefined);
     const [tab, setTab] = useState<Tab>('flows');
@@ -153,9 +199,10 @@ export function Welcome(): JSX.Element {
     const [dialog, setDialog] = useState<Dialog | null>(null);
     /** The flow a right-click landed on, and where it landed. */
     const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
-    /** The same for a skill, and for a schema. */
+    /** The same for a skill, a schema, and an MCP server. */
     const [skillMenu, setSkillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
     const [schemaMenu, setSchemaMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+    const [serverMenu, setServerMenu] = useState<{ server: McpServerEntry; x: number; y: number } | null>(null);
     /** The workspaces menu, or one recent workspace's, and where it opened. */
     const [workspaceMenu, setWorkspaceMenu] = useState<{
         items: MenuItem[];
@@ -172,6 +219,8 @@ export function Welcome(): JSX.Element {
     const rows = useRef(new Map<string, HTMLDivElement>());
     const skillRows = useRef(new Map<string, HTMLDivElement>());
     const schemaRows = useRef(new Map<string, HTMLDivElement>());
+    const serverRows = useRef(new Map<string, HTMLDivElement>());
+    const fetchingTools = useRef(new Set<string>());
 
     const refreshSkills = useCallback(() => {
         void window.api.skills.list().then(setSkills);
@@ -181,19 +230,27 @@ export function Welcome(): JSX.Element {
         void window.api.schemas.list().then(setSchemaList);
     }, []);
 
+    const refreshMcp = useCallback(() => {
+        void window.api.settings.servers().then(setMcpListing);
+    }, []);
+
     const refresh = useCallback(() => {
         void window.api.workspace.current().then(setWorkspace);
         void window.api.workspace.recent().then(setRecent);
         void window.api.flows.entries().then((list) => {
             setEntries(list);
-            // Whatever was selected, unless it has just been deleted from under us.
-            setSelectedId((current) => (list.some((e) => e.flow.id === current) ? current : null));
+            // Whatever was picked, unless it has just been deleted from under us:
+            // then the top of the list again, as before anything was picked.
+            setSelectedId((current) =>
+                typeof current === 'string' && !list.some((e) => e.flow.id === current) ? undefined : current,
+            );
         });
         refreshSkills();
         refreshSchemas();
+        refreshMcp();
         // Edited in another app: coming back to this window is what re-reads it.
         void window.api.workspace.readme().then(setReadme);
-    }, [refreshSkills, refreshSchemas]);
+    }, [refreshSkills, refreshSchemas, refreshMcp]);
 
     useEffect(() => {
         refresh();
@@ -212,13 +269,14 @@ export function Welcome(): JSX.Element {
             }
             if (change.skills) refreshSkills();
             if (change.schemas) refreshSchemas();
+            if (change.mcp) refreshMcp();
         });
         window.addEventListener('focus', refresh);
         return () => {
             off();
             window.removeEventListener('focus', refresh);
         };
-    }, [refresh, refreshSkills, refreshSchemas]);
+    }, [refresh, refreshSkills, refreshSchemas, refreshMcp]);
 
     const watched = new Set(status?.watching.map((w) => w.flowId));
 
@@ -236,7 +294,9 @@ export function Welcome(): JSX.Element {
 
     // Nothing chosen yet means the top of the list — under the default sort, the
     // flow last worked on, which is the one the window was most likely opened for.
-    const selected = shown.find((e) => e.flow.id === selectedId) ?? shown[0] ?? null;
+    // Null means the user explicitly deselected.
+    const selected =
+        selectedId === null ? null : (shown.find((e) => e.flow.id === selectedId) ?? shown[0] ?? null);
 
     /** Each skill ticked anywhere, and the flows that tick it, by name. */
     const tickedIn = new Map<string, string[]>();
@@ -247,7 +307,8 @@ export function Welcome(): JSX.Element {
     const shownSkills = (skills ?? [])
         .filter((s) => matches(s.name, s.description))
         .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
-    const skillSelected = shownSkills.find((s) => s.name === selectedSkill) ?? shownSkills[0] ?? null;
+    const skillSelected =
+        selectedSkill === null ? null : (shownSkills.find((s) => s.name === selectedSkill) ?? shownSkills[0] ?? null);
 
     // Ticked but not in the library: deleted or renamed outside the app since, or
     // named by a flow imported from elsewhere. Those nodes stop at their error port.
@@ -264,7 +325,10 @@ export function Welcome(): JSX.Element {
             matches(s.name, typeof s.schema?.description === 'string' ? s.schema.description : '', ...(s.schema ? (fieldNames(s.schema) ?? []) : [])),
         )
         .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
-    const schemaSelected = shownSchemas.find((s) => s.name === selectedSchema) ?? shownSchemas[0] ?? null;
+    const schemaSelected =
+        selectedSchema === null
+            ? null
+            : (shownSchemas.find((s) => s.name === selectedSchema) ?? shownSchemas[0] ?? null);
 
     // Named by a node or by another schema, but not in the folder: deleted or
     // renamed outside the app since, or named by a flow imported from elsewhere.
@@ -285,6 +349,61 @@ export function Welcome(): JSX.Element {
     const inFolder = new Set(schemaList?.map((s) => s.name));
     const missingSchemas =
         schemaList === null ? [] : [...namedBy.keys()].filter((name) => !inFolder.has(name) && matches(name)).toSorted();
+
+    /** Each MCP server ticked anywhere, and the flows that tick it, by name. */
+    const serverTickedIn = new Map<string, string[]>();
+    for (const {flow} of entries ?? []) {
+        for (const name of mcpServersOf(flow)) {
+            serverTickedIn.set(name, [...(serverTickedIn.get(name) ?? []), flow.name]);
+        }
+    }
+
+    const shownServers = (mcpListing?.servers ?? [])
+        .filter((s) =>
+            matches(
+                s.name,
+                s.source === 'settings' ? 'settings' : s.source,
+                s.type,
+                s.summary,
+                ...s.envKeys,
+                ...s.headerKeys,
+                s.problem ?? '',
+            ),
+        )
+        .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : 0));
+    const serverSelected =
+        selectedServer === null
+            ? null
+            : (shownServers.find((s) => serverKey(s) === selectedServer) ?? shownServers[0] ?? null);
+
+    const knownServers = new Set(mcpListing?.servers.map((s) => s.name));
+    const missingServers =
+        mcpListing === null
+            ? []
+            : [...serverTickedIn.keys()].filter((name) => !knownServers.has(name) && matches(name)).toSorted();
+
+    const selectedToolKey = tab === 'mcp' && serverSelected?.state === 'allowed' ? toolsKey(serverSelected) : null;
+    const selectedServerName =
+        tab === 'mcp' && serverSelected?.state === 'allowed' ? serverSelected.name : null;
+
+    useEffect(() => {
+        if (!selectedToolKey || !selectedServerName) return;
+        if (serverTools[selectedToolKey] !== undefined || fetchingTools.current.has(selectedToolKey)) return;
+        fetchingTools.current.add(selectedToolKey);
+        void window.api.settings.serverTools(selectedServerName).then(
+            (tools) => {
+                fetchingTools.current.delete(selectedToolKey);
+                setServerTools((current) => ({...current, [selectedToolKey]: {tools, error: null}}));
+            },
+            (e: unknown) => {
+                fetchingTools.current.delete(selectedToolKey);
+                setServerTools((current) => ({
+                    ...current,
+                    [selectedToolKey]: {tools: null, error: e instanceof Error ? e.message : String(e)},
+                }));
+            },
+        );
+    }, [selectedToolKey, selectedServerName, serverTools]);
 
     // ── Workspaces ─────────────────────────────────────────────────────────
 
@@ -613,6 +732,61 @@ export function Welcome(): JSX.Element {
         },
     ];
 
+    // ── MCP servers ────────────────────────────────────────────────────────
+
+    const trustServer = (server: McpServerEntry, allowed: boolean): Promise<void> =>
+        attempt(async () => {
+            setMcpListing(await window.api.settings.trustServer(server.name, allowed));
+            // Allowed again after its file changed: asked afresh, not shown what it offered before.
+            setServerTools((current) =>
+                Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${serverKey(server)}:`))),
+            );
+        });
+
+    const handOffMcpFile = (how: 'openMcpFile' | 'revealMcpFile', source: WorkspaceMcpFile): Promise<void> =>
+        attempt(async () => {
+            try {
+                await window.api.settings[how](source);
+            } catch (e) {
+                refreshMcp();
+                throw e;
+            }
+        });
+
+    const createMcpFile = (): Promise<void> =>
+        attempt(async () => {
+            await window.api.settings.createMcpFile();
+            refreshMcp();
+        });
+
+    const openServer = (server: McpServerEntry): void => {
+        if (server.source === 'settings') void window.api.window.showSettings();
+        else void handOffMcpFile('openMcpFile', server.source);
+    };
+
+    const serverActions = (server: McpServerEntry): MenuItem[] => {
+        if (server.source === 'settings') {
+            return [{label: 'Open Settings…', onSelect: () => void window.api.window.showSettings()}];
+        }
+        const source = server.source;
+        const items: MenuItem[] = [];
+        if (server.state === 'new' || server.state === 'changed' || server.state === 'blocked') {
+            items.push({label: 'Allow in this workspace', onSelect: () => void trustServer(server, true)});
+        }
+        if (server.state === 'new' || server.state === 'changed' || server.state === 'allowed') {
+            items.push({label: 'Block in this workspace', onSelect: () => void trustServer(server, false)});
+        }
+        items.push(
+            {
+                label: `Edit ${source}`,
+                separator: items.length > 0,
+                onSelect: () => void handOffMcpFile('openMcpFile', source),
+            },
+            {label: 'Show in folder', onSelect: () => void handOffMcpFile('revealMcpFile', source)},
+        );
+        return items;
+    };
+
     // ── README ─────────────────────────────────────────────────────────────
 
     /** Written from a template and opened to be filled in; shown here once it is saved and this window looked at. */
@@ -659,6 +833,15 @@ export function Welcome(): JSX.Element {
         schemaRows.current.get(next.name)?.focus();
     };
 
+    const moveServer = (from: McpServerEntry, delta: number): void => {
+        const at = shownServers.indexOf(from);
+        const next = shownServers[Math.min(shownServers.length - 1, Math.max(0, at + delta))];
+        if (!next || next === from) return;
+        const key = serverKey(next);
+        setSelectedServer(key);
+        serverRows.current.get(key)?.focus();
+    };
+
     /** The actions for one flow, shown in its row's context menu. */
     const actions = (entry: FlowEntry): MenuItem[] => [
         {label: 'Open', onSelect: () => void open(entry.flow)},
@@ -674,8 +857,18 @@ export function Welcome(): JSX.Element {
     const noFlows = entries !== null && entries.length === 0;
     const noSkills = skills !== null && skills.length === 0;
     const noSchemas = schemaList !== null && schemaList.length === 0;
+    const noServers = mcpListing !== null && mcpListing.servers.length === 0 && mcpListing.unreadable.length === 0;
     /** Nothing in the list shown, so nothing to filter or order. */
-    const nothingYet = tab === 'flows' ? noFlows : tab === 'skills' ? noSkills : noSchemas;
+    const nothingYet =
+        tab === 'flows'
+            ? noFlows
+            : tab === 'skills'
+                ? noSkills
+                : tab === 'schemas'
+                    ? noSchemas
+                    : tab === 'mcp'
+                        ? noServers
+                        : true;
 
     /** Opens a menu under a button, as a right-click would at the pointer. */
     const menuUnder = (e: { currentTarget: HTMLElement }, label: string, items: MenuItem[]): void => {
@@ -729,6 +922,26 @@ export function Welcome(): JSX.Element {
                                 >
                                     ＋ New schema
                                 </button>
+                            ) : tab === 'mcp' ? (
+                                <>
+                                    <button
+                                        className="primary wide"
+                                        title="Opens .mcp.json at the top of the workspace folder, creating it from a template if there is none yet"
+                                        onClick={() => void createMcpFile()}
+                                    >
+                                        {mcpListing?.servers.some((s) => s.source === '.mcp.json') ||
+                                        mcpListing?.unreadable.some((u) => u.source === '.mcp.json')
+                                            ? 'Edit .mcp.json'
+                                            : '＋ Create .mcp.json'}
+                                    </button>
+                                    <button
+                                        className="wide"
+                                        title="Servers kept in Settings are available in every workspace"
+                                        onClick={() => void window.api.window.showSettings()}
+                                    >
+                                        Settings → MCP servers…
+                                    </button>
+                                </>
                             ) : tab === 'readme' ? (
                                 // One there is opened from the tab's own header.
                                 readme === null && (
@@ -894,6 +1107,17 @@ export function Welcome(): JSX.Element {
                                 </button>
                                 <button
                                     role="radio"
+                                    aria-checked={tab === 'mcp'}
+                                    title="The MCP servers available here, from the workspace’s config files and from Settings"
+                                    onClick={() => setTab('mcp')}
+                                >
+                                    MCP{' '}
+                                    <span className="count">
+                                        {mcpListing?.servers.filter((s) => s.state !== 'shadowed').length ?? 0}
+                                    </span>
+                                </button>
+                                <button
+                                    role="radio"
                                     aria-checked={tab === 'readme'}
                                     title="The README.md at the top of the workspace folder, if it has one"
                                     onClick={() => setTab('readme')}
@@ -901,9 +1125,8 @@ export function Welcome(): JSX.Element {
                                     README
                                 </button>
                             </div>
-                            <span className="spacer"/>
                             {tab === 'readme' && readme && (
-                                <>
+                                <div className="welcome-head-end">
                                     <span className="readme-file">edited {ago(readme.updatedAt)}</span>
                                     <button
                                         className="ghost compact"
@@ -912,10 +1135,10 @@ export function Welcome(): JSX.Element {
                                     >
                                         Open {readme.path.split(/[\\/]/).pop()}
                                     </button>
-                                </>
+                                </div>
                             )}
                             {tab !== 'readme' && !nothingYet && (
-                                <>
+                                <div className="welcome-head-end">
                                     <input
                                         className="compact"
                                         placeholder="Filter"
@@ -928,15 +1151,22 @@ export function Welcome(): JSX.Element {
                                         onChange={(e) => setSort(e.target.value as Sort)}
                                         title="Order the list"
                                     >
-                                        <option value="recent">Last edited</option>
+                                        <option value="recent">{tab === 'mcp' ? 'Source' : 'Last edited'}</option>
                                         <option value="name">Name</option>
                                     </select>
-                                </>
+                                </div>
                             )}
                         </div>
 
                         {tab === 'flows' && (
-                            <div className="flow-list" role="listbox" aria-label="Flows">
+                            <div
+                                className="flow-list"
+                                role="listbox"
+                                aria-label="Flows"
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) setSelectedId(null);
+                                }}
+                            >
                                 {(entries === null || workspace === undefined) && <div className="empty">Loading…</div>}
                                 {noFlows && workspace && (
                                     <div className="empty">
@@ -958,7 +1188,7 @@ export function Welcome(): JSX.Element {
                                         aria-selected={entry === selected}
                                         tabIndex={0}
                                         className={`flow-row${entry === selected ? ' active' : ''}`}
-                                        onClick={() => setSelectedId(entry.flow.id)}
+                                        onClick={(e) => setSelectedId(unpicks(e, entry === selected) ? null : entry.flow.id)}
                                         onDoubleClick={() => void open(entry.flow)}
                                         onContextMenu={(e) => {
                                             e.preventDefault();
@@ -976,6 +1206,7 @@ export function Welcome(): JSX.Element {
                                             if (e.key === 'Enter') void open(entry.flow);
                                             else if (e.key === 'ArrowDown') move(entry, 1);
                                             else if (e.key === 'ArrowUp') move(entry, -1);
+                                            else if (e.key === 'Escape') setSelectedId(null);
                                             else return;
                                             e.preventDefault();
                                         }}
@@ -1005,7 +1236,14 @@ export function Welcome(): JSX.Element {
                         )}
 
                         {tab === 'skills' && (
-                            <div className="flow-list" role="listbox" aria-label="Skills">
+                            <div
+                                className="flow-list"
+                                role="listbox"
+                                aria-label="Skills"
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) setSelectedSkill(null);
+                                }}
+                            >
                                 {(skills === null || workspace === undefined) && <div className="empty">Loading…</div>}
                                 {noSkills && missing.length === 0 && workspace && (
                                     <div className="empty">
@@ -1032,7 +1270,9 @@ export function Welcome(): JSX.Element {
                                             tabIndex={0}
                                             className={`flow-row${skill === skillSelected ? ' active' : ''}`}
                                             title={skill.description || undefined}
-                                            onClick={() => setSelectedSkill(skill.name)}
+                                            onClick={(e) =>
+                                                setSelectedSkill(unpicks(e, skill === skillSelected) ? null : skill.name)
+                                            }
                                             onDoubleClick={() => void handOff('open', skill.name)}
                                             onContextMenu={(e) => {
                                                 e.preventDefault();
@@ -1048,6 +1288,7 @@ export function Welcome(): JSX.Element {
                                                 if (e.key === 'Enter') void handOff('open', skill.name);
                                                 else if (e.key === 'ArrowDown') moveSkill(skill, 1);
                                                 else if (e.key === 'ArrowUp') moveSkill(skill, -1);
+                                                else if (e.key === 'Escape') setSelectedSkill(null);
                                                 else return;
                                                 e.preventDefault();
                                             }}
@@ -1110,7 +1351,14 @@ export function Welcome(): JSX.Element {
                         )}
 
                         {tab === 'schemas' && (
-                            <div className="flow-list" role="listbox" aria-label="Schemas">
+                            <div
+                                className="flow-list"
+                                role="listbox"
+                                aria-label="Schemas"
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) setSelectedSchema(null);
+                                }}
+                            >
                                 {(schemaList === null || workspace === undefined) &&
                                     <div className="empty">Loading…</div>}
                                 {noSchemas && missingSchemas.length === 0 && workspace && (
@@ -1141,7 +1389,7 @@ export function Welcome(): JSX.Element {
                                             aria-selected={active}
                                             tabIndex={0}
                                             className={`flow-row${active ? ' active' : ''}`}
-                                            onClick={() => setSelectedSchema(entry.name)}
+                                            onClick={(e) => setSelectedSchema(unpicks(e, active) ? null : entry.name)}
                                             onDoubleClick={() => editSchema(entry)}
                                             onContextMenu={(e) => {
                                                 e.preventDefault();
@@ -1157,6 +1405,7 @@ export function Welcome(): JSX.Element {
                                                 if (e.key === 'Enter') editSchema(entry);
                                                 else if (e.key === 'ArrowDown') moveSchema(entry, 1);
                                                 else if (e.key === 'ArrowUp') moveSchema(entry, -1);
+                                                else if (e.key === 'Escape') setSelectedSchema(null);
                                                 else return;
                                                 e.preventDefault();
                                             }}
@@ -1248,6 +1497,274 @@ export function Welcome(): JSX.Element {
                             </div>
                         )}
 
+                        {tab === 'mcp' && (
+                            <div
+                                className="flow-list"
+                                role="listbox"
+                                aria-label="MCP servers"
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) setSelectedServer(null);
+                                }}
+                            >
+                                {(mcpListing === null || workspace === undefined) && (
+                                    <div className="empty">Loading…</div>
+                                )}
+                                {noServers && missingServers.length === 0 && workspace && (
+                                    <div className="empty">
+                                        No MCP servers in {workspace.name} yet. Patchbay
+                                        reads <code>.mcp.json</code>,{' '}
+                                        <code>.vscode/mcp.json</code>, <code>.cursor/mcp.json</code> and{' '}
+                                        <code>.gemini/settings.json</code> in the workspace folder, as well as the
+                                        servers in <b>Settings</b>. <b>Create .mcp.json</b> starts one at the top of the
+                                        workspace.
+                                    </div>
+                                )}
+                                {mcpListing !== null &&
+                                    !noServers &&
+                                    shownServers.length === 0 &&
+                                    missingServers.length === 0 &&
+                                    mcpListing.unreadable.length === 0 && (
+                                        <div className="empty">Nothing matches “{query}”.</div>
+                                    )}
+                                {mcpListing?.unreadable.map((u) => (
+                                    <div key={`unreadable:${u.source}`} className="flow-row missing">
+                                        <div className="grow">
+                                            <div className="title">
+                                                {u.source}
+                                                <span className="badge err">cannot be read</span>
+                                            </div>
+                                            <div className="meta">{u.problem}</div>
+                                        </div>
+                                        <button
+                                            className="fixed"
+                                            onClick={() => void handOffMcpFile('openMcpFile', u.source)}
+                                        >
+                                            Open file
+                                        </button>
+                                    </div>
+                                ))}
+                                {shownServers.map((server) => {
+                                    const key = serverKey(server);
+                                    const active = server === serverSelected;
+                                    const users = serverTickedIn.get(server.name) ?? [];
+                                    const fetched = serverTools[toolsKey(server)];
+                                    const description =
+                                        server.problem ??
+                                        (server.state === 'new'
+                                            ? `${server.summary ? `${server.summary} — ` : ''}Not allowed yet. A workspace server can run commands on this computer, so it stays off until you allow it.`
+                                            : server.state === 'changed'
+                                                ? `${server.summary ? `${server.summary} — ` : ''}${server.source} changed what this starts since it was allowed. Allow it again to use it.`
+                                                : server.summary || 'No command or URL');
+                                    const details = [
+                                        server.source === 'settings' ? 'in Settings' : `in ${server.source}`,
+                                        server.type,
+                                        server.envKeys.length > 0 ? `env: ${server.envKeys.join(', ')}` : null,
+                                        server.headerKeys.length > 0 ? `headers: ${server.headerKeys.join(', ')}` : null,
+                                        users.length > 0 ? `ticked in ${listed(users)}` : 'ticked in no flow',
+                                    ].filter((part): part is string => part !== null);
+                                    return (
+                                        <div
+                                            key={key}
+                                            ref={(el) => {
+                                                if (el) serverRows.current.set(key, el);
+                                                else serverRows.current.delete(key);
+                                            }}
+                                            role="option"
+                                            aria-selected={active}
+                                            tabIndex={0}
+                                            className={`flow-row${active ? ' active' : ''}`}
+                                            onClick={(e) => setSelectedServer(unpicks(e, active) ? null : key)}
+                                            onDoubleClick={() => openServer(server)}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                setSelectedServer(key);
+                                                const box = e.currentTarget.getBoundingClientRect();
+                                                setServerMenu({
+                                                    server,
+                                                    x: e.clientX || box.left + 16,
+                                                    y: e.clientY || box.bottom - 6,
+                                                });
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') openServer(server);
+                                                else if (e.key === 'ArrowDown') moveServer(server, 1);
+                                                else if (e.key === 'ArrowUp') moveServer(server, -1);
+                                                else if (e.key === 'Escape') setSelectedServer(null);
+                                                else return;
+                                                e.preventDefault();
+                                            }}
+                                        >
+                                            <div className="grow">
+                                                <div className="title">
+                                                    {server.name}
+                                                    <span className="badge">
+                                                        {server.source === 'settings' ? 'Settings' : server.source}
+                                                    </span>
+                                                    {server.state === 'allowed' && (
+                                                        <span
+                                                            className="badge ok"
+                                                            title={
+                                                                server.source === 'settings'
+                                                                    ? 'Switched on in Settings'
+                                                                    : 'Allowed to run in this workspace'
+                                                            }
+                                                        >
+                                                            allowed
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'new' && (
+                                                        <span
+                                                            className="badge warn"
+                                                            title="Defined in the workspace, and not allowed to run yet"
+                                                        >
+                                                            needs approval
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'changed' && (
+                                                        <span
+                                                            className="badge warn"
+                                                            title="Its definition changed since it was allowed"
+                                                        >
+                                                            changed
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'blocked' && (
+                                                        <span className="badge" title="Blocked in this workspace">
+                                                            blocked
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'shadowed' && (
+                                                        <span className="badge" title={server.problem}>
+                                                            shadowed
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'invalid' && (
+                                                        <span className="badge err" title={server.problem}>
+                                                            cannot be used
+                                                        </span>
+                                                    )}
+                                                    {server.state === 'allowed' && users.length === 0 && (
+                                                        <span
+                                                            className="badge"
+                                                            title="No node in any flow here ticks it"
+                                                        >
+                                                            unused
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="meta desc">{description}</div>
+                                                <div className="meta">{details.join(' · ')}</div>
+                                                {active && server.state === 'allowed' && (
+                                                    !fetched ? (
+                                                        <div className="schema-fields empty-fields">
+                                                            Listing tools…
+                                                        </div>
+                                                    ) : fetched.error ? (
+                                                        <div className="schema-fields empty-fields">
+                                                            Could not list tools: {fetched.error}
+                                                        </div>
+                                                    ) : fetched.tools && fetched.tools.length === 0 ? (
+                                                        <div className="schema-fields empty-fields">
+                                                            This server reported no tools.
+                                                        </div>
+                                                    ) : (
+                                                        fetched.tools && (
+                                                            <div className="schema-fields tools">
+                                                                {fetched.tools.map((tool) => (
+                                                                    <div key={tool.name} className="schema-field">
+                                                                        <span className="name">{tool.name}</span>
+                                                                        <span className="type">
+                                                                            mcp__{server.name}__{tool.name}
+                                                                        </span>
+                                                                        <span
+                                                                            className="desc"
+                                                                            title={tool.description || undefined}
+                                                                        >
+                                                                            {tool.description || 'No description'}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )
+                                                    )
+                                                )}
+                                                {active && (
+                                                    <RowActions>
+                                                        {server.source === 'settings' ? (
+                                                            <button
+                                                                onClick={() => void window.api.window.showSettings()}
+                                                            >
+                                                                Open Settings…
+                                                            </button>
+                                                        ) : (
+                                                            <>
+                                                                {(server.state === 'new' ||
+                                                                    server.state === 'changed' ||
+                                                                    server.state === 'blocked') && (
+                                                                    <button
+                                                                        className="primary"
+                                                                        onClick={() => void trustServer(server, true)}
+                                                                    >
+                                                                        Allow
+                                                                    </button>
+                                                                )}
+                                                                {(server.state === 'new' ||
+                                                                    server.state === 'changed' ||
+                                                                    server.state === 'allowed') && (
+                                                                    <button
+                                                                        onClick={() => void trustServer(server, false)}
+                                                                    >
+                                                                        Block
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() =>
+                                                                        void handOffMcpFile(
+                                                                            'openMcpFile',
+                                                                            server.source as WorkspaceMcpFile,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    Edit {server.source}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() =>
+                                                                        void handOffMcpFile(
+                                                                            'revealMcpFile',
+                                                                            server.source as WorkspaceMcpFile,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    Show in folder
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </RowActions>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {missingServers.map((name) => (
+                                    <div key={`missing:${name}`} className="flow-row missing">
+                                        <div className="grow">
+                                            <div className="title">
+                                                {name}
+                                                <span className="badge err">not in this workspace</span>
+                                            </div>
+                                            <div className="meta">
+                                                Ticked in {listed(serverTickedIn.get(name) ?? [])}, but there is no
+                                                server named <code>{name}</code> in this workspace or switched on in
+                                                Settings, so the nodes that tick it stop at their error port. Add it
+                                                to{' '}
+                                                <code>.mcp.json</code> or Settings, or untick it on the canvas.
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         {tab === 'readme' && (
                             <div className="readme-view">
                                 {readme === undefined && <div className="empty">Loading…</div>}
@@ -1297,6 +1814,16 @@ export function Welcome(): JSX.Element {
                             : []
                     }
                     onClose={() => setSchemaMenu(null)}
+                />
+            )}
+
+            {serverMenu && (
+                <ContextMenu
+                    x={serverMenu.x}
+                    y={serverMenu.y}
+                    label={serverMenu.server.name}
+                    items={serverActions(serverMenu.server)}
+                    onClose={() => setServerMenu(null)}
                 />
             )}
 

@@ -10,8 +10,9 @@ import {
 } from '@shared/ipc';
 import { type Flow, type JsonSchema, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { AboutInfo, Settings } from '@shared/settings';
+import type { AboutInfo, Settings, WorkspaceMcpFile } from '@shared/settings';
 import * as flowStore from './store/flowStore';
+import * as mcpStore from './store/mcpStore';
 import * as schemaStore from './store/schemaStore';
 import * as skillStore from './store/skillStore';
 import * as workspaceStore from './store/workspaceStore';
@@ -134,7 +135,7 @@ function switchWorkspace(path: string | null, open: () => WorkspaceInfo): Worksp
     watcher.stopAll();
     closeCanvases();
     rewatch();
-    broadcast(IPC.evtWorkspaceChanged, {flows: true, skills: true, schemas: true});
+    broadcast(IPC.evtWorkspaceChanged, {flows: true, skills: true, schemas: true, mcp: true});
     return opened;
 }
 
@@ -272,10 +273,38 @@ export function registerIpc(): void {
         return flowStore.importFlowFile(path);
     });
     handle(IPC.settingsGet, () => getSettings());
-    handle(IPC.settingsServerTools, (server: string) => listServerTools(server));
+    handle(IPC.settingsServers, () => {
+        rewatch();
+        return mcpStore.listMcpServers();
+    });
+    handle(
+        IPC.settingsServerTools,
+        async (server: string) => {
+            try {
+                return {tools: await listServerTools(server)};
+            } catch (e) {
+                return {error: e instanceof Error ? e.message : String(e)};
+            }
+        },
+    );
+    handle(IPC.settingsTrustServer, (server: string, allowed: boolean) => {
+        const listed = mcpStore.setServerTrust(server, allowed);
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return listed;
+    });
+    handle(IPC.settingsOpenMcpFile, (source: WorkspaceMcpFile) => openInEditor(mcpStore.mcpFilePath(source)));
+    handle(IPC.settingsRevealMcpFile, (source: WorkspaceMcpFile) =>
+        shell.showItemInFolder(mcpStore.mcpFilePath(source)),
+    );
+    handle(IPC.settingsCreateMcpFile, () => {
+        const path = mcpStore.createMcpFile();
+        rewatch();
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return openInEditor(path);
+    });
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token: a panel opened before a regeneration would send the old one back.
-        const {agentControl, updateChannel} = getSettings();
+        const {agentControl, updateChannel, mcpServers} = getSettings();
         const saved = saveSettings({
             ...settings,
             agentControl: {...settings.agentControl, token: agentControl.token},
@@ -283,6 +312,9 @@ export function registerIpc(): void {
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
+        if (JSON.stringify(saved.mcpServers) !== JSON.stringify(mcpServers)) {
+            broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        }
         return saved;
     });
 

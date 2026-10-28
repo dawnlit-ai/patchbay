@@ -8,11 +8,13 @@ import {
     type AgentControlStatus,
     type AgentId,
     CONCURRENT_RUNS_RANGE,
+    type McpListing,
     type McpServerSetting,
     type Settings,
     UPDATE_CHANNELS,
     type UpdateChannel,
     type UpdateStatus,
+    type WorkspaceMcpFile,
 } from '@shared/settings';
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { ahead, time } from '../format';
@@ -20,12 +22,17 @@ import { ahead, time } from '../format';
 interface Props {
     settings: Settings;
     about: AboutInfo | null;
+    mcpListing: McpListing | null;
     /** What the agent-control server is actually doing, as opposed to what is asked of it. */
     agentControl: AgentControlStatus | null;
     /** What the updater is doing, as opposed to which channel is asked of it. */
     updates: UpdateStatus | null;
 
     onSave(settings: Settings): void;
+
+    onTrustServer(name: string, allowed: boolean): void;
+
+    onOpenMcpFile(source: WorkspaceMcpFile): void;
 
     onRegenerateToken(): void;
 
@@ -234,8 +241,11 @@ function PageHead({title, children}: { title: string; children: ReactNode }): JS
 export function SettingsPanel({
                                   settings,
                                   about,
+                                  mcpListing,
                                   agentControl,
                                   onSave,
+                                  onTrustServer,
+                                  onOpenMcpFile,
                                   onRegenerateToken,
                                   updates,
                                   onCheckUpdates,
@@ -350,12 +360,17 @@ export function SettingsPanel({
         return () => window.removeEventListener('keydown', onKey);
     }, [dirty, draft, onSave]);
 
-    const enabledServers = draft.mcpServers.filter((s) => s.enabled).length;
+    const workspaceServers = mcpListing?.servers.filter((s) => s.source !== 'settings') ?? [];
+    const enabledServers =
+        draft.mcpServers.filter((s) => s.enabled).length +
+        workspaceServers.filter((s) => s.state === 'allowed').length;
 
     /** What the rail says about a page besides its name. */
     const meta = (p: Page): ReactNode => {
         if (p === 'runs' && !draft.pollingEnabled) return <span className="meta">Off</span>;
-        if (p === 'servers' && draft.mcpServers.length > 0) return <span className="meta">{enabledServers}</span>;
+        if (p === 'servers' && draft.mcpServers.length + workspaceServers.length > 0) {
+            return <span className="meta">{enabledServers}</span>;
+        }
         if (p === 'agent' && agentControl?.running) {
             return (
                 <span className="meta on">
@@ -555,67 +570,208 @@ export function SettingsPanel({
                                 <PageHead title="MCP servers">
                                     Tool servers your Processor and Extractor nodes can call — another app's MCP
                                     server whose tools your skills use, for example. Each node gets only the tools
-                                    it ticks.
+                                    it ticks. Servers added here are available in every workspace; servers defined in
+                                    a workspace's own <code>.mcp.json</code>, <code>.vscode/mcp.json</code>,{' '}
+                                    <code>.cursor/mcp.json</code> or <code>.gemini/settings.json</code> appear below
+                                    for that workspace.
                                 </PageHead>
                                 <div className="set-group">
                                     {draft.mcpServers.length === 0 && (
                                         <div className="set-empty">
-                                            No servers yet. Add one, then tick its tools on the nodes that need them.
+                                            No install-wide servers yet. Add one here, or keep
+                                            a <code>.mcp.json</code>{' '}
+                                            in your workspace folder.
                                         </div>
                                     )}
-                                    {draft.mcpServers.map((server, i) => (
-                                        <div key={i} className="set-row server">
-                                            <div>
-                                                <input
-                                                    className="server-name"
-                                                    aria-label="Server name"
-                                                    placeholder="Name"
-                                                    value={server.name}
-                                                    onChange={(e) => patchServer(i, {name: e.target.value})}
-                                                />
-                                                <div className="set-desc">
-                                                    Its tools arrive as{' '}
-                                                    <code>mcp__{server.name.trim() || 'name'}__*</code>
+                                    {draft.mcpServers.map((server, i) => {
+                                        const isHttp = (server.type ?? 'stdio') !== 'stdio';
+                                        return (
+                                            <div key={i} className="set-row server">
+                                                <div>
+                                                    <input
+                                                        className="server-name"
+                                                        aria-label="Server name"
+                                                        placeholder="Name"
+                                                        value={server.name}
+                                                        onChange={(e) => patchServer(i, {name: e.target.value})}
+                                                    />
+                                                    <div className="set-desc">
+                                                        Its tools arrive as{' '}
+                                                        <code>mcp__{server.name.trim() || 'name'}__*</code>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="set-control">
-                                                <Switch
-                                                    on={server.enabled}
-                                                    label={`Use ${server.name || 'this server'}`}
-                                                    onChange={(on) => patchServer(i, {enabled: on})}
-                                                />
-                                                <button className="ghost danger" onClick={() => removeServer(i)}>
-                                                    Remove
-                                                </button>
-                                            </div>
-                                            <div className="set-below server-command">
-                                                <label>
-                                                    <span>Command</span>
-                                                    <input
-                                                        className="mono"
-                                                        placeholder="node"
-                                                        value={server.command}
-                                                        onChange={(e) => patchServer(i, {command: e.target.value})}
+                                                <div className="set-control">
+                                                    <div className="segmented" role="radiogroup"
+                                                         aria-label="Server type">
+                                                        <button
+                                                            role="radio"
+                                                            aria-checked={!isHttp}
+                                                            onClick={() => patchServer(i, {type: 'stdio'})}
+                                                        >
+                                                            Command
+                                                        </button>
+                                                        <button
+                                                            role="radio"
+                                                            aria-checked={isHttp}
+                                                            onClick={() => patchServer(i, {type: 'http'})}
+                                                        >
+                                                            HTTP
+                                                        </button>
+                                                    </div>
+                                                    <Switch
+                                                        on={server.enabled}
+                                                        label={`Use ${server.name || 'this server'}`}
+                                                        onChange={(on) => patchServer(i, {enabled: on})}
                                                     />
-                                                </label>
-                                                <label>
-                                                    <span>Arguments</span>
-                                                    <input
-                                                        className="mono"
-                                                        placeholder="path/to/server.js --flag"
-                                                        value={server.args.join(' ')}
-                                                        onChange={(e) =>
-                                                            patchServer(i, {args: e.target.value.split(' ').filter(Boolean)})
-                                                        }
-                                                    />
-                                                </label>
+                                                    <button className="ghost danger" onClick={() => removeServer(i)}>
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                                {isHttp ? (
+                                                    <div className="set-below">
+                                                        <label className="server-url">
+                                                            <span>URL</span>
+                                                            <input
+                                                                className="mono"
+                                                                placeholder="http://127.0.0.1:3000/mcp"
+                                                                value={server.url ?? ''}
+                                                                onChange={(e) => patchServer(i, {url: e.target.value})}
+                                                            />
+                                                        </label>
+                                                    </div>
+                                                ) : (
+                                                    <div className="set-below server-command">
+                                                        <label>
+                                                            <span>Command</span>
+                                                            <input
+                                                                className="mono"
+                                                                placeholder="node"
+                                                                value={server.command}
+                                                                onChange={(e) => patchServer(i, {command: e.target.value})}
+                                                            />
+                                                        </label>
+                                                        <label>
+                                                            <span>Arguments</span>
+                                                            <input
+                                                                className="mono"
+                                                                placeholder="path/to/server.js --flag"
+                                                                value={server.args.join(' ')}
+                                                                onChange={(e) =>
+                                                                    patchServer(i, {args: e.target.value.split(' ').filter(Boolean)})
+                                                                }
+                                                            />
+                                                        </label>
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 <button className="set-add" onClick={addServer}>
                                     Add server
                                 </button>
+
+                                {mcpListing?.workspace && (
+                                    <>
+                                        <h2 className="set-subhead">In this workspace</h2>
+                                        <div className="set-group">
+                                            {workspaceServers.length === 0 && mcpListing.unreadable.length === 0 && (
+                                                <div className="set-empty">
+                                                    No MCP servers found in this workspace's folder.
+                                                </div>
+                                            )}
+                                            {mcpListing.unreadable.map((u) => (
+                                                <Row
+                                                    key={u.source}
+                                                    label={<code>{u.source}</code>}
+                                                    description={`Could not read this file: ${u.problem}`}
+                                                    control={
+                                                        <button className="ghost"
+                                                                onClick={() => onOpenMcpFile(u.source)}>
+                                                            Open file
+                                                        </button>
+                                                    }
+                                                />
+                                            ))}
+                                            {workspaceServers.map((server) => {
+                                                const source = server.source as WorkspaceMcpFile;
+                                                return (
+                                                    <div key={`${server.source}:${server.name}`}
+                                                         className="set-row server">
+                                                        <div>
+                                                            <div className="set-label">
+                                                                {server.name}{' '}
+                                                                <button
+                                                                    className="set-link mono"
+                                                                    title={`Open ${source}`}
+                                                                    onClick={() => onOpenMcpFile(source)}
+                                                                >
+                                                                    {source}
+                                                                </button>
+                                                            </div>
+                                                            <div className="set-desc">
+                                                                Its tools arrive as <code>mcp__{server.name}__*</code>
+                                                                {server.summary && (
+                                                                    <span className="set-from">{server.summary}</span>
+                                                                )}
+                                                                {server.envKeys.length > 0 && (
+                                                                    <span className="set-from">
+                                                                        env: {server.envKeys.join(', ')}
+                                                                    </span>
+                                                                )}
+                                                                {server.headerKeys.length > 0 && (
+                                                                    <span className="set-from">
+                                                                        headers: {server.headerKeys.join(', ')}
+                                                                    </span>
+                                                                )}
+                                                                {server.state === 'new' && (
+                                                                    <div>
+                                                                        Not allowed yet — a workspace server can run
+                                                                        commands on this computer, so it stays off until
+                                                                        you allow it.
+                                                                    </div>
+                                                                )}
+                                                                {server.state === 'changed' && (
+                                                                    <div>
+                                                                        <code>{source}</code> changed what this starts
+                                                                        since it was allowed. Allow it again to use it.
+                                                                    </div>
+                                                                )}
+                                                                {(server.state === 'shadowed' ||
+                                                                        server.state === 'invalid') &&
+                                                                    server.problem && <div>{server.problem}</div>}
+                                                            </div>
+                                                        </div>
+                                                        <div className="set-control">
+                                                            {(server.state === 'new' || server.state === 'changed') && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => onTrustServer(server.name, true)}>
+                                                                        Allow
+                                                                    </button>
+                                                                    <button
+                                                                        className="ghost"
+                                                                        onClick={() => onTrustServer(server.name, false)}
+                                                                    >
+                                                                        Block
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                            {(server.state === 'allowed' ||
+                                                                server.state === 'blocked') && (
+                                                                <Switch
+                                                                    on={server.state === 'allowed'}
+                                                                    label={`Allow ${server.name} in this workspace`}
+                                                                    onChange={(on) => onTrustServer(server.name, on)}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </>
+                                )}
                             </>
                         )}
 

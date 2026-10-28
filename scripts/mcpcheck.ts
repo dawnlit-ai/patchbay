@@ -52,6 +52,8 @@ async function main(): Promise<void> {
         '../src/main/store/skillStore'
         );
     const {stopWatchingFolders, watchFolders} = await import('../src/main/store/folderWatch');
+    const {listMcpServers, requireServer, setServerTrust, usableServers} = await import('../src/main/store/mcpStore');
+    const {withToolPath} = await import('../src/main/agents/toolPath');
     const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
 
     console.log('app data:', data);
@@ -439,7 +441,21 @@ async function main(): Promise<void> {
         (await heardAfter(() => writeFileSync(schemaFile('Kept'), JSON.stringify({type: 'object', properties: {}})))) &&
         (lastHeard as WorkspaceChange | null)?.schemas === true,
     );
+    // And the files other tools keep MCP servers in, at the top of the workspace
+    // or in a folder of theirs that did not exist when watching began.
+    check(
+        'a .mcp.json saved at the top of the workspace is heard, as MCP',
+        (await heardAfter(() => writeFileSync(join(root, '.mcp.json'), '{"mcpServers": {}}\n'))) &&
+        (lastHeard as WorkspaceChange | null)?.mcp === true,
+    );
+    mkdirSync(join(root, '.vscode'));
+    check(
+        'and a .vscode/mcp.json, in a folder made after watching began',
+        await heardAfter(() => writeFileSync(join(root, '.vscode', 'mcp.json'), '{"servers": {}}\n')),
+    );
     stopWatchingFolders();
+    rmSync(join(root, '.mcp.json'));
+    rmSync(join(root, '.vscode'), {recursive: true});
     let refusedByName = '';
     try {
         locateSkill('check-skill');
@@ -680,6 +696,159 @@ async function main(): Promise<void> {
 
     const settings = await call('get_settings');
     check('the token is withheld', settings.includes('(withheld)') && !settings.includes(TOKEN));
+
+    // Workspace MCP server auto-detection, precedence and trust.
+    process.env.PATCHBAY_MCPCHECK_TOKEN = TOKEN;
+    writeFileSync(
+        join(root, '.mcp.json'),
+        JSON.stringify({
+            mcpServers: {
+                loopback: {
+                    type: 'http',
+                    url: `http://127.0.0.1:${PORT}/mcp`,
+                    headers: {Authorization: 'Bearer ${PATCHBAY_MCPCHECK_TOKEN:-none}'},
+                },
+                local: {
+                    command: 'node',
+                    args: ['${workspaceFolder}/server.js', '${PATCHBAY_UNSET_DEFAULT:---ok}'],
+                },
+                email: {command: 'node', args: ['taken.js']},
+                missingEnv: {command: 'node', args: ['${PATCHBAY_NEVER_SET}']},
+            },
+        }),
+    );
+    mkdirSync(join(root, '.vscode'), {recursive: true});
+    writeFileSync(
+        join(root, '.vscode', 'mcp.json'),
+        `{
+            // VS Code's own shape, with comments and a trailing comma.
+            "servers": {
+                "local": { "command": "node", "args": ["shadowed.js"], },
+                "vscodeOnly": { "command": "npx", "args": ["-y", "some-mcp"], },
+            },
+        }`,
+    );
+    const detected = listMcpServers();
+    const byName = (name: string) => detected.servers.filter((s) => s.name === name);
+    check(
+        '.mcp.json and .vscode/mcp.json are both read, including JSONC comments and trailing commas',
+        byName('loopback')[0]?.state === 'new' && byName('vscodeOnly')[0]?.state === 'new',
+    );
+    check(
+        '.mcp.json takes precedence over .vscode/mcp.json for the same server name',
+        byName('local')[0]?.source === '.mcp.json' &&
+        byName('local')[0]?.state === 'new' &&
+        byName('local')[1]?.source === '.vscode/mcp.json' &&
+        byName('local')[1]?.state === 'shadowed',
+    );
+    check(
+        'reserved server name "email" and missing env variables are flagged as invalid',
+        byName('email')[0]?.state === 'invalid' && byName('missingEnv')[0]?.state === 'invalid',
+    );
+    check('untrusted workspace servers are not usable until allowed', usableServers().size === 0);
+    const beforeTrust = await client.callTool({name: 'list_server_tools', arguments: {server: 'loopback'}});
+    check('list_server_tools refuses a workspace server that has not been allowed', beforeTrust.isError === true);
+
+    setServerTrust('loopback', true);
+    setServerTrust('local', true);
+    const localLaunch = usableServers().get('local')?.launch;
+    check(
+        'allowing a workspace server expands ${workspaceFolder} and ${VAR:-default} and sets cwd to the workspace',
+        localLaunch?.type === 'stdio' &&
+        localLaunch.args?.[0] === `${root}/server.js` &&
+        localLaunch.args?.[1] === '--ok' &&
+        localLaunch.cwd === root,
+    );
+    const loopbackTools = await call('list_server_tools', {server: 'loopback'});
+    check(
+        'an allowed HTTP workspace server with expanded Authorization header lists its tools',
+        loopbackTools.includes('mcp__loopback__list_flows'),
+    );
+
+    // Editing .mcp.json invalidates the approval until allowed again.
+    writeFileSync(
+        join(root, '.mcp.json'),
+        JSON.stringify({
+            mcpServers: {
+                loopback: {type: 'http', url: `http://127.0.0.1:${PORT}/mcp`},
+                local: {command: 'node', args: ['different.js']},
+            },
+        }),
+    );
+    const afterEdit = listMcpServers();
+    check(
+        'changing a server command in .mcp.json requires allowing it again',
+        afterEdit.servers.find((s) => s.name === 'local' && s.source === '.mcp.json')?.state === 'changed' &&
+        !usableServers().has('local'),
+    );
+    setServerTrust('local', false);
+    check(
+        'blocking a workspace server records it as blocked',
+        listMcpServers().servers.find((s) => s.name === 'local' && s.source === '.mcp.json')?.state === 'blocked',
+    );
+    const settingsWithWorkspace = await call('get_settings');
+    check(
+        'get_settings lists workspace MCP servers without exposing header values',
+        settingsWithWorkspace.includes('"workspaceMcpServers"') && !settingsWithWorkspace.includes(TOKEN),
+    );
+
+    // A ticked server no run can be handed says what stands in its way: a node
+    // that ticks it stops at its error port with that.
+    const whyRefused = (name: string): string => {
+        try {
+            requireServer(name);
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : String(e);
+        }
+    };
+    const withoutServers = getSettings();
+    saveSettings({
+        ...withoutServers,
+        mcpServers: [
+            {name: 'dormant', command: 'node', args: [], enabled: false},
+            {
+                name: 'remote',
+                type: 'http',
+                command: '',
+                args: [],
+                url: `http://127.0.0.1:${PORT}/mcp`,
+                headers: {Authorization: `Bearer ${TOKEN}`},
+                enabled: true,
+            },
+        ],
+    });
+    check('a server switched off in Settings is refused as switched off', whyRefused('dormant').includes('switched off'));
+    check('a server defined nowhere is refused by name', whyRefused('nowhere').includes('no MCP server "nowhere"'));
+    check('a blocked workspace server is refused as not allowed', whyRefused('local').includes('not allowed'));
+    const remote = usableServers().get('remote')?.launch;
+    check(
+        'an HTTP server in Settings is handed over by address, with its headers',
+        remote?.type === 'http' && remote.url.endsWith(`:${PORT}/mcp`) && remote.headers?.Authorization === `Bearer ${TOKEN}`,
+    );
+    check(
+        'and lists its tools',
+        (await call('list_server_tools', {server: 'remote'})).includes('mcp__remote__list_flows'),
+    );
+    const settingsWithHeaders = await call('get_settings');
+    check('get_settings withholds the header values of a server in Settings', !settingsWithHeaders.includes(TOKEN));
+    saveSettings(withoutServers);
+
+    // Opened from the Finder, the app has launchd's PATH: what starts a server —
+    // the listing above, or the agent a run hands it to — gets the folders npx,
+    // uvx and node are installed in as well.
+    if (process.platform !== 'win32') {
+        const launchd = '/usr/bin:/bin:/usr/sbin:/sbin';
+        const extended = withToolPath({PATH: launchd, HOME: '/home/check'});
+        check(
+            'a launchd PATH gains Homebrew’s and ~/.local/bin after its own, the rest of the environment kept',
+            extended.PATH?.startsWith(`${launchd}:`) === true &&
+            extended.PATH.split(':').includes('/opt/homebrew/bin') &&
+            extended.PATH.split(':').includes('/usr/local/bin') &&
+            extended.HOME === '/home/check',
+        );
+        check('and one that has them all is left as it is', withToolPath({PATH: extended.PATH}).PATH === extended.PATH);
+    }
 
     // Refused before any poll, so Outlook is never reached.
     const unwatchable = await client.callTool({name: 'start_watching', arguments: {flowId}});

@@ -58,7 +58,19 @@ const api: Api = {
     settings: {
         get: () => call(IPC.settingsGet),
         save: (settings) => call(IPC.settingsSave, settings),
-        serverTools: (server) => call(IPC.settingsServerTools, server),
+        servers: () => call(IPC.settingsServers),
+        serverTools: async (server) => {
+            const res = (await call(IPC.settingsServerTools, server)) as {
+                tools?: Awaited<ReturnType<Api['settings']['serverTools']>>;
+                error?: string;
+            };
+            if (res.error !== undefined) throw new Error(res.error);
+            return res.tools ?? [];
+        },
+        trustServer: (server, allowed) => call(IPC.settingsTrustServer, server, allowed),
+        openMcpFile: (source) => call(IPC.settingsOpenMcpFile, source),
+        revealMcpFile: (source) => call(IPC.settingsRevealMcpFile, source),
+        createMcpFile: () => call(IPC.settingsCreateMcpFile),
     },
     agentControl: {
         status: () => call(IPC.agentControlStatus),

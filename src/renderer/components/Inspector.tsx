@@ -29,7 +29,7 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
-import { AGENT_NAMES, type AgentId, type McpServerTool } from '@shared/settings';
+import { AGENT_NAMES, type AgentId, type McpListing, type McpServerEntry, type McpServerTool } from '@shared/settings';
 import { FolderTree } from './FolderTree';
 import { NameDialog } from './NameDialog';
 import { SchemaEditor } from './SchemaEditor';
@@ -984,17 +984,18 @@ function ProcessorFields({
     );
 }
 
-/** A server from Settings, and the tools it offered when asked. */
+/** A server from Settings or the workspace, and the tools it offered when asked. */
 interface ServerListing {
-    name: string;
+    entry: McpServerEntry;
     tools: McpServerTool[] | null;
     error: string | null;
 }
 
 /**
- * The tools a node takes from the MCP servers in Settings, ticked one by one:
- * the run is handed those and no others. Each server is asked for its list only
- * while such a node is open here.
+ * The tools a node takes from the MCP servers in Settings or the workspace,
+ * ticked one by one: the run is handed those and no others. Each allowed server
+ * is asked for its list only while such a node is open here; a workspace server
+ * that has not been allowed yet waits on its button first.
  */
 function McpToolsField({
                            config,
@@ -1002,81 +1003,164 @@ function McpToolsField({
                            hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
                        }: Section<{ mcpTools: string[] }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
+    const [unreadable, setUnreadable] = useState<McpListing['unreadable']>([]);
+    /** Why allowing a server failed: this window has no banner to say it in. */
+    const [trustError, setTrustError] = useState<string | null>(null);
     const [query, setQuery] = useState('');
 
     useEffect(() => {
         let cancelled = false;
-        const update = (name: string, change: Partial<ServerListing>): void => {
-            if (!cancelled) setServers((all) => all?.map((s) => (s.name === name ? {...s, ...change} : s)) ?? null);
-        };
-        void window.api.settings.get().then((settings) => {
+        let round = 0;
+        const apply = (listing: McpListing): void => {
             if (cancelled) return;
-            const names = settings.mcpServers.filter((s) => s.enabled && s.name.trim()).map((s) => s.name);
-            setServers(names.map((name) => ({name, tools: null, error: null})));
-            for (const name of names) {
-                window.api.settings.serverTools(name).then(
-                    (tools) => update(name, {tools}),
-                    (e: Error) => update(name, {error: e.message}),
+            const mine = ++round;
+            const update = (name: string, change: Partial<ServerListing>): void => {
+                if (!cancelled && round === mine) {
+                    setServers((all) => all?.map((s) => (s.entry.name === name ? {...s, ...change} : s)) ?? null);
+                }
+            };
+            const shown = listing.servers.filter((s) => s.state !== 'shadowed');
+            setUnreadable(listing.unreadable);
+            setServers(shown.map((entry) => ({entry, tools: null, error: null})));
+            for (const entry of shown) {
+                if (entry.state !== 'allowed') continue;
+                window.api.settings.serverTools(entry.name).then(
+                    (tools) => update(entry.name, {tools}),
+                    (e: Error) => update(entry.name, {error: e.message}),
                 );
             }
+        };
+        const refresh = (): void => {
+            void window.api.settings.servers().then(apply);
+        };
+        refresh();
+        const off = window.api.on.workspaceChanged((change) => {
+            if (change.mcp) refresh();
         });
+        window.addEventListener('focus', refresh);
         return () => {
             cancelled = true;
+            off();
+            window.removeEventListener('focus', refresh);
         };
     }, []);
+
+    // The listing comes back through workspaceChanged, as it does to every window.
+    const trust = (name: string): void => {
+        setTrustError(null);
+        window.api.settings.trustServer(name, true).catch((e: Error) => setTrustError(e.message));
+    };
 
     const picked = config.mcpTools;
     const set = (ref: string, on: boolean): void =>
         patch({mcpTools: on ? [...picked, ref] : picked.filter((t) => t !== ref)});
     const offered = new Set(
-        (servers ?? []).flatMap((s) => [`mcp__${s.name}`, ...(s.tools ?? []).map((t) => `mcp__${s.name}__${t.name}`)]),
+        (servers ?? []).flatMap(({entry, tools}) => [
+            `mcp__${entry.name}`,
+            ...(tools ?? []).map((t) => `mcp__${entry.name}__${t.name}`),
+        ]),
     );
+    const settled = servers?.every(({entry, tools, error}) => entry.state !== 'allowed' || tools || error) ?? false;
     // Ticked but offered by no server here: shown, so the tick can be taken off.
-    const stranded = servers?.every((s) => s.tools || s.error) ? picked.filter((t) => !offered.has(t)) : [];
+    const stranded =
+        settled
+            ? picked.filter(
+                (t) =>
+                    !offered.has(t) &&
+                    !(servers ?? []).some(
+                        ({entry}) => entry.state !== 'allowed' && t.startsWith(`mcp__${entry.name}__`),
+                    ),
+            )
+            : [];
 
     return (
         <>
             <Legend
                 label="Tools from MCP servers"
-                hint={servers?.length === 0 ? 'No MCP servers are set up. Add them in Settings.' : hint}
+                hint={
+                    servers?.length === 0 && unreadable.length === 0
+                        ? 'No MCP servers found. Add them in Settings or in .mcp.json in this workspace.'
+                        : hint
+                }
             />
+            {unreadable.map((u) => (
+                <p key={u.source} className="hint err">
+                    Could not read <code>{u.source}</code>: {u.problem}
+                </p>
+            ))}
+            {trustError && <p className="hint err">{trustError}</p>}
             <PickFilter
                 value={query}
                 total={(servers ?? []).reduce((sum, server) => sum + (server.tools?.length ?? 0), 0)}
                 noun="tools"
                 onChange={setQuery}
             />
-            {servers?.map((server) => {
-                const whole = `mcp__${server.name}`;
+            {servers?.map(({entry, tools, error}) => {
+                const whole = `mcp__${entry.name}`;
                 const takesAll = picked.includes(whole);
+                const allowed = entry.state === 'allowed';
+                const from = entry.source === 'settings' ? 'Settings' : entry.source;
                 return (
                     <PickGroup
-                        key={server.name}
-                        title={server.name}
+                        key={`${entry.source}:${entry.name}`}
+                        title={entry.name}
+                        tip={entry.summary ? `From ${from} · ${entry.summary}` : `From ${from}`}
                         // Taking the whole server leaves nothing to pick one by one.
-                        items={takesAll ? [] : (server.tools ?? [])}
+                        items={allowed && !takesAll ? (tools ?? []) : []}
                         isTicked={(tool) => picked.includes(`${whole}__${tool.name}`)}
                         query={query}
                         text={(tool) => `${tool.name} ${tool.description}`}
-                        count={takesAll ? 'every tool' : server.tools ? undefined : ''}
+                        count={
+                            !allowed
+                                ? from
+                                : takesAll
+                                    ? 'every tool'
+                                    : tools
+                                        ? entry.source !== 'settings'
+                                            ? `${tools.length} · ${from}`
+                                            : undefined
+                                        : ''
+                        }
                         note={
-                            takesAll
-                                ? undefined
-                                : server.error
-                                    ? `Could not ask ${server.name} for its tools: ${server.error}`
-                                    : !server.tools
-                                        ? `Asking ${server.name} for its tools…`
-                                        : undefined
+                            entry.state === 'new' ? (
+                                <>
+                                    Found in <code>{entry.source}</code>: <code>{entry.summary}</code>. Allow it to
+                                    start it and list its tools.
+                                </>
+                            ) : entry.state === 'changed' ? (
+                                <>
+                                    <code>{entry.source}</code> changed what this starts: <code>{entry.summary}</code>.
+                                    Allow it again to use it.
+                                </>
+                            ) : entry.state === 'blocked' ? (
+                                <>
+                                    From <code>{entry.source}</code>, blocked in this workspace.
+                                </>
+                            ) : entry.state === 'invalid' ? (
+                                <>
+                                    From <code>{from}</code>: {entry.problem}
+                                </>
+                            ) : takesAll ? undefined : error ? (
+                                `Could not ask ${entry.name} for its tools: ${error}`
+                            ) : !tools ? (
+                                `Asking ${entry.name} for its tools…`
+                            ) : undefined
                         }
                         actions={
-                            <label className="check" title="Every tool it offers, including any it adds later">
-                                <input
-                                    type="checkbox"
-                                    checked={takesAll}
-                                    onChange={(e) => set(whole, e.target.checked)}
-                                />
-                                All
-                            </label>
+                            allowed ? (
+                                <label className="check" title="Every tool it offers, including any it adds later">
+                                    <input
+                                        type="checkbox"
+                                        checked={takesAll}
+                                        onChange={(e) => set(whole, e.target.checked)}
+                                    />
+                                    All
+                                </label>
+                            ) : entry.state === 'new' || entry.state === 'changed' || entry.state === 'blocked' ? (
+                                <button className="compact" onClick={() => trust(entry.name)}>
+                                    Allow
+                                </button>
+                            ) : undefined
                         }
                         row={(tool) => {
                             const ref = `${whole}__${tool.name}`;

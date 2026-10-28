@@ -501,10 +501,27 @@ button.wide {
 
 .welcome-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--line);
+}
+
+/* The filter and order, or the README's file, at the right of the switch. In a
+   narrow window the filter or the README's age gives up width first; past that
+   they move under the switch together, still at the right, rather than off the edge. */
+.welcome-head-end {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 180px;
+}
+
+.welcome-head-end > * {
+    flex: none;
 }
 
 .welcome-head .compact {
@@ -514,7 +531,9 @@ button.wide {
 }
 
 .welcome-head input.compact {
+    flex: 0 1 auto;
     width: 150px;
+    min-width: 60px;
 }
 
 .flow-list {
@@ -638,6 +657,15 @@ button.wide {
     color: var(--muted);
 }
 
+/* A server's tools: a description often runs to paragraphs, so two lines of
+   it to recognise the tool by, the rest on hover. */
+.schema-fields.tools .desc {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
 /* A skill ticked but not in the workspace: nothing to open, only to read. */
 .flow-row.missing {
     cursor: default;
@@ -656,8 +684,13 @@ button.wide {
 }
 
 .welcome-head .readme-file {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
     color: var(--dim);
     font-size: 11.5px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 /* The workspace's README, read as a page rather than a list. */
@@ -1045,7 +1078,8 @@ button.wide {
     font-weight: 600;
 }
 
-.set-about .set-link {
+.set-about .set-link,
+.set-label .set-link {
     padding: 0;
     color: var(--accent);
     font-size: 11.5px;
@@ -1053,7 +1087,13 @@ button.wide {
     border: none;
 }
 
-.set-about .set-link:hover:not(:disabled) {
+/* The file a workspace's server was found in, beside its name. */
+.set-label .set-link {
+    font-weight: 400;
+}
+
+.set-about .set-link:hover:not(:disabled),
+.set-label .set-link:hover:not(:disabled) {
     background: none;
     text-decoration: underline;
 }
@@ -1309,11 +1349,19 @@ button.wide {
     gap: 10px;
 }
 
-.server-command span {
+.server-command span,
+.server-url span {
     display: block;
     margin-bottom: 4px;
     color: var(--muted);
     font-size: 11.5px;
+}
+
+.set-subhead {
+    margin: 22px 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
 }
 
 .set-control .ghost.danger,
@@ -2655,7 +2703,8 @@ button.add-field:hover:not(:disabled) {
     border-color: var(--err-line);
 }
 
-.badge.run {
+.badge.run,
+.badge.warn {
     color: var(--warn);
     border-color: var(--warn-line);
 }

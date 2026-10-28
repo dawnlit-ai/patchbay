@@ -90,6 +90,27 @@ function make(frame: Frame): BrowserWindow {
     return win;
 }
 
+/**
+ * A window as large as asked where its screen has room for it, and no larger
+ * than the screen where it has not: a laptop at 150% scaling has about 670
+ * points of height above the taskbar. Centred on the screen the pointer is on,
+ * which is the one it was sized for.
+ */
+function fitted(frame: Frame): Frame {
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    const width = Math.min(frame.width, area.width);
+    const height = Math.min(frame.height, area.height);
+    return {
+        ...frame,
+        width,
+        height,
+        minWidth: Math.min(frame.minWidth, width),
+        minHeight: Math.min(frame.minHeight, height),
+        x: area.x + Math.round((area.width - width) / 2),
+        y: area.y + Math.round((area.height - height) / 2),
+    };
+}
+
 function load(win: BrowserWindow, hash: string): void {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
         void win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#${hash}`);
@@ -142,7 +163,7 @@ export function showWelcome(): void {
         return;
     }
     // Sized for a list, not a canvas.
-    welcome = make({width: 940, height: 640, minWidth: 760, minHeight: 520, maximizable: false});
+    welcome = make(fitted({width: 1120, height: 800, minWidth: 860, minHeight: 520, maximizable: false}));
     welcome.on('closed', () => {
         welcome = null;
     });
@@ -155,7 +176,7 @@ export function showSettings(): void {
         raise(settings);
         return;
     }
-    settings = make({width: 820, height: 600, minWidth: 700, minHeight: 480, maximizable: false});
+    settings = make(fitted({width: 920, height: 800, minWidth: 740, minHeight: 480, maximizable: false}));
     settings.on('closed', () => {
         settings = null;
     });

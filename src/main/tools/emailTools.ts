@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk';
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
 import type { ProcessorConfig } from '@shared/flow';
+import { EMAIL_SERVER_NAME } from '@shared/settings';
 import * as outlook from '../outlook/bridge';
 import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
 
@@ -14,7 +15,7 @@ import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
  * opt-in per node, and nothing sends mail.
  */
 
-export const EMAIL_SERVER_NAME = 'email';
+export { EMAIL_SERVER_NAME };
 
 /** The switches that decide which tools are built. A Processor's config is one. */
 export type EmailCapabilities = Pick<
