@@ -2,7 +2,7 @@
 
 ## Run from source
 
-Needs **Node 24+** — the version Electron 44 itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
+Needs **Node 24+** — the version Electron itself runs, so it is also what `@types/node` is pinned to. `.npmrc` sets
 `engine-strict`, which makes an older Node refuse the installation rather than fail somewhere later.
 
 ```bash

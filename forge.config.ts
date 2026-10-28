@@ -36,9 +36,9 @@ const config: ForgeConfig = {
     packagerConfig: {
         // Set here, the Vite plugin's own (`.vite` alone) gives way to it.
         ignore: (file) => !packaged(file),
-        // Off: the Agent SDK spawns its Claude Code at the path it resolves, and
-        // a path inside app.asar cannot be spawned even when unpacked.
-        asar: false,
+        // velopack's native add-on is loaded from disk, so it stays beside
+        // app.asar, in app.asar.unpacked, where Electron's require finds it.
+        asar: {unpack: '**/*.node'},
         // macOS files the permission to control Outlook under this and the signing
         // certificate together: changing either asks every Mac user for it again.
         appBundleId: 'com.dawnlit.patchbay',
