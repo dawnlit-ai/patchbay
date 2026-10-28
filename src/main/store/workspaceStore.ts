@@ -2,8 +2,7 @@ import { app } from 'electron';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { currentWorkspace, isFolder, samePath, setWorkspaceState, workspaceRoot, workspaceState } from '../paths';
-import { adoptFlowSchemas, listFlows } from './flowStore';
-import { log } from '../log';
+import { listFlows } from './flowStore';
 import { seedStarterSkill } from './skillStore';
 import { toFolderName } from '@shared/naming';
 import type { Readme, WorkspaceInfo } from '@shared/ipc';
@@ -33,22 +32,6 @@ export const isCurrentWorkspace = (path: string): boolean => {
     return root !== null && samePath(root, path);
 };
 
-/**
- * Move any schemas the open workspace's flow files still keep inside them, from
- * before schemas were the workspace's, into its `schemas` folder. Should that
- * fail, the workspace is open all the same: its flows name schemas it lacks, and
- * the canvas says so.
- */
-export function adoptOpenWorkspaceSchemas(): void {
-    try {
-        adoptFlowSchemas();
-    } catch (e) {
-        log.warn('app', 'Could not move the schemas kept in this workspace’s flow files into its schemas folder', {
-            detail: e instanceof Error ? e.message : String(e),
-        });
-    }
-}
-
 /** Make a folder the open workspace, first on the recent list. */
 export function openWorkspace(path: string): WorkspaceInfo {
     if (!isAbsolute(path)) throw new Error(`"${path}" is not a full path. Choose the workspace's folder.`);
@@ -60,7 +43,6 @@ export function openWorkspace(path: string): WorkspaceInfo {
         current: root,
         recent: [root, ...state.recent.filter((p) => !samePath(p, root))].slice(0, RECENT_LIMIT),
     });
-    adoptOpenWorkspaceSchemas();
     return describe(root);
 }
 

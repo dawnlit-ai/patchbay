@@ -1287,7 +1287,7 @@ button.wide {
     color: var(--dim);
 }
 
-/* Which folder a skill on the shelf came from, when there is more than one. */
+/* Where the executable was found, under what the agent said about itself. */
 .set-from {
     display: block;
     margin-top: 2px;
@@ -1706,7 +1706,7 @@ button.wide {
     padding-right: 4px;
 }
 
-/* The libraries on their own have the panel to themselves, and rows with room for a description. */
+/* The library on its own has the panel to itself, and rows with room for a description. */
 .library-alone .pick-rows.capped {
     max-height: 52vh;
 }

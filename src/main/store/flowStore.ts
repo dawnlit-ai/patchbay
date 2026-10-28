@@ -13,26 +13,15 @@ import {
     watermarkFile,
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
-import { getSkill, isValidSkillName, saveSkill } from './skillStore';
-import {
-    adoptNodeSchema,
-    adoptSchemas,
-    findSchema,
-    removeSchemaFile,
-    renameSchemaFile,
-    workspaceSchemas,
-} from './schemaStore';
+import { findSchema, removeSchemaFile, renameSchemaFile, workspaceSchemas } from './schemaStore';
 import {
     editSchemas,
     emptyFlow,
     type Flow,
     type JsonSchema,
     parseFlow,
-    parseSchemas,
-    refName,
     repointSchema,
     schemaHolders,
-    schemaRef,
 } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
@@ -244,97 +233,13 @@ export function removeSchema(name: string): void {
     removeSchemaFile(name);
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
-
-/** `rate replies`, `pre_alert` → RateReplies, PreAlert: the words run together, as a schema is named. */
-const pascal = (text: string): string =>
-    text
-        .split(/[^A-Za-z0-9]+/)
-        .filter(Boolean)
-        .map((word) => word[0]!.toUpperCase() + word.slice(1))
-        .join('');
-
-/** A schema a node in a flow file keeps to itself, and the slot it fills with it; null when it only names one. */
-function ownSchema(node: unknown): { schema: JsonSchema; output: string; used: boolean } | null {
-    if (!isObject(node) || (node.kind !== 'extractor' && node.kind !== 'processor')) return null;
-    const config = node.config;
-    if (!isObject(config) || !isObject(config.schema)) return null;
-    if (refName(config.schema) !== null || Object.keys(config.schema).length === 0) return null;
-    const output = typeof config.output === 'string' ? config.output : '';
-    // A Processor that fills no slot never uses its schema.
-    return {schema: config.schema, output, used: node.kind === 'extractor' || output !== ''};
-}
-
-/**
- * Bring a flow file up to every schema being the workspace's, writing it only
- * when something moved. Schemas it keeps under `schemas`, from before they were
- * the workspace's, go into the folder, each under a free name when the folder
- * gives its own to another, and the file's references follow. So does a schema
- * a node keeps to itself: named after the slot it fills (`notice` → Notice), or
- * after the flow and the slot when that name is taken (RateRepliesAck), and the
- * node names it instead. One on a Processor that fills no slot is never used,
- * and is dropped.
- */
-function adoptSchemasIn(file: string): void {
-    const raw = readJson<unknown>(file, null);
-    if (!isObject(raw)) return;
-    let next: Record<string, unknown> = raw;
-    let moved = false;
-    if ('schemas' in next) {
-        const {schemas, ...rest} = next;
-        next = rest;
-        for (const [from, to] of adoptSchemas(parseSchemas(schemas))) next = repointSchema(next, from, to);
-        moved = true;
-    }
-    if (Array.isArray(next.nodes)) {
-        const flowName = typeof next.name === 'string' ? next.name : '';
-        const nodes = next.nodes.map((node: unknown) => {
-            const own = ownSchema(node);
-            if (!own) return node;
-            moved = true;
-            const holder = node as { config: Record<string, unknown> };
-            if (!own.used) return {...holder, config: {...holder.config, schema: {}}};
-            const slot = pascal(own.output);
-            const name = adoptNodeSchema(own.schema, [slot, `${pascal(flowName)}${slot}`]);
-            return {...holder, config: {...holder.config, schema: schemaRef(name)}};
-        });
-        next = {...next, nodes};
-    }
-    if (moved) writeJson(file, next);
-}
-
-/** Bring every flow file in the workspace up to every schema being the workspace's. Done as a workspace opens. */
-export function adoptFlowSchemas(): void {
-    for (const file of flowHomes().values()) adoptSchemasIn(file);
-}
-
 // ── Flow files from elsewhere ────────────────────────────────────────────
-
-/** What a flow file may carry beside the graph, so it can be run elsewhere. */
-interface BundledSkill {
-    name: string;
-    content: string;
-}
-
-function bundledSkills(raw: unknown): BundledSkill[] {
-    const list = (raw as { skills?: unknown }).skills;
-    if (!Array.isArray(list)) return [];
-    return list.flatMap((entry): BundledSkill[] => {
-        const {name, content} = (entry ?? {}) as { name?: unknown; content?: unknown };
-        if (typeof name !== 'string' || typeof content !== 'string') return [];
-        if (!isValidSkillName(name)) return [];
-        return [{name, content}];
-    });
-}
 
 /**
  * Copy a flow file into the workspace, as a file of its own named after the
  * flow. One already in the workspace's `flows` is just read. The id inside is
  * kept unless a flow here already has it — then this is a copy, and gets one of
- * its own. Skills it carries go into the library, never over one already there,
- * and schemas — whether the file keeps them beside its nodes or a node keeps
- * one to itself — into the schemas folder, as opening a workspace moves them.
+ * its own.
  */
 export function importFlowFile(path: string): Flow {
     const file = resolve(path);
@@ -358,30 +263,15 @@ export function importFlowFile(path: string): Flow {
     }
     const id = ownId !== null && !held ? ownId : randomUUID();
     const name = typeof fields.name === 'string' ? fields.name : label.replace(/\.json$/i, '') || 'Imported flow';
-    let flow: Flow | null;
     if (samePath(dirname(file), flowsDirAt())) {
         // In the folder already but not listed: written without an id, or a copy of
         // another flow's file. It stays where it is, with an id of its own.
         const updatedAt = typeof fields.updatedAt === 'string' ? fields.updatedAt : new Date().toISOString();
         writeJson(file, {...fields, id, name, updatedAt});
-        adoptSchemasIn(file);
         forgetFlowHomes();
-        flow = getFlow(id);
+        const flow = getFlow(id);
         if (!flow) throw new Error(`${label} could not be read back after opening it.`);
-    } else {
-        // Repaired on the way in, and without the skills and schemas it carried: those
-        // go into the workspace's folders, and its references follow any renamed there.
-        const {skills: _, schemas, ...rest} = fields;
-        let graph: Record<string, unknown> = {...rest, id, name};
-        for (const [from, to] of adoptSchemas(parseSchemas(schemas))) graph = repointSchema(graph, from, to);
-        const created = createIn(parseFlow(graph, id, name));
-        adoptSchemasIn(flowFile(created.id));
-        flow = getFlow(created.id) ?? created;
+        return flow;
     }
-    for (const skill of bundledSkills(raw)) {
-        // Never over a skill already there: other flows in the workspace use it.
-        if (getSkill(skill.name)) continue;
-        saveSkill(skill.name, skill.content);
-    }
-    return flow;
+    return createIn(parseFlow({...fields, id, name}, id, name));
 }

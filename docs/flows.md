@@ -74,7 +74,7 @@ the form cannot show, such as a map from any name to a list, is edited as JSON w
 leaves alone, such as a list's `minItems`, is kept as it was.
 
 The inspector's *Schema* picker offers each of the workspace's schemas. **New…** makes one and the node picks it at
-once, starting from a copy of the one the node had, if any. The fields below the picker are the shared ones, so an edit
+once, starting from a copy of the one it named, if any. The fields below the picker are the shared ones, so an edit
 changes the schema for every node in every flow that uses it; the hint under it says which. **Rename…** renames it and
 every reference to it, in every flow. Deleting one is done from the start window's *Schemas* tab, and is refused while
 any node or other schema still names it: there is no copy of it a node could keep instead. The refusal says which ones
@@ -106,13 +106,7 @@ runs. A name is letters, digits and `_`, and two that differ only in case are on
 keep them in one file.
 
 The app watches the `schemas` folder, so a file saved there in your editor, or brought in by a `git pull`, shows on
-every canvas as it happens. Flow files written before every schema was the workspace's kept them inside, under
-`schemas` or in a node's own `schema`; opening the workspace moves them into the folder. A node's own is named after
-the slot it fills, so `notice` becomes `Notice`, or after its flow and the slot, such as `RateRepliesAck`, when that
-name holds a different schema already. One the folder already has, the same to the letter, is named rather than copied.
-A flow-level one whose name the folder gives another comes in numbered, such as `Shipment2`. Either way the flow's
-references follow. A Processor that fills no slot never used its schema, so that schema is dropped. Importing a flow
-file does the same.
+every canvas as it happens.
 
 ## Workspaces and flow files
 
@@ -156,9 +150,7 @@ The workspace's folder is the working directory of every run of its flows. With 
 read the whole of it, so keep anything a step should not read somewhere else.
 
 **New flow** and **Duplicate** ask for a name and save the flow in `flows`, in a file named after it. **Import flow
-file…** copies a flow file somebody sent you into `flows`, with any skills it carries that the workspace does not have,
-and any schemas it carries into `schemas`, as opening the workspace does.
-A flow file put into `flows` by hand is listed too.
+file…** copies a flow file somebody sent you into `flows`. A flow file put into `flows` by hand is listed too.
 
 A flow's **id** never changes — renaming it, or its file, leaves its runs and the watcher's marks pointing at the same
 flow. Renaming offers to rename the file too, ticked when the file is still the one the app chose. Deleting a flow

@@ -128,11 +128,8 @@ export interface Run {
     passes: Pass[];
     /** Set while a node is working, and moved into `passes` once it leaves by a port. */
     current?: PassUnderWay;
-    /**
-     * Every slot filled so far besides the email, which is `email` above. Absent on
-     * runs recorded before nodes could fill slots.
-     */
-    data?: Record<string, unknown>;
+    /** Every slot filled so far besides the email, which is `email` above. */
+    data: Record<string, unknown>;
     /** Terminal disposition, when the run reached a terminal node. */
     disposition?: string;
     error?: string;

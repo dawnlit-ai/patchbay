@@ -278,7 +278,7 @@ export interface Api {
         save(name: string, schema: JsonSchema): Promise<SchemaSummary>;
         /** Rename its file, and every reference to it in the workspace's flows and other schemas with it. */
         rename(from: string, to: string): Promise<void>;
-        /** Delete its file. Each node and schema that used it keeps a copy of it as its own. */
+        /** Delete its file. Refused while any node or schema still names it. */
         remove(name: string): Promise<void>;
         /** Open its file in the system's app for `.json` files. */
         open(name: string): Promise<void>;

@@ -15,9 +15,7 @@ description, as it would in Claude Code, so a step can follow one skill that han
 either being ticked. What a node ticks are the skills it loads **before anything else**: its prompt names them, so the
 step starts from the skill meant for it rather than whichever one Claude judges closest.
 
-A node stores a tick as the skill's name, so editing a skill changes it for every flow here. A flow saved while
-Patchbay had a global library and one per flow ticks the global one's skills as `global:<name>`; those read as the
-plain name now.
+A node stores a tick as the skill's name, so editing a skill changes it for every flow here.
 
 A new workspace starts with one starter skill. A folder opened as a workspace starts with whatever its `skills` folder
 holds — nothing, if it has none yet.
@@ -44,8 +42,6 @@ no longer holds is listed at the bottom, with the flows that tick it.
 The app watches the workspace's `skills` folder, so a skill saved, renamed or deleted elsewhere — in your editor, Finder
 or Explorer, a `git pull` — shows as it happens. A node still ticking one that has gone lists it on its own, to untick,
 and a run reaching that node leaves by its error port naming the skill.
-
-Importing a flow file that carries skills of its own writes them into the library, never over a skill already there.
 
 ## MCP servers
 

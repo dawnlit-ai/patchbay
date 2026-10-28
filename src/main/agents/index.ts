@@ -36,7 +36,6 @@ export function createAgents(host: AgentHost): Agents {
     const others: AgentBackend[] = [agyBackend(host)];
     const backendFor = (model: string): AgentBackend => others.find((b) => b.owns(model)) ?? claude;
     const backends = [claude, ...others];
-    // One Settings does not list is on, as a settings file from before an agent existed lists none of its.
     const switchedOn = (backend: AgentBackend): boolean =>
         host.agents().find((a) => a.id === backend.id)?.enabled !== false;
 

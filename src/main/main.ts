@@ -3,7 +3,6 @@ import { VelopackApp } from 'velopack';
 import { getAgentControl, getUpdates, getWatcher, registerIpc } from './ipc';
 import { anyWindowOpen, showWelcome } from './windows';
 import { currentWorkspace, dataRoot } from './paths';
-import { adoptOpenWorkspaceSchemas } from './store/workspaceStore';
 import { log } from './log';
 import { offerApplicationsFolder } from './updates';
 
@@ -17,7 +16,6 @@ void app.whenReady().then(() => {
     log.info('app', `Patchbay ${app.getVersion()} started`, {
         detail: `data: ${dataRoot()}\nworkspace: ${currentWorkspace() ?? '(none open)'}`,
     });
-    if (currentWorkspace()) adoptOpenWorkspaceSchemas();
     registerIpc();
     // Listens only if the settings say so; a settings edit is what turns it on.
     getAgentControl().apply();

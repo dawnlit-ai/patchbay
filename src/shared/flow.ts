@@ -263,7 +263,7 @@ const SCHEMA_REF = '#/schemas/';
 /** A reference to the workspace's schema `name`, as a node or a field holds it. */
 export const schemaRef = (name: string): JsonSchema => ({$ref: `${SCHEMA_REF}${name}`});
 
-/** The named schema `schema` stands for, or null when it is a schema of its own. */
+/** The named schema `schema` stands for, or null when it is not a reference. */
 export function refName(schema: unknown): string | null {
     if (!isObject(schema) || typeof schema.$ref !== 'string') return null;
     return schema.$ref.startsWith(SCHEMA_REF) ? schema.$ref.slice(SCHEMA_REF.length) : null;
@@ -295,7 +295,7 @@ function fillRef(named: JsonSchema, ref: Json): Json {
 }
 
 /** `schema` with every reference in it filled in from `schemas`. Throws, saying why, when one cannot be. */
-export function resolveSchema(schemas: Schemas, schema: JsonSchema): JsonSchema {
+function resolveSchema(schemas: Schemas, schema: JsonSchema): JsonSchema {
     const fill = (value: unknown, through: string[]): unknown =>
         mapRefs(value, (name, ref) => {
             const named = Object.hasOwn(schemas, name) ? schemas[name] : undefined;
@@ -307,7 +307,7 @@ export function resolveSchema(schemas: Schemas, schema: JsonSchema): JsonSchema 
 }
 
 /** Why `schema` cannot be filled in from `schemas`, or null when it can. */
-export function schemaProblem(schemas: Schemas, schema: JsonSchema): string | null {
+function schemaProblem(schemas: Schemas, schema: JsonSchema): string | null {
     try {
         resolveSchema(schemas, schema);
         return null;
@@ -317,7 +317,7 @@ export function schemaProblem(schemas: Schemas, schema: JsonSchema): string | nu
 }
 
 /** Whether `schema` uses the named schema `name`, directly or through another named schema. */
-export function usesSchema(schemas: Schemas, schema: JsonSchema, name: string): boolean {
+function usesSchema(schemas: Schemas, schema: JsonSchema, name: string): boolean {
     const seen = new Set<string>();
     const walk = (value: unknown): boolean => {
         let found = false;
@@ -351,15 +351,13 @@ function editNodeSchema(node: FlowNode, edit: (schema: JsonSchema) => JsonSchema
 /**
  * What keeps a node's schema from being used, said as a sentence, or null when
  * nothing does. A node that hands a result on names one of the workspace's
- * schemas; one that names none, or keeps a schema of its own, cannot run.
+ * schemas; one that names none cannot run.
  */
 export function nodeSchemaIssue(schemas: Schemas, node: FlowNode): string | null {
     const schema = nodeSchema(node);
     if (schema === undefined) return null;
     if (refName(schema) === null) {
-        return Object.keys(schema).length === 0
-            ? `${node.name} has no schema yet: pick one of the workspace's, or make one with New….`
-            : `${node.name} keeps a schema of its own, and every schema is the workspace's: name it with New… to move it there.`;
+        return `${node.name} has no schema yet: pick one of the workspace's, or make one with New….`;
     }
     const problem = schemaProblem(schemas, schema);
     return problem && `${node.name}'s schema cannot be used: ${problem}.`;
@@ -402,24 +400,18 @@ export function repointSchema(schema: JsonSchema, from: string, to: string): Jso
 }
 
 
-/** `flow` with each node's schema put through `edit`, which is how a rename or a delete reaches the flows. */
+/** `flow` with each node's schema put through `edit`, which is how a rename reaches the flows. */
 export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema): Flow {
     return {...flow, nodes: flow.nodes.map((node) => editNodeSchema(node, edit))};
 }
 
 /**
- * A slot's type as the canvas and inspector name it: a named schema's name, else
- * "No schema yet" for a node that has picked none, else e.g. "JSON · 3 fields".
+ * A slot's type as the canvas and inspector name it: a named schema's name, or
+ * "No schema yet" for a node that has picked none.
  */
 export function slotTypeLabel(type: SlotType): string {
     if (type.kind === 'email') return 'Email';
-    const named = refName(type.schema);
-    if (named !== null) return named;
-    if (Object.keys(type.schema).length === 0) return 'No schema yet';
-    const properties = type.schema.properties;
-    if (typeof properties !== 'object' || properties === null) return 'JSON';
-    const count = Object.keys(properties).length;
-    return `JSON · ${count} field${count === 1 ? '' : 's'}`;
+    return refName(type.schema) ?? 'No schema yet';
 }
 
 /** A schema this module cannot follow into, and so cannot say what it requires. */
@@ -750,7 +742,6 @@ export function triggerConfig(node: FlowNode | undefined): TriggerConfig | undef
     return node?.config.kind === 'trigger.outlook' ? node.config : undefined;
 }
 
-/** A node of `kind` with its defaults. */
 /** A new node with its kind's defaults; `offered`, the agents' model list, picks the model it starts on. */
 export function makeNode(
     kind: NodeKind,
@@ -814,29 +805,16 @@ const bool = (value: unknown, fallback: boolean): boolean =>
 const strings = (value: unknown, fallback: string[]): string[] =>
     (Array.isArray(value) ? value : fallback).filter((s): s is string => typeof s === 'string');
 
-/**
- * Ticked skills, each once. A flow saved while skills came from two libraries
- * ticks the shared one's as `global:<name>`; the workspace's library is that
- * one now, so it reads as the bare name.
- */
-const skillTicks = (value: unknown, fallback: string[]): string[] => [
-    ...new Set(strings(value, fallback).map((s) => s.replace(/^global:/, ''))),
-];
+/** Ticked skills, each once. */
+const skillTicks = (value: unknown, fallback: string[]): string[] => [...new Set(strings(value, fallback))];
 
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
-/**
- * Named schemas as a flow file kept them, under `schemas`, before they were the
- * workspace's: each that is an object under a name a reference can spell.
- */
-export function parseSchemas(value: unknown): Schemas {
-    if (!isObject(value)) return {};
-    return Object.fromEntries(
-        Object.entries(value).filter(
-            (entry): entry is [string, JsonSchema] => SLOT_NAME.test(entry[0]) && isObject(entry[1]),
-        ),
-    );
+/** A node's schema: the reference it names, or `{}` until it picks one. */
+function schemaOf(value: unknown): JsonSchema {
+    const name = refName(value);
+    return name === null ? {} : schemaRef(name);
 }
 
 /** One of a node's models. */
@@ -899,7 +877,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
-                schema: isObject(from.schema) ? from.schema : base.schema,
+                schema: schemaOf(from.schema),
                 instruction: str(from.instruction, base.instruction),
                 skills: skillTicks(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
@@ -917,7 +895,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 readEmail: bool(from.readEmail, base.readEmail),
                 inputs: strings(from.inputs, base.inputs),
                 output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
-                schema: isObject(from.schema) ? from.schema : base.schema,
+                schema: schemaOf(from.schema),
                 models: modelsOf(from.models, base.models),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
                 allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),

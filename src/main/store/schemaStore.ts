@@ -14,7 +14,7 @@ import type { SchemaSummary } from '@shared/ipc';
  */
 
 /** A name a reference can spell, which is what makes the file a schema a node can pick. */
-export const isValidSchemaName = (name: string): boolean => SLOT_NAME.test(name) && name.length <= 64;
+const isValidSchemaName = (name: string): boolean => SLOT_NAME.test(name) && name.length <= 64;
 
 const NAME_RULE = 'Use letters, digits and _ only, not starting with a digit.';
 
@@ -110,85 +110,20 @@ export function createSchema(name: string, schema: JsonSchema): SchemaSummary {
     return saveSchema(name, schema);
 }
 
-/** Every other schema in the folder that `edit` changes, written with the change. */
-function editOthers(except: string, edit: (schema: JsonSchema) => JsonSchema): void {
-    for (const other of listSchemas()) {
-        if (other.name === except || !other.schema) continue;
-        const next = edit(other.schema);
-        if (JSON.stringify(next) !== JSON.stringify(other.schema)) writeJson(other.file, next);
-    }
-}
-
 /** Rename the file, and repoint each other schema that refers to it. */
 export function renameSchemaFile(from: string, to: string): void {
     const {file} = findSchema(from);
     if (to === from) return;
     checkName(to, from);
     renameSync(file, schemaFile(to));
-    editOthers(to, (schema) => repointSchema(schema, from, to));
+    for (const other of listSchemas()) {
+        if (other.name === to || !other.schema) continue;
+        const next = repointSchema(other.schema, from, to);
+        if (JSON.stringify(next) !== JSON.stringify(other.schema)) writeJson(other.file, next);
+    }
 }
 
 /** Delete the file. Whether anything still uses it is the caller's to have asked. */
 export function removeSchemaFile(name: string): void {
     rmSync(findSchema(name).file, {force: true});
-}
-
-/**
- * Put a schema a node kept to itself into the folder, and say what it is called
- * there: the first of `wanted` that already holds it to the letter, else the
- * first that is free, else the first numbered past the first of them.
- */
-export function adoptNodeSchema(schema: JsonSchema, wanted: string[]): string {
-    const names = wanted.filter(isValidSchemaName);
-    if (names.length === 0) names.push('Schema');
-    const there = new Map(listSchemas().map((s) => [s.name.toLowerCase(), s]));
-    const same = names.find((name) => {
-        const held = there.get(name.toLowerCase());
-        return held?.name === name && JSON.stringify(held.schema) === JSON.stringify(schema);
-    });
-    if (same) return same;
-    let name = names.find((n) => !there.has(n.toLowerCase()));
-    if (!name) {
-        const base = names[0]!;
-        name = base;
-        for (let n = 2; there.has(name.toLowerCase()); n++) name = `${base}${n}`;
-    }
-    saveSchema(name, schema);
-    return name;
-}
-
-/**
- * Put schemas a flow file carried into the folder. One the folder already has,
- * the same to the letter, is left as it is; one whose name the folder gives
- * another schema is written under a free name. Returns the names that changed,
- * old → new, for the flow's references to follow.
- */
-export function adoptSchemas(carried: Schemas): Map<string, string> {
-    const renamed = new Map<string, string>();
-    const names = Object.keys(carried);
-    if (names.length === 0) return renamed;
-    const there = new Map(listSchemas().map((s) => [s.name.toLowerCase(), s]));
-    // A free name must not be one the flow carries either, or two would land on it.
-    const taken = new Set([...there.keys(), ...names.map((n) => n.toLowerCase())]);
-    const same = new Set<string>();
-    for (const name of names) {
-        const held = there.get(name.toLowerCase());
-        if (!held) continue;
-        if (held.name === name && JSON.stringify(held.schema) === JSON.stringify(carried[name])) {
-            same.add(name);
-            continue;
-        }
-        let free = name;
-        for (let n = 2; taken.has(free.toLowerCase()); n++) free = `${name}${n}`;
-        taken.add(free.toLowerCase());
-        renamed.set(name, free);
-    }
-    for (const name of names) {
-        if (same.has(name)) continue;
-        let schema = carried[name]!;
-        for (const [from, to] of renamed) schema = repointSchema(schema, from, to);
-        schemasDir();
-        writeJson(schemaFile(renamed.get(name) ?? name), schema);
-    }
-    return renamed;
 }

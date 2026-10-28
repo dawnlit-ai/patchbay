@@ -327,124 +327,6 @@ async function main(): Promise<void> {
     );
     await call('delete_flow', {flowId: sharer});
 
-    // A flow file from before every schema was the workspace's keeps them inside
-    // it, beside its nodes or in a node itself. Opening the workspace moves them
-    // into its folder: one the folder has, the same to the letter, stays as it is;
-    // one whose name the folder gives another comes in under a free name, and
-    // what named it follows.
-    await call('set_schema', {name: 'Kept', schema: settingsShape});
-    await call('set_schema', {name: 'Clash', schema: {type: 'object', properties: {mine: {type: 'string'}}}});
-    const kept = readFileSync(schemaFile('Kept'), 'utf8');
-    const before = join(root, 'flows', 'from-before.json');
-    writeFileSync(
-        before,
-        JSON.stringify({
-            id: 'from-before',
-            name: 'From before',
-            nodes: [
-                {
-                    id: 'pull',
-                    kind: 'extractor',
-                    name: 'Pull',
-                    position: {x: 0, y: 0},
-                    config: {output: 'pulled', schema: {$ref: '#/schemas/Clash'}},
-                },
-                {
-                    id: 'write',
-                    kind: 'processor',
-                    name: 'Write',
-                    position: {x: 260, y: 0},
-                    config: {output: 'notice', schema: {type: 'object', properties: {an_path: {type: 'string'}}}},
-                },
-                {
-                    id: 'again',
-                    kind: 'extractor',
-                    name: 'Again',
-                    position: {x: 520, y: 0},
-                    config: {output: 'kept', schema: settingsShape},
-                },
-                {
-                    id: 'quiet',
-                    kind: 'processor',
-                    name: 'Quiet',
-                    position: {x: 780, y: 0},
-                    config: {output: '', schema: {type: 'object', properties: {}}},
-                },
-            ],
-            edges: [],
-            schemas: {
-                Kept: settingsShape,
-                Clash: {type: 'object', properties: {theirs: {type: 'string'}}},
-                Holder: {type: 'object', properties: {held: {$ref: '#/schemas/Clash'}}},
-            },
-        }),
-    );
-    const alsoBefore = join(root, 'flows', 'also-before.json');
-    writeFileSync(
-        alsoBefore,
-        JSON.stringify({
-            id: 'also-before',
-            name: 'Also before',
-            nodes: [
-                {
-                    id: 'write',
-                    kind: 'processor',
-                    name: 'Write',
-                    position: {x: 0, y: 0},
-                    config: {output: 'notice', schema: {type: 'object', properties: {sent: {type: 'boolean'}}}},
-                },
-            ],
-            edges: [],
-        }),
-    );
-    openWorkspace(root);
-    const after = readFileSync(before, 'utf8');
-    check(
-        'opening the workspace moves the schemas a flow file kept into the schemas folder',
-        !after.includes('"schemas"') && existsSync(schemaFile('Holder')),
-    );
-    check(
-        'one the folder has already stays as it is',
-        readFileSync(schemaFile('Kept'), 'utf8') === kept && !existsSync(schemaFile('Kept2')),
-    );
-    check(
-        'one clashing with the folder’s comes in under a free name, and what named it follows',
-        readFileSync(schemaFile('Clash'), 'utf8').includes('mine') &&
-        readFileSync(schemaFile('Clash2'), 'utf8').includes('theirs') &&
-        after.includes('#/schemas/Clash2') &&
-        readFileSync(schemaFile('Holder'), 'utf8').includes('#/schemas/Clash2'),
-    );
-    type FileNode = { id: string; config: { schema: unknown } };
-    const nodesOf = (file: string): FileNode[] => (JSON.parse(readFileSync(file, 'utf8')) as {
-        nodes: FileNode[]
-    }).nodes;
-    const schemaOn = (file: string, id: string): unknown => nodesOf(file).find((n) => n.id === id)?.config.schema;
-    const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
-    // Flow files are read in name order, so also-before.json's comes first.
-    check(
-        'a schema a node kept to itself moves into the folder, named after its slot, and the node names it',
-        sameJson(schemaOn(alsoBefore, 'write'), {$ref: '#/schemas/Notice'}) &&
-        readFileSync(schemaFile('Notice'), 'utf8').includes('sent'),
-    );
-    check(
-        'one the folder already has to the letter is named, not copied',
-        sameJson(schemaOn(before, 'again'), {$ref: '#/schemas/Kept'}) && !existsSync(schemaFile('Kept2')),
-    );
-    check(
-        'one whose slot’s name the folder gives another is named after its flow too',
-        sameJson(schemaOn(before, 'write'), {$ref: '#/schemas/FromBeforeNotice'}) &&
-        readFileSync(schemaFile('FromBeforeNotice'), 'utf8').includes('an_path'),
-    );
-    check('one a Processor filling no slot kept, and never used, is dropped', sameJson(schemaOn(before, 'quiet'), {}));
-    check(
-        'and no node in either flow keeps a schema of its own',
-        [...nodesOf(before), ...nodesOf(alsoBefore)].every(
-            ({config}) => sameJson(config.schema, {}) || JSON.stringify(config.schema).startsWith('{"$ref":'),
-        ),
-    );
-    await call('delete_flow', {flowId: 'from-before'});
-    await call('delete_flow', {flowId: 'also-before'});
-
     await call('write_skill', {
         name: 'check-skill',
         content: '---\nname: check-skill\ndescription: A skill written over MCP.\n---\n\nDo the thing.\n',
@@ -481,15 +363,9 @@ async function main(): Promise<void> {
     const relative = await client.callTool({name: 'import_skills', arguments: {dir: 'skills'}});
     check('a relative folder is refused', relative.isError === true);
 
-    // Every flow ticks the one library by name. A tick a flow saved while there were
-    // two libraries, `global:<name>`, reads as the name.
+    // Every flow ticks the one library by name.
     const worker = await idOf('processor');
     await call('update_node', {flowId, nodeId: worker, config: {skills: ['alpha']}});
-    await call('update_node', {flowId, nodeId: puller, config: {skills: ['global:alpha', 'alpha']}});
-    const ticks = (JSON.parse(await call('get_flow', {flowId})) as {
-        nodes: { id: string; config: { skills?: string[] } }[];
-    }).nodes.find((n) => n.id === puller)?.config.skills;
-    check('an old global: tick reads as the skill’s name, once', ticks?.join() === 'alpha', JSON.stringify(ticks));
     const other = (JSON.parse(await call('create_flow', {name: 'Also ticks alpha'})) as { id: string }).id;
     const otherWorker = (JSON.parse(await call('add_node', {flowId: other, kind: 'processor'})) as { id: string }).id;
     await call('update_node', {flowId: other, nodeId: otherWorker, config: {skills: ['alpha']}});
@@ -689,8 +565,7 @@ async function main(): Promise<void> {
         late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFile),
     );
 
-    // A flow file from elsewhere is copied in, as a file of its own named after the
-    // flow, and the skills it carries go into the library, never over one there.
+    // A flow file from elsewhere is copied in, as a file of its own named after the flow.
     const elsewhere = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-elsewhere-'));
     const sent = join(elsewhere, 'sent.json');
     writeFileSync(
@@ -699,11 +574,6 @@ async function main(): Promise<void> {
             name: 'Sent over',
             nodes: [],
             edges: [],
-            schemas: {Carried: settingsShape},
-            skills: [
-                {name: 'carried', content: '---\nname: carried\ndescription: Came in the file.\n---\n'},
-                {name: 'alpha', content: '---\nname: alpha\ndescription: Would replace.\n---\n'},
-            ],
         }),
     );
     const brought = importFlowFile(sent);
@@ -711,17 +581,8 @@ async function main(): Promise<void> {
     check('an imported flow is copied into flows, named after it', existsSync(sentOver) && getFlow(brought.id)?.name === 'Sent over');
     check('and the file it came from is left as it was', !('id' in (JSON.parse(readFileSync(sent, 'utf8')) as object)));
     check(
-        'the skills it carries go into the library, never over one there',
-        existsSync(join(root, 'skills', 'carried', 'SKILL.md')) &&
-        readFileSync(join(root, 'skills', 'alpha', 'SKILL.md'), 'utf8').includes('Saved elsewhere.'),
-    );
-    check(
         'importing it again is another flow, in a file numbered past the first',
         importFlowFile(sent).id !== brought.id && existsSync(join(root, 'flows', 'sent-over-2.json')),
-    );
-    check(
-        'and the schemas it carries into the schemas folder, once',
-        existsSync(schemaFile('Carried')) && !existsSync(schemaFile('Carried2')) && !readFileSync(sentOver, 'utf8').includes('"schemas"'),
     );
     const withId = join(elsewhere, 'with-id.json');
     copyFileSync(sentOver, withId);
@@ -758,7 +619,7 @@ async function main(): Promise<void> {
         duplicate !== null && duplicate.id !== brought.id && existsSync(sentOver),
     );
     for (const id of [brought.id, adopted.id, duplicate?.id]) if (id) await call('delete_flow', {flowId: id});
-    check('deleting flows leaves the skills', existsSync(join(root, 'skills', 'carried', 'SKILL.md')));
+    check('deleting flows leaves the skills', existsSync(join(root, 'skills', 'alpha', 'SKILL.md')));
     rmSync(elsewhere, {recursive: true, force: true});
 
     // One workspace is open at a time, and each has its own flows, skills and runs.

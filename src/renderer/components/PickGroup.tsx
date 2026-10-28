@@ -20,7 +20,7 @@ interface Props<T> extends Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'child
     /** In place of the count, when it would mislead. */
     count?: string;
 
-    /** Whether an item is ticked. Absent where nothing is, as for the skill libraries on their own. */
+    /** Whether an item is ticked. Absent where nothing is, as for the skill library on its own. */
     isTicked?(item: T): boolean;
 
     /** The text the filter is matched against. */

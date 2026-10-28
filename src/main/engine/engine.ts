@@ -60,7 +60,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         passes: [],
         data: {},
     };
-    const data: Record<string, unknown> = run.data!;
+    const {data} = run;
 
     // Per event would be hundreds of redraws and writes for one agent streaming its
     // reply; these catch up a few times a second, and the pass boundary at once.

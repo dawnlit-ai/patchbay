@@ -42,10 +42,7 @@ export interface AgentSetting {
     enabled: boolean;
 }
 
-/**
- * The agents a settings file lists, each once and in its order, with any it does
- * not name — as a file from before they could be ordered names none — on at the end.
- */
+/** The agents a settings file lists, each once and in its order, with any it does not name on at the end. */
 export function agentsInOrder(stored: unknown): AgentSetting[] {
     const listed: AgentSetting[] = [];
     for (const a of Array.isArray(stored) ? stored : []) {

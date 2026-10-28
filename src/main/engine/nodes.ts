@@ -121,7 +121,7 @@ function workspaceSkills(): { plugins: string[] | undefined; names: string[]; di
  * renamed outside the app since. It would run without the instructions it was
  * given, so it leaves by its error port instead.
  */
-function lostSkills(ctx: NodeContext, skills: string[]): NodeOutcome | null {
+function lostSkills(skills: string[]): NodeOutcome | null {
     const missing = missingSkills(skills);
     if (missing.length === 0) return null;
     const one = missing.length === 1;
@@ -242,7 +242,7 @@ function fromData(schema: JsonSchema, path: string): string {
 const EXTRACT_BODY_CHARS = 50_000;
 
 async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<NodeOutcome> {
-    const lost = lostSkills(ctx, config.skills);
+    const lost = lostSkills(config.skills);
     if (lost) return lost;
 
     // Read up front, so an extraction from the body alone is a single turn.
@@ -397,7 +397,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
 const PORT_FOR_OUTCOME: Record<string, string> = {done: 'done', 'needs-review': 'review', failed: 'error'};
 
 async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<NodeOutcome> {
-    const lost = lostSkills(ctx, config.skills);
+    const lost = lostSkills(config.skills);
     if (lost) return lost;
 
     // Built before Claude is asked, as the Extractor does, so a bad schema costs no run.

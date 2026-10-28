@@ -30,7 +30,6 @@ import {
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
 import { AGENT_NAMES, type AgentId, type McpServerTool } from '@shared/settings';
-import { ConfirmDialog } from './ConfirmDialog';
 import { FolderTree } from './FolderTree';
 import { NameDialog } from './NameDialog';
 import { SchemaEditor } from './SchemaEditor';
@@ -696,10 +695,6 @@ function suggestSchemaName(schemas: Schemas, output: string): string {
     return name;
 }
 
-/** Whether a schema a node kept to itself lists any field, and so would be lost to a named one picked over it. */
-const hasFields = (schema: JsonSchema): boolean =>
-    typeof schema.properties === 'object' && schema.properties !== null && Object.keys(schema.properties).length > 0;
-
 const BLANK_SCHEMA: JsonSchema = {type: 'object', properties: {}, required: []};
 
 /** Who else an edit to a named schema reaches. */
@@ -729,17 +724,8 @@ function SchemaField({
     const {schemas} = shelf;
     const named = refName(schema);
     const shown = named === null ? undefined : schemas[named];
-    // Left on the node from before every schema was the workspace's, until it is named.
-    const own = named === null && Object.keys(schema).length > 0 ? schema : null;
     const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
     const [nameError, setNameError] = useState<string | null>(null);
-    /** A named schema waiting to replace one the node kept to itself, until the person says it may. */
-    const [replacing, setReplacing] = useState<string | null>(null);
-
-    const use = (choice: string): void => {
-        if (own && hasFields(own)) setReplacing(choice);
-        else patch({schema: schemaRef(choice)});
-    };
 
     const closeNaming = (): void => {
         setNaming(null);
@@ -754,8 +740,8 @@ function SchemaField({
         }
         closeNaming();
         if (naming === 'new') {
-            // From a copy of the one it names, or what it kept to itself, or nothing yet.
-            void shelf.create(name, shown ?? own ?? BLANK_SCHEMA).then((made) => {
+            // From a copy of the one it names, or nothing yet.
+            void shelf.create(name, shown ?? BLANK_SCHEMA).then((made) => {
                 if (made) patch({schema: schemaRef(name)});
             });
         } else if (named !== null && name !== named) {
@@ -772,10 +758,10 @@ function SchemaField({
                 hint="Every schema is the workspace’s: pick one, or make one with New…. Each node that picks the same fills the same shape, and its ports say so."
             />
             <div className="row schema-pick">
-                <select value={named ?? ''} onChange={(e) => use(e.target.value)}>
+                <select value={named ?? ''} onChange={(e) => patch({schema: schemaRef(e.target.value)})}>
                     {named === null && (
                         <option value="" disabled>
-                            {own ? 'Its own — name it with New…' : 'Pick a schema…'}
+                            Pick a schema…
                         </option>
                     )}
                     {named !== null && !shown && <option value={named}>{named} (missing)</option>}
@@ -791,9 +777,7 @@ function SchemaField({
                     title={
                         named !== null
                             ? `Make a new schema from a copy of ${named}, and pick it here`
-                            : own
-                                ? 'Move the schema this node kept to itself into the workspace, under a name'
-                                : 'Make a new schema in the workspace, and pick it here'
+                            : 'Make a new schema in the workspace, and pick it here'
                     }
                 >
                     New…
@@ -819,11 +803,9 @@ function SchemaField({
                 <div className="hint block">
                     {named !== null
                         ? `The workspace has no schema called ${named}. Pick another, or make one with New….`
-                        : own
-                            ? 'This node still keeps a schema of its own, from before every schema was the workspace’s. New… moves it into the workspace under a name, and this node picks it.'
-                            : names.length > 0
-                                ? 'Pick the schema its result fills, or make one with New….'
-                                : 'The workspace has no schemas yet. New… makes one, and this node picks it.'}
+                        : names.length > 0
+                            ? 'Pick the schema its result fills, or make one with New….'
+                            : 'The workspace has no schemas yet. New… makes one, and this node picks it.'}
                 </div>
             )}
 
@@ -837,25 +819,12 @@ function SchemaField({
                         nameError ??
                         (naming === 'new'
                             ? `Letters, digits and _. Saved in the workspace’s schemas folder for any flow here to use, and this node picks it at once${
-                                named !== null ? `, starting from a copy of ${named}` : own ? ', with the fields it kept to itself' : ''
+                                named !== null ? `, starting from a copy of ${named}` : ''
                             }.`
                             : 'Its file is renamed, and every node and schema using it, in every flow here, follows.')
                     }
                     onCancel={closeNaming}
                     onConfirm={confirmName}
-                />
-            )}
-
-            {replacing && (
-                <ConfirmDialog
-                    title={`Use ${replacing}?`}
-                    message={`The schema this node kept to itself is replaced by ${replacing}, and nothing brings it back. To keep it, cancel and name it with New… first.`}
-                    confirmLabel={`Use ${replacing}`}
-                    onCancel={() => setReplacing(null)}
-                    onConfirm={() => {
-                        patch({schema: schemaRef(replacing)});
-                        setReplacing(null);
-                    }}
                 />
             )}
         </>

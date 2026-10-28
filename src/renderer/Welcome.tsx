@@ -1118,7 +1118,7 @@ export function Welcome(): JSX.Element {
                                         No schemas in {workspace.name} yet. A schema named here, in its{' '}
                                         <code>schemas</code> folder, can be picked by any Extractor or Processor in any
                                         of its flows, so each fills the same shape. <b>New schema</b> writes one from a
-                                        template; a node’s <b>New…</b> on the canvas names the schema it has.
+                                        template; a node’s <b>New…</b> on the canvas makes one and picks it at once.
                                     </div>
                                 )}
                                 {schemaList !== null && !noSchemas && shownSchemas.length === 0 && missingSchemas.length === 0 && (
@@ -1529,7 +1529,31 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete-schema' && workspace && holdersOf(dialog.name).length === 0 && (
                 <ConfirmDialog
                     title="Delete schema"
-                    message={`Delete ${dialog.name} from ${workspace.name}? Its file, schemas/${dialog.name}.json, is deleted. No node or schema uses it. This cannot be undone.`}
+                    message={`Delete
+                    ${dialog.name} from
+                    ${workspace.name}
+                    ?
+                    Its
+                    file,
+                    schemas/
+                    ${dialog.name}
+                    .
+                    json,
+                    is
+                    deleted
+                    .
+                    No
+                    node
+                    or
+                    schema
+                    uses
+                    it
+                    .
+                    This
+                    cannot
+                    be
+                    undone
+                    .`}
                     confirmLabel="Delete"
                     onCancel={() => setDialog(null)}
                     onConfirm={() => {
