@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { execFile } from 'node:child_process';
+import { basename, join } from 'node:path';
 import {
     type InboxFolderOption,
     IPC,
@@ -16,6 +17,7 @@ import * as mcpStore from './store/mcpStore';
 import * as schemaStore from './store/schemaStore';
 import * as skillStore from './store/skillStore';
 import * as workspaceStore from './store/workspaceStore';
+import { exportWorkspace } from './store/exportStore';
 import { rewatch, watchFolders } from './store/folderWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
@@ -243,6 +245,18 @@ export function registerIpc(): void {
         // openPath reports failure as a message rather than throwing: the folder may be gone.
         const failure = await shell.openPath(workspaceRoot());
         if (failure) throw new Error(failure);
+    });
+    handle(IPC.workspaceExport, async () => {
+        const picked = await dialog.showSaveDialog({
+            title: 'Export the workspace as a zip',
+            defaultPath: join(app.getPath('documents'), `${basename(workspaceRoot())}.zip`),
+            filters: [{name: 'Zip archives', extensions: ['zip']}],
+            properties: ['createDirectory', 'showOverwriteConfirmation'],
+        });
+        if (picked.canceled || !picked.filePath) return null;
+        const written = exportWorkspace(picked.filePath);
+        shell.showItemInFolder(written);
+        return written;
     });
     handle(IPC.workspaceReadme, () => (workspaceStore.currentWorkspaceInfo() ? workspaceStore.readReadme() : null));
     handle(IPC.workspaceCreateReadme, () => openInEditor(workspaceStore.createReadme()));

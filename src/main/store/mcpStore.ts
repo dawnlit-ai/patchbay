@@ -311,6 +311,53 @@ function launchOf(file: WorkspaceMcpFile, def: Definition, root: string, values:
     return {type: def.type, url: fill(def.url), ...(Object.keys(headers).length > 0 ? {headers} : {})};
 }
 
+/**
+ * What each command server in a server file's text starts with — its command and
+ * arguments, and the folder they are read against — for an export to find the
+ * workspace's files among them. What Patchbay knows is filled in — the workspace
+ * folder, the home folder, the path separator — and a text still looking a value
+ * up is left out. A file or server Patchbay cannot read names nothing.
+ */
+export function startingPoints(file: WorkspaceMcpFile, text: string, root: string): { cwd: string; texts: string[] }[] {
+    let servers: Record<string, unknown>;
+    try {
+        const parsed = parseJsonc(text);
+        if (!isObject(parsed)) return [];
+        servers = serverMap(file, parsed);
+    } catch {
+        return [];
+    }
+    const filled = (text: string): string | null => {
+        let open = false;
+        const out = text.replace(variablePattern(file), (whole, braced: string | undefined, bare: string | number | undefined) => {
+            try {
+                const part = variable(whole, braced, typeof bare === 'string' ? bare : undefined, root);
+                if ('known' in part) return part.known;
+            } catch {
+                // One Patchbay cannot fill in at all.
+            }
+            open = true;
+            return whole;
+        });
+        return open ? null : out;
+    };
+    const points: { cwd: string; texts: string[] }[] = [];
+    for (const raw of Object.values(servers)) {
+        let def: Definition;
+        try {
+            def = readDefinition(file, raw);
+        } catch {
+            continue;
+        }
+        if (def.type !== 'stdio') continue;
+        const cwd = def.cwd ? filled(def.cwd) : root;
+        if (cwd === null) continue;
+        const texts = [def.command, ...def.args].map(filled).filter((t): t is string => t !== null);
+        points.push({cwd: resolve(root, cwd), texts});
+    }
+    return points;
+}
+
 const hashOf = (def: Definition): string => createHash('sha256').update(JSON.stringify(def)).digest('hex');
 
 // ── Allowing ──────────────────────────────────────────────────────────────

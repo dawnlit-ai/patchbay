@@ -55,7 +55,9 @@ computer it is opened on. Patchbay reads `.mcp.json` (Claude Code), `.vscode/mcp
 `${workspaceFolder}` ([as below](#tokens-and-other-values)), and starts commands in the workspace's folder. A name
 defined in two files is taken from the first. Because a workspace's file can come from a cloned repository, a server
 found there is not started — not even to list its tools — until you click **Allow** on it in the start window's **MCP**
-tab or the inspector. Editing what a server starts asks again.
+tab or the inspector. Editing what a server starts asks again. An [exported](flows.md#workspaces-and-flow-files)
+workspace carries these files, or the ones its `.patchbay/export/` holds instead, and is allowed afresh wherever it is
+opened.
 
 Servers you keep for every project in an agent itself — `claude mcp add --scope user`, or agy's own settings — stay
 that agent's, for its own sessions. No run is handed them: a run starts with only the servers its node ticks.

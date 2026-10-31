@@ -1002,6 +1002,13 @@ export function Welcome(): JSX.Element {
                             </button>
                             <button
                                 className="wide"
+                                title="Saves its flows, skills, schemas, MCP server files and README as one zip to hand on. A file in .patchbay/export goes in place of its namesake."
+                                onClick={() => void attempt(() => window.api.workspace.export())}
+                            >
+                                ↑ Export workspace…
+                            </button>
+                            <button
+                                className="wide"
                                 onClick={(e) => menuUnder(e, 'Workspaces', switchItems())}
                                 title="Open another workspace, or make one. Watching stops and canvases close."
                             >

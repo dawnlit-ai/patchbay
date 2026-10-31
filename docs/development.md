@@ -70,7 +70,7 @@ npm run mcpcheck
 
 It starts the server against throwaway app data and workspaces in the temp directory, drives it with a real MCP
 client — make a workspace, build a flow, wire it, import a flow file, write, import and delete skills, queue and cancel
-a run, switch workspaces, read the console — and prints a line per check.
+a run, switch workspaces, export one, read the console — and prints a line per check.
 
 ## Architecture
 

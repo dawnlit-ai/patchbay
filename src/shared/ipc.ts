@@ -175,6 +175,12 @@ export interface Api {
         forget(path: string): Promise<WorkspaceInfo[]>;
         /** Show the open workspace's folder in the file manager. */
         reveal(): Promise<void>;
+        /**
+         * Ask where to save the open workspace as a zip — its flows, skills, schemas, MCP
+         * server files and README, with `.patchbay/export/` in place of its namesakes —
+         * then write it and show it in its folder. The zip's path, or null if cancelled.
+         */
+        export(): Promise<string | null>;
         /** The README.md at the top of its folder, or null when it has none: it is optional. */
         readme(): Promise<Readme | null>;
         /** Write a README.md from a template, then open it as `editReadme` does. Refused when there is one. */
@@ -402,6 +408,7 @@ export const IPC = {
     workspacePickLocation: 'workspace:pickLocation',
     workspaceForget: 'workspace:forget',
     workspaceReveal: 'workspace:reveal',
+    workspaceExport: 'workspace:export',
     workspaceReadme: 'workspace:readme',
     workspaceCreateReadme: 'workspace:createReadme',
     workspaceEditReadme: 'workspace:editReadme',

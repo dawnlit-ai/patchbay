@@ -120,6 +120,7 @@ A **workspace** is a folder holding flows, the skills and schemas they share, an
 ├─ skills/<name>/SKILL.md   the library every flow here ticks from
 ├─ schemas/<name>.json      the named schemas every flow here can pick
 ├─ .mcp.json                optional: MCP servers this workspace defines
+├─ .patchbay/export/        optional: files an export carries in place of these
 └─ README.md                optional: what the workspace is for
 ```
 
@@ -151,6 +152,17 @@ refused while a run is under way or waiting.
 it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows`, `skills` and
 `schemas` folders are made the first time something is written to them. A workspace is a folder you keep, not a copy the app holds, so
 one kept in git is edited, run and committed from one place.
+
+**Export workspace…** saves the open workspace as one zip, to hand to someone who opens it in Patchbay. It holds a
+folder named after the workspace's, so unzipping each new export gives the same folder, with what Patchbay reads in
+it: `flows`, `skills` and `schemas`, the MCP server files and the README. Nothing else in the folder goes, so a
+workspace that is a whole repository hands out only its workspace — but for a file inside it that a server in the
+export starts, such as the script a `node` command runs, which goes too, unless it is a `.env` file or sits in
+`node_modules` or `.git`. A file kept in `.patchbay/export/` goes in place of the one at the same path, or beside the
+rest when there is none: a workspace whose `.mcp.json` runs its server from source here can keep one in
+`.patchbay/export/` that starts the copy an installed app keeps, and the script that finds it. What has been allowed,
+the values set for servers, and the runs are this machine's, in the app's data, and stay behind: whoever opens the
+export allows its servers for themselves.
 
 The workspace's folder is the working directory of every run of its flows. With file access off, a Processor can still
 read the whole of it, so keep anything a step should not read somewhere else.

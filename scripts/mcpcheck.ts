@@ -7,6 +7,7 @@
  */
 import { app } from 'electron';
 import {
+    chmodSync,
     copyFileSync,
     existsSync,
     mkdirSync,
@@ -19,7 +20,8 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { crc32, inflateRawSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { WorkspaceChange } from '../src/shared/ipc';
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
         );
     const {withToolPath} = await import('../src/main/agents/toolPath');
     const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
+    const {exportWorkspace} = await import('../src/main/store/exportStore');
 
     console.log('app data:', data);
     saveSettings({...getSettings(), agentControl: {enabled: true, port: PORT, token: TOKEN}});
@@ -683,6 +686,111 @@ async function main(): Promise<void> {
     writeFileSync(join(root, 'flows', 'README.md'), '# The flows folder’s own\n');
     check('a README inside the flows folder is not the workspace’s', readReadme() === null);
     rmSync(join(root, 'flows', 'README.md'));
+
+    // An export is a zip of what Patchbay reads in the workspace, .patchbay/export in place of its namesakes, and the
+    // files a server it hands out starts — not the rest of a folder that may be a whole repository.
+    const shared = createWorkspace('Shared out', home).path;
+    const put = (path: string, text: string): void => {
+        mkdirSync(join(shared, dirname(path)), {recursive: true});
+        writeFileSync(join(shared, path), text);
+    };
+    put('flows/inbox.json', '{"id": "inbox"}\n');
+    put('flows/.DS_Store', 'the Finder’s');
+    put('skills/triage/SKILL.md', '---\nname: triage\ndescription: Sorts tickets.\n---\n');
+    put('skills/triage/scripts/run.sh', '#!/bin/sh\necho sorted\n');
+    if (process.platform !== 'win32') chmodSync(join(shared, 'skills/triage/scripts/run.sh'), 0o755);
+    put('schemas/Ticket.json', '{"type": "object"}\n');
+    put('README.md', '# For us\n');
+    put('.mcp.json', JSON.stringify({
+        mcpServers: {
+            tickets: {
+                command: 'node',
+                args: ['--import', 'tsx', 'src/server.ts']
+            }
+        }
+    }));
+    put('src/server.ts', 'the source');
+    put('node_modules/tsx/index.js', 'a dependency');
+    put('notes.txt', 'the repository’s');
+    put('config/shared.json', '{}');
+    put('.env', 'TOKEN=not-for-them');
+    put('.vscode/mcp.json', '{ "servers": { "helper": { "command": "python3", "args": ["tools/helper.py"], }, }, }\n');
+    put('.vscode/settings.json', '{}');
+    put('tools/helper.py', 'print("helped")\n');
+    const handedOut = JSON.stringify({
+        mcpServers: {
+            tickets: {
+                command: 'node',
+                args: ['launch.cjs', '--config=${workspaceFolder}/config/shared.json', '--env-file=.env', 'node_modules/tsx/index.js'],
+            },
+        },
+    });
+    put('.patchbay/export/.mcp.json', handedOut);
+    put('.patchbay/export/launch.cjs', 'require(installedCopy);\n');
+    put('.patchbay/export/Readme.md', '# For them\n');
+
+    /** Each file in a zip, by name, read back through its central directory and checked against its CRC. */
+    const unzipped = (file: string): Map<string, { data: Buffer; mode: number }> => {
+        const bytes = readFileSync(file);
+        const end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+        const files = new Map<string, { data: Buffer; mode: number }>();
+        let at = bytes.readUInt32LE(end + 16);
+        for (let i = 0; i < bytes.readUInt16LE(end + 10); i++) {
+            if (bytes.readUInt32LE(at) !== 0x02014b50) throw new Error(`no directory entry at ${at}`);
+            const nameLength = bytes.readUInt16LE(at + 28);
+            const name = bytes.toString('utf8', at + 46, at + 46 + nameLength);
+            const local = bytes.readUInt32LE(at + 42);
+            const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
+            const body = bytes.subarray(start, start + bytes.readUInt32LE(at + 20));
+            const data = bytes.readUInt16LE(at + 10) === 8 ? inflateRawSync(body) : Buffer.from(body);
+            if (crc32(data) !== bytes.readUInt32LE(at + 16) || data.length !== bytes.readUInt32LE(at + 24)) {
+                throw new Error(`${name} does not read back as written`);
+            }
+            files.set(name, {data, mode: bytes.readUInt32LE(at + 38) >>> 16});
+            at += 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32);
+        }
+        return files;
+    };
+    const exported = exportWorkspace(join(home, 'shared-out.zip'));
+    const inZip = unzipped(exported);
+    const names = [...inZip.keys()];
+    const text = (path: string): string | undefined => inZip.get(`shared-out/${path}`)?.data.toString('utf8');
+    check(
+        'an export is a zip of one folder named after the workspace’s, every file reading back as it was',
+        exported === join(home, 'shared-out.zip') &&
+        names.every((n) => n.startsWith('shared-out/')) &&
+        text('flows/inbox.json') === '{"id": "inbox"}\n',
+    );
+    check(
+        'it holds the flows, skills (with what is beside them), schemas and every MCP server file',
+        ['flows/inbox.json', 'skills/triage/SKILL.md', 'skills/triage/scripts/run.sh', 'schemas/Ticket.json', '.vscode/mcp.json']
+            .every((path) => text(path) !== undefined),
+    );
+    check(
+        'a file in .patchbay/export goes in place of its namesake, whatever its case, or beside the rest',
+        text('.mcp.json') === handedOut && text('Readme.md') === '# For them\n' && text('README.md') === undefined &&
+        text('launch.cjs') === 'require(installedCopy);\n' && !names.some((n) => n.includes('.patchbay')),
+    );
+    check(
+        'a file a server it hands out starts goes too, a flag’s value and ${workspaceFolder} included',
+        text('config/shared.json') === '{}' && text('tools/helper.py') === 'print("helped")\n',
+    );
+    check(
+        'but not a .env file, nor one inside node_modules, nor what only the workspace’s own servers start',
+        text('.env') === undefined && text('node_modules/tsx/index.js') === undefined && text('src/server.ts') === undefined,
+    );
+    check(
+        'nor the rest of the folder, nor the Finder’s files, nor anything left beside the zip',
+        text('notes.txt') === undefined && text('.vscode/settings.json') === undefined &&
+        !names.some((n) => n.endsWith('.DS_Store')) &&
+        readdirSync(home).every((entry) => !entry.endsWith('.part')),
+    );
+    if (process.platform !== 'win32') {
+        check('a script stays runnable', ((inZip.get('shared-out/skills/triage/scripts/run.sh')?.mode ?? 0) & 0o111) !== 0);
+    }
+    writeFileSync(join(home, 'shared-out.zip'), 'an older export');
+    check('exporting again writes over the last', unzipped(exportWorkspace(join(home, 'shared-out.zip'))).size === inZip.size);
+    openWorkspace(root);
 
     // The console: what the app did outside any one run, this session's and a day's.
     check(
