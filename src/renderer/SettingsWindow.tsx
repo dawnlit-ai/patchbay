@@ -1,13 +1,6 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
-import type {
-    AboutInfo,
-    AgentControlStatus,
-    McpListing,
-    Settings,
-    UpdateStatus,
-    WorkspaceMcpFile
-} from '@shared/settings';
+import type { AboutInfo, AgentControlStatus, Settings, UpdateStatus } from '@shared/settings';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
@@ -17,7 +10,6 @@ import { useTheme } from './theme';
 export function SettingsWindow(): JSX.Element {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);
-    const [mcpListing, setMcpListing] = useState<McpListing | null>(null);
     /** The app's own MCP server, so the panel can show whether it is listening. */
     const [agentControl, setAgentControl] = useState<AgentControlStatus | null>(null);
     const [updates, setUpdates] = useState<UpdateStatus | null>(null);
@@ -27,22 +19,10 @@ export function SettingsWindow(): JSX.Element {
     useTheme();
 
     useEffect(() => {
-        const refreshMcp = (): void => {
-            void window.api.settings.servers().then(setMcpListing);
-        };
         void window.api.settings.get().then(setSettings);
         void window.api.about().then(setAbout);
         void window.api.agentControl.status().then(setAgentControl);
         void window.api.updates.status().then(setUpdates);
-        refreshMcp();
-        const off = window.api.on.workspaceChanged((change) => {
-            if (change.mcp) refreshMcp();
-        });
-        window.addEventListener('focus', refreshMcp);
-        return () => {
-            off();
-            window.removeEventListener('focus', refreshMcp);
-        };
     }, []);
 
     useEffect(() => window.api.on.agentControl(setAgentControl), []);
@@ -62,20 +42,8 @@ export function SettingsWindow(): JSX.Element {
                 <SettingsPanel
                     settings={settings}
                     about={about}
-                    mcpListing={mcpListing}
                     agentControl={agentControl}
-                    onSave={(next) =>
-                        void attempt(async () => {
-                            setSettings(await window.api.settings.save(next));
-                            setMcpListing(await window.api.settings.servers());
-                        })
-                    }
-                    onTrustServer={(name, allowed) =>
-                        void attempt(async () => setMcpListing(await window.api.settings.trustServer(name, allowed)))
-                    }
-                    onOpenMcpFile={(source: WorkspaceMcpFile) =>
-                        void attempt(() => window.api.settings.openMcpFile(source))
-                    }
+                    onSave={(next) => void attempt(async () => setSettings(await window.api.settings.save(next)))}
                     onRegenerateToken={() =>
                         void attempt(async () => setAgentControl(await window.api.agentControl.regenerateToken()))
                     }

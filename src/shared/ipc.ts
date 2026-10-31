@@ -206,7 +206,7 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
-        /** Every MCP server in Settings and found in the open workspace, without secrets. */
+        /** Every MCP server found in the open workspace, without secrets. */
         servers(): Promise<McpListing>;
         /** The tools one of the MCP servers offers, asked of the server. */
         serverTools(server: string): Promise<McpServerTool[]>;

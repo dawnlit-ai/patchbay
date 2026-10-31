@@ -5,13 +5,11 @@ import { join, resolve, sep } from 'node:path';
 import { currentWorkspace, mcpTrustFile, pathKey } from '../paths';
 import type { AgentMcpServer } from '../agents/types';
 import { readJson, writeJson } from './jsonFile';
-import { getSettings } from './settingsStore';
 import {
     EMAIL_SERVER_NAME,
     isUsableServerName,
     type McpListing,
     type McpServerEntry,
-    type McpServerSetting,
     type McpTransport,
     serverSummary,
     WORKSPACE_MCP_FILES,
@@ -19,12 +17,13 @@ import {
 } from '@shared/settings';
 
 /**
- * The MCP servers a node can be handed: those in Settings, and those the open
- * workspace defines in the files other tools keep them in — Claude Code's
- * `.mcp.json`, VS Code's, Cursor's and Gemini CLI's. A workspace's server is a
- * command someone else may have written, so none is started — not even to list
- * its tools — until it has been allowed here, and allowing it holds only while
- * its file still says what it said then.
+ * The MCP servers a node can be handed: those the open workspace defines in the
+ * files other tools keep them in — Claude Code's `.mcp.json`, VS Code's, Cursor's
+ * and Gemini CLI's. Patchbay keeps none of its own: one wanted in every project
+ * belongs to the agent it was added to, for that agent's own sessions. A
+ * workspace's server is a command someone else may have written, so none is
+ * started — not even to list its tools — until it has been allowed here, and
+ * allowing it holds only while its file still says what it said then.
  */
 
 /** A server that can be started or connected to, and where it was defined. */
@@ -271,64 +270,9 @@ const readTrust = (): TrustFile => {
 
 // ── The list ──────────────────────────────────────────────────────────────
 
-function settingsEntry(server: McpServerSetting): Found {
-    const type = server.type ?? 'stdio';
-    const launch: UsableServer['launch'] =
-        type === 'stdio'
-            ? {
-                type,
-                ...unwrapCmd(server.command, server.args),
-                ...(server.env && Object.keys(server.env).length > 0 ? {env: server.env} : {}),
-            }
-            : {
-                type,
-                url: server.url ?? '',
-                ...(server.headers && Object.keys(server.headers).length > 0 ? {headers: server.headers} : {}),
-            };
-    const entry: McpServerEntry = {
-        name: server.name,
-        source: 'settings',
-        type,
-        summary: serverSummary(launch.type === 'stdio' ? {
-            type,
-            command: launch.command,
-            args: launch.args ?? []
-        } : server),
-        envKeys: type === 'stdio' ? Object.keys(server.env ?? {}) : [],
-        headerKeys: type === 'stdio' ? [] : Object.keys(server.headers ?? {}),
-        state: 'allowed',
-    };
-    if (server.name === EMAIL_SERVER_NAME) {
-        return {
-            entry: {
-                ...entry,
-                state: 'invalid',
-                problem: `"${EMAIL_SERVER_NAME}" is the name of Patchbay's own email tools.`
-            }
-        };
-    }
-    if (type === 'stdio' ? !server.command.trim() : !server.url?.trim()) {
-        return {
-            entry: {
-                ...entry,
-                state: 'invalid',
-                problem: type === 'stdio' ? 'It has no command.' : 'It has no URL.'
-            }
-        };
-    }
-    return {entry, launch};
-}
-
 function scan(): { workspace: string | null; found: Found[]; unreadable: McpListing['unreadable'] } {
     const found: Found[] = [];
     const unreadable: McpListing['unreadable'] = [];
-    const inSettings = new Set<string>();
-    for (const server of getSettings().mcpServers) {
-        if (!server.enabled || !server.name.trim()) continue;
-        inSettings.add(server.name);
-        found.push(settingsEntry(server));
-    }
-
     const root = currentWorkspace();
     if (!root) return {workspace: null, found, unreadable};
     const trusted = readTrust()[pathKey(root)] ?? {};
@@ -391,16 +335,6 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
                 continue;
             }
             taken.set(name, file);
-            if (inSettings.has(name)) {
-                found.push({
-                    entry: {
-                        ...entry,
-                        state: 'shadowed',
-                        problem: `Settings has a server named ${name} switched on, which is used instead.`
-                    },
-                });
-                continue;
-            }
 
             const hash = hashOf(def);
             let launch: UsableServer['launch'];
@@ -451,15 +385,12 @@ export function requireServer(name: string): UsableServer {
     const usable = usableIn(found).get(name);
     if (usable) return usable;
     const entry = found.find((f) => f.entry.name === name && f.entry.state !== 'shadowed')?.entry;
-    if (!entry && getSettings().mcpServers.some((s) => s.name === name)) {
-        throw new Error(`The MCP server "${name}" is switched off in Settings → MCP servers.`);
-    }
-    if (!entry) throw new Error(`There is no MCP server "${name}" in Settings or in this workspace.`);
+    if (!entry) throw new Error(`There is no MCP server "${name}" in this workspace.`);
     switch (entry.state) {
         case 'new':
-            throw new Error(`${name} is defined in ${entry.source}, and has not been allowed to run yet. Allow it in the start window’s MCP tab, the inspector, or Settings → MCP servers.`);
+            throw new Error(`${name} is defined in ${entry.source}, and has not been allowed to run yet. Allow it in the start window’s MCP tab or the inspector.`);
         case 'changed':
-            throw new Error(`${entry.source} has changed what ${name} starts since it was allowed. Allow it again in the start window’s MCP tab, the inspector, or Settings → MCP servers.`);
+            throw new Error(`${entry.source} has changed what ${name} starts since it was allowed. Allow it again in the start window’s MCP tab or the inspector.`);
         case 'blocked':
             throw new Error(`${name}, from ${entry.source}, was not allowed to run here.`);
         default:
@@ -467,14 +398,11 @@ export function requireServer(name: string): UsableServer {
     }
 }
 
-/**
- * Allow a workspace server to run, or refuse it, as its file defines it now.
- * Settings' servers need neither: whoever added one there allowed it.
- */
+/** Allow a workspace server to run, or refuse it, as its file defines it now. */
 export function setServerTrust(name: string, allowed: boolean): McpListing {
     const {workspace, found} = scan();
     if (!workspace) throw new Error('No workspace is open.');
-    const server = found.find((f) => f.entry.source !== 'settings' && f.entry.name === name && f.hash !== undefined);
+    const server = found.find((f) => f.entry.name === name && f.hash !== undefined);
     if (!server?.hash) throw new Error(`This workspace defines no server "${name}" that can be allowed.`);
     const trust = readTrust();
     const key = pathKey(workspace);

@@ -362,7 +362,7 @@ export function Welcome(): JSX.Element {
         .filter((s) =>
             matches(
                 s.name,
-                s.source === 'settings' ? 'settings' : s.source,
+                s.source,
                 s.type,
                 s.summary,
                 ...s.envKeys,
@@ -760,14 +760,10 @@ export function Welcome(): JSX.Element {
         });
 
     const openServer = (server: McpServerEntry): void => {
-        if (server.source === 'settings') void window.api.window.showSettings();
-        else void handOffMcpFile('openMcpFile', server.source);
+        void handOffMcpFile('openMcpFile', server.source);
     };
 
     const serverActions = (server: McpServerEntry): MenuItem[] => {
-        if (server.source === 'settings') {
-            return [{label: 'Open Settings…', onSelect: () => void window.api.window.showSettings()}];
-        }
         const source = server.source;
         const items: MenuItem[] = [];
         if (server.state === 'new' || server.state === 'changed' || server.state === 'blocked') {
@@ -923,25 +919,16 @@ export function Welcome(): JSX.Element {
                                     ＋ New schema
                                 </button>
                             ) : tab === 'mcp' ? (
-                                <>
-                                    <button
-                                        className="primary wide"
-                                        title="Opens .mcp.json at the top of the workspace folder, creating it from a template if there is none yet"
-                                        onClick={() => void createMcpFile()}
-                                    >
-                                        {mcpListing?.servers.some((s) => s.source === '.mcp.json') ||
-                                        mcpListing?.unreadable.some((u) => u.source === '.mcp.json')
-                                            ? 'Edit .mcp.json'
-                                            : '＋ Create .mcp.json'}
-                                    </button>
-                                    <button
-                                        className="wide"
-                                        title="Servers kept in Settings are available in every workspace"
-                                        onClick={() => void window.api.window.showSettings()}
-                                    >
-                                        Settings → MCP servers…
-                                    </button>
-                                </>
+                                <button
+                                    className="primary wide"
+                                    title="Opens .mcp.json at the top of the workspace folder, creating it from a template if there is none yet"
+                                    onClick={() => void createMcpFile()}
+                                >
+                                    {mcpListing?.servers.some((s) => s.source === '.mcp.json') ||
+                                    mcpListing?.unreadable.some((u) => u.source === '.mcp.json')
+                                        ? 'Edit .mcp.json'
+                                        : '＋ Create .mcp.json'}
+                                </button>
                             ) : tab === 'readme' ? (
                                 // One there is opened from the tab's own header.
                                 readme === null && (
@@ -1108,7 +1095,7 @@ export function Welcome(): JSX.Element {
                                 <button
                                     role="radio"
                                     aria-checked={tab === 'mcp'}
-                                    title="The MCP servers available here, from the workspace’s config files and from Settings"
+                                    title="The MCP servers this workspace defines, in .mcp.json and the other tools’ config files"
                                     onClick={() => setTab('mcp')}
                                 >
                                     MCP{' '}
@@ -1514,9 +1501,9 @@ export function Welcome(): JSX.Element {
                                         No MCP servers in {workspace.name} yet. Patchbay
                                         reads <code>.mcp.json</code>,{' '}
                                         <code>.vscode/mcp.json</code>, <code>.cursor/mcp.json</code> and{' '}
-                                        <code>.gemini/settings.json</code> in the workspace folder, as well as the
-                                        servers in <b>Settings</b>. <b>Create .mcp.json</b> starts one at the top of the
-                                        workspace.
+                                        <code>.gemini/settings.json</code> in the workspace folder. Servers you keep in
+                                        Claude Code or agy for every project stay theirs, and no run is handed them.{' '}
+                                        <b>Create .mcp.json</b> starts one at the top of the workspace.
                                     </div>
                                 )}
                                 {mcpListing !== null &&
@@ -1556,7 +1543,7 @@ export function Welcome(): JSX.Element {
                                                 ? `${server.summary ? `${server.summary} — ` : ''}${server.source} changed what this starts since it was allowed. Allow it again to use it.`
                                                 : server.summary || 'No command or URL');
                                     const details = [
-                                        server.source === 'settings' ? 'in Settings' : `in ${server.source}`,
+                                        `in ${server.source}`,
                                         server.type,
                                         server.envKeys.length > 0 ? `env: ${server.envKeys.join(', ')}` : null,
                                         server.headerKeys.length > 0 ? `headers: ${server.headerKeys.join(', ')}` : null,
@@ -1597,17 +1584,11 @@ export function Welcome(): JSX.Element {
                                             <div className="grow">
                                                 <div className="title">
                                                     {server.name}
-                                                    <span className="badge">
-                                                        {server.source === 'settings' ? 'Settings' : server.source}
-                                                    </span>
+                                                    <span className="badge">{server.source}</span>
                                                     {server.state === 'allowed' && (
                                                         <span
                                                             className="badge ok"
-                                                            title={
-                                                                server.source === 'settings'
-                                                                    ? 'Switched on in Settings'
-                                                                    : 'Allowed to run in this workspace'
-                                                            }
+                                                            title="Allowed to run in this workspace"
                                                         >
                                                             allowed
                                                         </span>
@@ -1690,55 +1671,31 @@ export function Welcome(): JSX.Element {
                                                 )}
                                                 {active && (
                                                     <RowActions>
-                                                        {server.source === 'settings' ? (
+                                                        {(server.state === 'new' ||
+                                                            server.state === 'changed' ||
+                                                            server.state === 'blocked') && (
                                                             <button
-                                                                onClick={() => void window.api.window.showSettings()}
+                                                                className="primary"
+                                                                onClick={() => void trustServer(server, true)}
                                                             >
-                                                                Open Settings…
+                                                                Allow
                                                             </button>
-                                                        ) : (
-                                                            <>
-                                                                {(server.state === 'new' ||
-                                                                    server.state === 'changed' ||
-                                                                    server.state === 'blocked') && (
-                                                                    <button
-                                                                        className="primary"
-                                                                        onClick={() => void trustServer(server, true)}
-                                                                    >
-                                                                        Allow
-                                                                    </button>
-                                                                )}
-                                                                {(server.state === 'new' ||
-                                                                    server.state === 'changed' ||
-                                                                    server.state === 'allowed') && (
-                                                                    <button
-                                                                        onClick={() => void trustServer(server, false)}
-                                                                    >
-                                                                        Block
-                                                                    </button>
-                                                                )}
-                                                                <button
-                                                                    onClick={() =>
-                                                                        void handOffMcpFile(
-                                                                            'openMcpFile',
-                                                                            server.source as WorkspaceMcpFile,
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    Edit {server.source}
-                                                                </button>
-                                                                <button
-                                                                    onClick={() =>
-                                                                        void handOffMcpFile(
-                                                                            'revealMcpFile',
-                                                                            server.source as WorkspaceMcpFile,
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    Show in folder
-                                                                </button>
-                                                            </>
                                                         )}
+                                                        {(server.state === 'new' ||
+                                                            server.state === 'changed' ||
+                                                            server.state === 'allowed') && (
+                                                            <button
+                                                                onClick={() => void trustServer(server, false)}
+                                                            >
+                                                                Block
+                                                            </button>
+                                                        )}
+                                                        <button onClick={() => void handOffMcpFile('openMcpFile', server.source)}>
+                                                            Edit {server.source}
+                                                        </button>
+                                                        <button onClick={() => void handOffMcpFile('revealMcpFile', server.source)}>
+                                                            Show in folder
+                                                        </button>
                                                     </RowActions>
                                                 )}
                                             </div>
@@ -1753,11 +1710,10 @@ export function Welcome(): JSX.Element {
                                                 <span className="badge err">not in this workspace</span>
                                             </div>
                                             <div className="meta">
-                                                Ticked in {listed(serverTickedIn.get(name) ?? [])}, but there is no
-                                                server named <code>{name}</code> in this workspace or switched on in
-                                                Settings, so the nodes that tick it stop at their error port. Add it
-                                                to{' '}
-                                                <code>.mcp.json</code> or Settings, or untick it on the canvas.
+                                                Ticked in {listed(serverTickedIn.get(name) ?? [])}, but this workspace
+                                                defines no server named <code>{name}</code>, so the nodes that tick it
+                                                stop at their error port. Add it to <code>.mcp.json</code>, or untick it
+                                                on the canvas.
                                             </div>
                                         </div>
                                     </div>

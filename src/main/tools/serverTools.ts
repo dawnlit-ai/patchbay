@@ -8,9 +8,9 @@ import { withToolPath } from '../agents/toolPath';
 import { requireServer, type UsableServer } from '../store/mcpStore';
 
 /**
- * The tools one of the servers in Settings or the workspace offers, asked of
- * the server itself, so a Processor can be handed the few it needs rather than
- * all of them. A workspace's server is asked only once it has been allowed.
+ * The tools one of the workspace's servers offers, asked of the server itself,
+ * so a Processor can be handed the few it needs rather than all of them. A
+ * server is asked only once it has been allowed.
  */
 
 /** How long a listing is reused. Starting a server costs seconds; its tools rarely change. */
@@ -72,7 +72,7 @@ export function listServerTools(server: string): Promise<McpServerTool[]> {
     } catch (e) {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
     }
-    // Keyed by how the server is started, so editing it in Settings or its file asks again.
+    // Keyed by how the server is started, so editing its file asks again.
     const key = JSON.stringify(launch);
     const hit = listed.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.tools;

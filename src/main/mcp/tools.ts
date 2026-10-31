@@ -996,24 +996,17 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read settings',
             description:
-                'App settings and the MCP servers found in the open workspace, with the agent-control token and any server env or header values withheld. There is no tool that writes these or allows a workspace server: the executables and MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
+                'App settings and the MCP servers found in the open workspace, with the agent-control token withheld and each server’s env and headers named but not given. A run is handed only the workspace’s servers. There is no tool that writes these or allows a workspace server: the executables and MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },
         () => {
             const settings = getSettings();
-            const redact = (map?: Record<string, string>): Record<string, string> | undefined =>
-                map ? Object.fromEntries(Object.keys(map).map((k) => [k, '(withheld)'])) : undefined;
             const {servers, unreadable} = listMcpServers();
             return json({
                 appVersion: app.getVersion(),
                 ...settings,
-                mcpServers: settings.mcpServers.map((s) => ({
-                    ...s,
-                    ...(s.env ? {env: redact(s.env)} : {}),
-                    ...(s.headers ? {headers: redact(s.headers)} : {}),
-                })),
-                workspaceMcpServers: servers.filter((s) => s.source !== 'settings'),
+                workspaceMcpServers: servers,
                 ...(unreadable.length > 0 ? {unreadableMcpFiles: unreadable} : {}),
                 agentControl: {...settings.agentControl, token: '(withheld)'},
             });
@@ -1025,7 +1018,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List an MCP server’s tools',
             description:
-                'The tools one of the MCP servers in Settings or allowed in the workspace offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
+                'The tools one of the MCP servers allowed in the workspace offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
             inputSchema: {server: z.string().describe('The server’s name, as get_settings lists it.')},
             annotations: {readOnlyHint: true},
         },

@@ -102,7 +102,7 @@ export interface ExtractorConfig {
     models: ModelChoice[];
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
-    /** Tools from the MCP servers in Settings, spelled as a Processor's are. Meant for lookups only. */
+    /** Tools from the workspace's MCP servers, spelled as a Processor's are. Meant for lookups only. */
     mcpTools: string[];
 }
 
@@ -142,7 +142,7 @@ export interface ProcessorConfig {
      */
     allowFileSystem: boolean;
     /**
-     * Tools from the MCP servers in Settings, in the SDK's own spelling:
+     * Tools from the workspace's MCP servers, in the SDK's own spelling:
      * `mcp__<server>` for every tool a server has, `mcp__<server>__<tool>` for one.
      * A server none of them names is not started for the run.
      */

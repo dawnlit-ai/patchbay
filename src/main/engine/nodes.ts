@@ -77,10 +77,9 @@ function modelsFor({models}: { models: ModelChoice[] }): Pick<AgentRunRequest, '
 }
 
 /**
- * The MCP servers in Settings or the workspace that `mcpTools` names anything
- * of, and the allowlist entries for what it names. A server a node ticks that
- * no run can be handed — not allowed in this workspace, switched off, or
- * defined nowhere — stops the step with `problem` rather than running without
+ * The workspace's MCP servers that `mcpTools` names anything of, and the
+ * allowlist entries for what it names. A server a node ticks that no run can be
+ * handed — not allowed yet, blocked, or defined nowhere — stops the step with `problem` rather than running without
  * the tools the node was built to use, as a missing skill does.
  */
 function nodeServers(

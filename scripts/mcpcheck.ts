@@ -802,28 +802,29 @@ async function main(): Promise<void> {
             return e instanceof Error ? e.message : String(e);
         }
     };
-    const withoutServers = getSettings();
-    saveSettings({
-        ...withoutServers,
-        mcpServers: [
-            {name: 'dormant', command: 'node', args: [], enabled: false},
-            {
-                name: 'remote',
-                type: 'http',
-                command: '',
-                args: [],
-                url: `http://127.0.0.1:${PORT}/mcp`,
-                headers: {Authorization: `Bearer ${TOKEN}`},
-                enabled: true,
-            },
-        ],
-    });
-    check('a server switched off in Settings is refused as switched off', whyRefused('dormant').includes('switched off'));
     check('a server defined nowhere is refused by name', whyRefused('nowhere').includes('no MCP server "nowhere"'));
     check('a blocked workspace server is refused as not allowed', whyRefused('local').includes('not allowed'));
+    check('one never allowed says it has not been', whyRefused('vscodeOnly').includes('has not been allowed'));
+
+    // The same two as before, so what was decided about them stands, and one more by address.
+    writeFileSync(
+        join(root, '.mcp.json'),
+        JSON.stringify({
+            mcpServers: {
+                loopback: {type: 'http', url: `http://127.0.0.1:${PORT}/mcp`},
+                local: {command: 'node', args: ['different.js']},
+                remote: {
+                    type: 'http',
+                    url: `http://127.0.0.1:${PORT}/mcp`,
+                    headers: {Authorization: 'Bearer ${PATCHBAY_MCPCHECK_TOKEN}'},
+                },
+            },
+        }),
+    );
+    setServerTrust('remote', true);
     const remote = usableServers().get('remote')?.launch;
     check(
-        'an HTTP server in Settings is handed over by address, with its headers',
+        'an HTTP workspace server is handed over by address, with its headers filled in',
         remote?.type === 'http' && remote.url.endsWith(`:${PORT}/mcp`) && remote.headers?.Authorization === `Bearer ${TOKEN}`,
     );
     check(
@@ -831,8 +832,24 @@ async function main(): Promise<void> {
         (await call('list_server_tools', {server: 'remote'})).includes('mcp__remote__list_flows'),
     );
     const settingsWithHeaders = await call('get_settings');
-    check('get_settings withholds the header values of a server in Settings', !settingsWithHeaders.includes(TOKEN));
-    saveSettings(withoutServers);
+    check(
+        'get_settings names its header but withholds the value',
+        settingsWithHeaders.includes('"Authorization"') && !settingsWithHeaders.includes(TOKEN),
+    );
+
+    // Settings holds no servers of its own. One an older settings file kept, with
+    // the secret in its env, leaves the file, and no run can be handed it.
+    const {settingsFile} = await import('../src/main/paths');
+    saveSettings({
+        ...getSettings(),
+        mcpServers: [{name: 'old', command: 'node', args: [], env: {OLD_TOKEN: 'mcpcheck-old-secret'}, enabled: true}],
+    } as ReturnType<typeof getSettings>);
+    const onDisk = readFileSync(settingsFile(), 'utf8');
+    check(
+        'a server an older Settings kept is dropped from the file, its env values with it',
+        !onDisk.includes('mcpServers') && !onDisk.includes('mcpcheck-old-secret') && !('mcpServers' in getSettings()),
+    );
+    check('and is not a server a node can be handed', whyRefused('old').includes('no MCP server "old"'));
 
     // Opened from the Finder, the app has launchd's PATH: what starts a server —
     // the listing above, or the agent a run hands it to — gets the folders npx,

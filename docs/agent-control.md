@@ -1,9 +1,9 @@
 # Letting an agent drive it
 
 There are two kinds of MCP server in this app, pointing opposite ways. A Processor is *handed* servers — the
-[email-scoped one](skills.md#the-email-scoped-tools), plus whatever you add under **Settings → MCP servers** or allow
-from the workspace's `.mcp.json`. This one is the other direction: Patchbay's own, which an agent connects *to* in order
-to drive the app. Switch it on under **Settings → Agent control** and paste the command shown there into a terminal:
+[email-scoped one](skills.md#the-email-scoped-tools), plus whatever you allow from the workspace's `.mcp.json`. This
+one is the other direction: Patchbay's own, which an agent connects *to* in order to drive the app. Switch it on under
+**Settings → Agent control** and paste the command shown there into a terminal:
 
 ```bash
 claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
@@ -55,8 +55,8 @@ a queued one out before it starts. When an email never became a run at all, `get
   fetching a body is the job of the run's own scoped tools, and those cannot reach a second message. A run already
   recorded is another matter — `get_run` returns the prompts a node sent, email and all, because a trace you cannot
   read is not a trace.
-- **No tool writes settings.** The Claude and agy executables and the servers handed to a Processor decide what code
-  a run executes, so they stay with the person at the window.
+- **No tool writes settings or allows a server.** The Claude and agy executables and the servers handed to a
+  Processor decide what code a run executes, so they stay with the person at the window.
 - **No tool opens another workspace.** Switching closes the person's canvases and stops their flows being watched.
 - **Nothing sends mail.** Nothing in this app does.
 

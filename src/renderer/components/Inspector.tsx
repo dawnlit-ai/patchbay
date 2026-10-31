@@ -992,10 +992,10 @@ interface ServerListing {
 }
 
 /**
- * The tools a node takes from the MCP servers in Settings or the workspace,
- * ticked one by one: the run is handed those and no others. Each allowed server
- * is asked for its list only while such a node is open here; a workspace server
- * that has not been allowed yet waits on its button first.
+ * The tools a node takes from the workspace's MCP servers, ticked one by one:
+ * the run is handed those and no others. Each allowed server is asked for its
+ * list only while such a node is open here; one that has not been allowed yet
+ * waits on its button first.
  */
 function McpToolsField({
                            config,
@@ -1079,7 +1079,7 @@ function McpToolsField({
                 label="Tools from MCP servers"
                 hint={
                     servers?.length === 0 && unreadable.length === 0
-                        ? 'No MCP servers found. Add them in Settings or in .mcp.json in this workspace.'
+                        ? 'No MCP servers in this workspace. Add them to .mcp.json at the top of its folder.'
                         : hint
                 }
             />
@@ -1099,7 +1099,7 @@ function McpToolsField({
                 const whole = `mcp__${entry.name}`;
                 const takesAll = picked.includes(whole);
                 const allowed = entry.state === 'allowed';
-                const from = entry.source === 'settings' ? 'Settings' : entry.source;
+                const from = entry.source;
                 return (
                     <PickGroup
                         key={`${entry.source}:${entry.name}`}
@@ -1116,9 +1116,7 @@ function McpToolsField({
                                 : takesAll
                                     ? 'every tool'
                                     : tools
-                                        ? entry.source !== 'settings'
-                                            ? `${tools.length} · ${from}`
-                                            : undefined
+                                        ? `${tools.length} · ${from}`
                                         : ''
                         }
                         note={

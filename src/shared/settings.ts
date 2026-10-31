@@ -6,25 +6,6 @@
  */
 export type McpTransport = 'stdio' | 'http' | 'sse';
 
-export const MCP_TRANSPORTS: McpTransport[] = ['stdio', 'http', 'sse'];
-
-export interface McpServerSetting {
-    /** Name Claude sees the tools under: they arrive as `mcp__<name>__*`. */
-    name: string;
-    /** Absent in settings written before servers could be reached by address: a command. */
-    type?: McpTransport;
-    /** What starts a `stdio` server. */
-    command: string;
-    args: string[];
-    /** Added to a `stdio` server's environment. */
-    env?: Record<string, string>;
-    /** Where an `http` or `sse` server listens. */
-    url?: string;
-    /** Sent with every request to an `http` or `sse` server — an `Authorization`, usually. */
-    headers?: Record<string, string>;
-    enabled: boolean;
-}
-
 /** One tool a server offers, as the server describes it. */
 export interface McpServerTool {
     name: string;
@@ -34,6 +15,9 @@ export interface McpServerTool {
 /**
  * The workspace files whose MCP servers Patchbay finds on its own, as paths
  * relative to the workspace, in the order a name defined twice is taken from.
+ * These are the only servers a run is handed: one kept for every project is the
+ * business of the agent it was added to, such as Claude Code or agy, for its own
+ * sessions, and is never part of a run.
  */
 export const WORKSPACE_MCP_FILES = ['.mcp.json', '.vscode/mcp.json', '.cursor/mcp.json', '.gemini/settings.json'] as const;
 
@@ -41,23 +25,23 @@ export type WorkspaceMcpFile = (typeof WORKSPACE_MCP_FILES)[number];
 
 /**
  * Where a server a node can tick stands:
- * - `allowed` — a run can be handed it: every server in Settings, and a workspace one allowed here.
- * - `new` — found in the workspace and never allowed: nothing starts it until someone does.
+ * - `allowed` — allowed to run in this workspace: a run can be handed it.
+ * - `new` — never allowed: nothing starts it until someone does.
  * - `changed` — allowed once, but its file has changed what it starts since, so it waits to be allowed again.
- * - `blocked` — found in the workspace and refused here.
- * - `shadowed` — a server of that name in Settings, or in a file read earlier, is used instead.
+ * - `blocked` — refused in this workspace.
+ * - `shadowed` — a file read earlier defines a server of that name, which is used instead.
  * - `invalid` — its definition cannot be used as written; `problem` says why.
  */
 export type McpServerState = 'allowed' | 'new' | 'changed' | 'blocked' | 'shadowed' | 'invalid';
 
 /**
- * One MCP server as the windows list it: from Settings or found in the workspace.
+ * One MCP server as the windows list it, found in the workspace.
  * Holds no secrets: an environment or a header is listed by its name alone.
  */
 export interface McpServerEntry {
     name: string;
-    /** `settings`, or the workspace file it was found in, such as `.mcp.json`. */
-    source: 'settings' | WorkspaceMcpFile;
+    /** The workspace file it was found in, such as `.mcp.json`. */
+    source: WorkspaceMcpFile;
     type: McpTransport;
     /** What it starts or where it connects, as its definition words it, before any `${VAR}` is filled in. */
     summary: string;
@@ -71,16 +55,16 @@ export interface McpServerEntry {
 
 /** Every MCP server a node in the open workspace could be handed, and the workspace files that could not be read. */
 export interface McpListing {
-    /** The open workspace's folder, or null with none open, when only Settings' servers are listed. */
+    /** The open workspace's folder, or null with none open, when nothing is listed. */
     workspace: string | null;
-    /** Settings' servers that are switched on first, then the workspace's in the order their files are read. */
+    /** In the order their files are read. */
     servers: McpServerEntry[];
     unreadable: { source: WorkspaceMcpFile; problem: string }[];
 }
 
-/** What starts a server or where it connects, in a line, as Settings and the inspector show it. */
-export function serverSummary(server: Pick<McpServerSetting, 'type' | 'command' | 'args' | 'url'>): string {
-    if ((server.type ?? 'stdio') !== 'stdio') return server.url ?? '';
+/** What starts a server or where it connects, in a line, as the start window and the inspector show it. */
+export function serverSummary(server: { type: McpTransport; command: string; args: string[]; url: string }): string {
+    if (server.type !== 'stdio') return server.url;
     return [server.command, ...server.args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(' ');
 }
 
@@ -151,8 +135,6 @@ export interface Settings {
      * first one's. One switched off is passed over by every step.
      */
     agents: AgentSetting[];
-    /** Extra MCP servers, whose tools a Processor or Extractor is handed as its `mcpTools` names them. */
-    mcpServers: McpServerSetting[];
     /** Master switch: when false the poller never starts, whatever a flow says. */
     pollingEnabled: boolean;
     /**
@@ -170,7 +152,6 @@ export function defaultSettings(): Settings {
         claudeExecutablePath: '',
         agyExecutablePath: '',
         agents: agentsInOrder([]),
-        mcpServers: [],
         pollingEnabled: true,
         maxConcurrentRuns: 3,
         agentControl: {enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: ''},

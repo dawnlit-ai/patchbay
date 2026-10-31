@@ -304,7 +304,7 @@ export function registerIpc(): void {
     });
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token: a panel opened before a regeneration would send the old one back.
-        const {agentControl, updateChannel, mcpServers} = getSettings();
+        const {agentControl, updateChannel} = getSettings();
         const saved = saveSettings({
             ...settings,
             agentControl: {...settings.agentControl, token: agentControl.token},
@@ -312,9 +312,6 @@ export function registerIpc(): void {
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
-        if (JSON.stringify(saved.mcpServers) !== JSON.stringify(mcpServers)) {
-            broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
-        }
         return saved;
     });
 
