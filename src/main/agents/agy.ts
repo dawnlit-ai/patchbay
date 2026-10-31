@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
@@ -91,10 +91,14 @@ const { toolCall = {}, conversationId } = JSON.parse(readFileSync(0, "utf8"));
 const { name, args = {} } = toolCall;
 // agy leaves a long tool result in this conversation's own folder for the model to read.
 const roots = conversationId ? [...policy.roots, join(policy.brain, conversationId)] : policy.roots;
-const within = (p) => roots.some((root) => {
+const inside = (p, root) => {
     const r = relative(root, resolve(policy.workspace, p));
     return r === "" || (!r.startsWith("..") && !isAbsolute(r));
-});
+};
+const within = (p) => roots.some((root) => inside(p, root));
+// The plugin's mcp_config.json holds what each server is started with, its env and headers among it:
+// not to be read, nor searched from a folder above it.
+const hidden = (p) => policy.hidden.some((dir) => inside(p, dir) || (name === "grep_search" && inside(dir, resolve(policy.workspace, p))));
 function refusal() {
     if (name === "call_mcp_tool") {
         const id = args.ServerName + "/" + args.ToolName;
@@ -102,8 +106,11 @@ function refusal() {
     }
     if (name === "finish") return null;
     if (policy.read.includes(name)) {
-        const outside = Object.entries(args).find(([key, value]) => /path|dir|file/i.test(key) && typeof value === "string" && value && !within(value));
-        return outside ? outside[1] + " is outside this step's folders." : null;
+        const paths = Object.entries(args).filter(([key, value]) => /path|dir|file/i.test(key) && typeof value === "string" && value).map(([, value]) => value);
+        const outside = paths.find((p) => !within(p));
+        if (outside) return outside + " is outside this step's folders.";
+        const kept = paths.find(hidden);
+        return kept ? kept + " holds this run's own configuration, which is not for reading." : null;
     }
     return name + " is not available in this step.";
 }
@@ -524,6 +531,10 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         const repeatable = mcpGrants(request.repeatableTools ?? [], serverNames);
 
         await mkdir(plugin, {recursive: true});
+        const plugins = dirname(plugin);
+        /** Both spellings of a folder, where the temp folder is reached through a link. */
+        const spellings = (dirs: string[]): string[] =>
+            [...new Set(dirs.flatMap((r) => (existsSync(r) ? [r, realpathSync(r)] : [r])))];
         await writeFile(join(plugin, 'plugin.json'), JSON.stringify({name: PLUGIN}));
         await writeFile(join(plugin, 'mcp_config.json'), JSON.stringify({mcpServers: servers.config}));
         await writeFile(join(plugin, 'hook.cjs'), HOOK);
@@ -533,7 +544,8 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             JSON.stringify({
                 workspace,
                 // agy may name a path by either spelling where the temp folder is a link.
-                roots: [...new Set(roots.flatMap((r) => (existsSync(r) ? [r, realpathSync(r)] : [r])))],
+                roots: spellings(roots),
+                hidden: spellings([plugins]),
                 brain: join(agyHome, 'brain'),
                 read: readable.length > 0 || skills.length > 0 ? READ_TOOLS : [],
                 mcp: granted,
