@@ -5,12 +5,14 @@ import { join, resolve, sep } from 'node:path';
 import { currentWorkspace, mcpTrustFile, pathKey } from '../paths';
 import type { AgentMcpServer } from '../agents/types';
 import { readJson, writeJson } from './jsonFile';
+import { secretNames, serverSecrets, setSecret } from './secretStore';
 import {
     EMAIL_SERVER_NAME,
     isUsableServerName,
     type McpListing,
     type McpServerEntry,
     type McpTransport,
+    type McpVariable,
     serverSummary,
     WORKSPACE_MCP_FILES,
     type WorkspaceMcpFile,
@@ -23,7 +25,9 @@ import {
  * belongs to the agent it was added to, for that agent's own sessions. A
  * workspace's server is a command someone else may have written, so none is
  * started — not even to list its tools — until it has been allowed here, and
- * allowing it holds only while its file still says what it said then.
+ * allowing it holds only while its file still says what it said then. A value
+ * its definition looks up can be set for it here, kept encrypted in the app's
+ * data, and is read only when the server is started.
  */
 
 /** A server that can be started or connected to, and where it was defined. */
@@ -46,8 +50,10 @@ interface Definition {
 
 interface Found {
     entry: McpServerEntry;
+    /** Present for a server that can be allowed: not one shadowed, nor one Patchbay cannot read. */
     hash?: string;
-    launch?: UsableServer['launch'];
+    file?: WorkspaceMcpFile;
+    def?: Definition;
 }
 
 // ── Reading the files ─────────────────────────────────────────────────────
@@ -175,34 +181,89 @@ function readDefinition(file: WorkspaceMcpFile, raw: unknown): Definition {
 // ── Filling in variables ──────────────────────────────────────────────────
 
 /**
- * `${VAR}`, `${VAR:-default}` and `${env:VAR}` from Patchbay's environment;
- * `${workspaceFolder}`, `${userHome}` and `${pathSeparator}` as VS Code means
- * them. Gemini CLI's files also take a bare `$VAR`. A variable that is not set
- * fails the server rather than leaving a hole in its command.
+ * A `${…}` that is looked up rather than known: `name` is what a value set for
+ * the server is kept under, `env` where Patchbay's environment is looked in
+ * after that — never, for VS Code's prompted `${input:…}` — and `fallback` the
+ * definition's own default.
  */
-function expander(file: WorkspaceMcpFile, root: string): (text: string) => string {
-    const pattern = file === '.gemini/settings.json' ? /\$\{([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g : /\$\{([^}]*)\}/g;
-    const fromEnv = (name: string, fallback?: string): string => {
-        const value = process.env[name];
-        if (value !== undefined && value !== '') return value;
-        if (fallback !== undefined) return fallback;
-        throw new Error(`It needs \${${name}}, which is not set in Patchbay's environment.`);
-    };
+interface Lookup {
+    name: string;
+    env?: string;
+    fallback?: string;
+}
+
+/** Gemini CLI's files also take a bare `$VAR`. */
+const variablePattern = (file: WorkspaceMcpFile): RegExp =>
+    file === '.gemini/settings.json' ? /\$\{([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g : /\$\{([^}]*)\}/g;
+
+/**
+ * What one variable stands for. `${workspaceFolder}`, `${userHome}` and
+ * `${pathSeparator}` are known, as VS Code means them; `${VAR}`, `${VAR:-default}`,
+ * `${env:VAR}` and `${input:id}` are looked up. Anything else is refused.
+ */
+function variable(whole: string, braced: string | undefined, bare: string | undefined, root: string): {
+    known: string
+} | Lookup {
+    if (bare !== undefined) return {name: bare, env: bare};
+    const inner = braced!.trim();
+    if (inner === 'workspaceFolder' || inner === 'workspaceRoot') return {known: root};
+    if (inner === 'userHome') return {known: homedir()};
+    if (inner === 'pathSeparator' || inner === '/') return {known: sep};
+    const named = inner.startsWith('env:') ? inner.slice(4).trim() : inner.startsWith('input:') ? inner.slice(6).trim() : null;
+    if (named) return inner.startsWith('env:') ? {name: named, env: named} : {name: `input:${named}`};
+    const withDefault = /^([A-Za-z_][A-Za-z0-9_]*):-(.*)$/s.exec(inner);
+    if (withDefault) return {name: withDefault[1]!, env: withDefault[1]!, fallback: withDefault[2]!};
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(inner)) return {name: inner, env: inner};
+    throw new Error(`It uses ${whole}, which Patchbay cannot fill in.`);
+}
+
+/** Every text of a definition a variable can be written in. */
+const textsOf = (def: Definition): string[] =>
+    [def.command, ...def.args, ...Object.values(def.env), def.url, ...Object.values(def.headers), def.cwd];
+
+/**
+ * What a definition looks up, each once, in the order it first names them. A
+ * default counts only where every use of the name gives one. Throws on a
+ * variable Patchbay cannot fill in.
+ */
+function lookupsOf(file: WorkspaceMcpFile, def: Definition, root: string): Lookup[] {
+    const seen = new Map<string, Lookup>();
+    for (const text of textsOf(def)) {
+        for (const match of text.matchAll(variablePattern(file))) {
+            const part = variable(match[0], match[1], match[2], root);
+            if ('known' in part) continue;
+            const earlier = seen.get(part.name);
+            if (!earlier) seen.set(part.name, part);
+            else if (part.fallback === undefined) delete earlier.fallback;
+        }
+    }
+    return [...seen.values()];
+}
+
+/** Set in Patchbay's environment, an empty value counting as unset. */
+const fromEnv = (name: string | undefined): string | undefined =>
+    name !== undefined && process.env[name] ? process.env[name] : undefined;
+
+function sourceOf(lookup: Lookup, set: Set<string>): McpVariable['source'] {
+    if (set.has(lookup.name)) return 'set';
+    if (fromEnv(lookup.env) !== undefined) return 'environment';
+    return lookup.fallback !== undefined ? 'default' : 'missing';
+}
+
+/**
+ * Fills in each variable: from the values set for this server, then Patchbay's
+ * environment, then the definition's default. One with none of them fails the
+ * server rather than leaving a hole in its command.
+ */
+function filler(file: WorkspaceMcpFile, root: string, values: Record<string, string>): (text: string) => string {
     return (text) =>
-        text.replace(pattern, (whole, braced: string | undefined, bare: string | number | undefined) => {
-            if (typeof bare === 'string') return fromEnv(bare);
-            const inner = braced!.trim();
-            if (inner === 'workspaceFolder' || inner === 'workspaceRoot') return root;
-            if (inner === 'userHome') return homedir();
-            if (inner === 'pathSeparator' || inner === '/') return sep;
-            if (inner.startsWith('env:')) return fromEnv(inner.slice(4));
-            if (inner.startsWith('input:')) {
-                throw new Error(`It asks for ${whole} when it starts, and Patchbay has no one to ask.`);
-            }
-            const withDefault = /^([A-Za-z_][A-Za-z0-9_]*):-(.*)$/s.exec(inner);
-            if (withDefault) return fromEnv(withDefault[1]!, withDefault[2]);
-            if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(inner)) return fromEnv(inner);
-            throw new Error(`It uses ${whole}, which Patchbay cannot fill in.`);
+        // With one group, as all but Gemini CLI's pattern have, the offset arrives where `bare` would.
+        text.replace(variablePattern(file), (whole, braced: string | undefined, bare: string | number | undefined) => {
+            const part = variable(whole, braced, typeof bare === 'string' ? bare : undefined, root);
+            if ('known' in part) return part.known;
+            const value = values[part.name] ?? fromEnv(part.env) ?? part.fallback;
+            if (value === undefined) throw new Error(`It needs a value for ${part.name}, which is not set for it.`);
+            return value;
         });
 }
 
@@ -232,8 +293,8 @@ function unwrapCmd(command: string, args: string[]): { command: string; args: st
 }
 
 /** The definition with its variables filled in, as a run is handed it. */
-function launchOf(file: WorkspaceMcpFile, def: Definition, root: string): UsableServer['launch'] {
-    const fill = expander(file, root);
+function launchOf(file: WorkspaceMcpFile, def: Definition, root: string, values: Record<string, string>): UsableServer['launch'] {
+    const fill = filler(file, root, values);
     if (def.type === 'stdio') {
         const env = mapValues(def.env, fill);
         const {command, args} = unwrapCmd(fill(def.command), def.args.map(fill));
@@ -276,6 +337,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
     const root = currentWorkspace();
     if (!root) return {workspace: null, found, unreadable};
     const trusted = readTrust()[pathKey(root)] ?? {};
+    const secrets = secretNames(pathKey(root));
     /** Which file each name was first found in: the first is used. */
     const taken = new Map<string, WorkspaceMcpFile>();
 
@@ -283,10 +345,17 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
         const path = join(root, file);
         if (!existsSync(path)) continue;
         let servers: Record<string, unknown>;
+        /** What VS Code's `inputs` say each `${input:…}` is, by the name its value is kept under. */
+        const described = new Map<string, string>();
         try {
             const parsed = parseJsonc(readFileSync(path, 'utf8'));
             if (!isObject(parsed)) throw new Error('It is not a JSON object.');
             servers = serverMap(file, parsed);
+            for (const input of Array.isArray(parsed.inputs) ? parsed.inputs : []) {
+                if (isObject(input) && typeof input.id === 'string' && typeof input.description === 'string') {
+                    described.set(`input:${input.id.trim()}`, input.description);
+                }
+            }
         } catch (e) {
             unreadable.push({source: file, problem: e instanceof Error ? e.message : String(e)});
             continue;
@@ -299,6 +368,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
                 summary: '',
                 envKeys: [],
                 headerKeys: [],
+                variables: [],
                 state: 'invalid',
             };
             const invalid = (problem: string): void => void found.push({entry: {...entry, problem}});
@@ -336,14 +406,20 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
             }
             taken.set(name, file);
 
-            const hash = hashOf(def);
-            let launch: UsableServer['launch'];
+            let lookups: Lookup[];
             try {
-                launch = launchOf(file, def, root);
+                lookups = lookupsOf(file, def, root);
             } catch (e) {
                 invalid(e instanceof Error ? e.message : String(e));
                 continue;
             }
+            const set = secrets.get(name) ?? new Set<string>();
+            entry.variables = lookups.map((lookup) => {
+                const description = described.get(lookup.name);
+                return {name: lookup.name, source: sourceOf(lookup, set), ...(description ? {description} : {})};
+            });
+
+            const hash = hashOf(def);
             const record = trusted[name];
             const state = !record
                 ? 'new'
@@ -354,7 +430,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
                     : record.allowed
                         ? 'allowed'
                         : 'blocked';
-            found.push({entry: {...entry, state}, hash, launch});
+            found.push({entry: {...entry, state}, hash, file, def});
         }
     }
     return {workspace: root, found, unreadable};
@@ -366,26 +442,30 @@ export function listMcpServers(): McpListing {
     return {workspace, servers: found.map((f) => f.entry), unreadable};
 }
 
-function usableIn(found: Found[]): Map<string, UsableServer> {
-    const usable = new Map<string, UsableServer>();
-    for (const {entry, launch} of found) {
-        if (entry.state === 'allowed' && launch && !usable.has(entry.name)) {
-            usable.set(entry.name, {name: entry.name, source: entry.source, launch});
-        }
-    }
-    return usable;
+const missingIn = (entry: McpServerEntry): string[] =>
+    entry.variables.filter((v) => v.source === 'missing').map((v) => v.name);
+
+/**
+ * The servers a run could be handed now, by name: allowed, with every value
+ * they look up to be had. None is started, and no value is opened, to say so.
+ */
+export function usableServers(): Set<string> {
+    return new Set(scan().found.filter(({
+                                            entry,
+                                            def
+                                        }) => entry.state === 'allowed' && def && missingIn(entry).length === 0)
+        .map(({entry}) => entry.name));
 }
 
-/** The servers a run can be handed now, by name. */
-export const usableServers = (): Map<string, UsableServer> => usableIn(scan().found);
-
-/** One server a run or a listing can use, or an error saying what stands in its way. */
-export function requireServer(name: string): UsableServer {
-    const {found} = scan();
-    const usable = usableIn(found).get(name);
-    if (usable) return usable;
-    const entry = found.find((f) => f.entry.name === name && f.entry.state !== 'shadowed')?.entry;
-    if (!entry) throw new Error(`There is no MCP server "${name}" in this workspace.`);
+/**
+ * One server as a run or a listing starts it, its variables filled in with the
+ * values set for it, or an error saying what stands in its way.
+ */
+export async function requireServer(name: string): Promise<UsableServer> {
+    const {workspace, found} = scan();
+    const server = found.find((f) => f.entry.name === name && f.entry.state !== 'shadowed');
+    if (!workspace || !server) throw new Error(`There is no MCP server "${name}" in this workspace.`);
+    const {entry, file, def} = server;
     switch (entry.state) {
         case 'new':
             throw new Error(`${name} is defined in ${entry.source}, and has not been allowed to run yet. Allow it in the start window’s MCP tab or the inspector.`);
@@ -393,9 +473,20 @@ export function requireServer(name: string): UsableServer {
             throw new Error(`${entry.source} has changed what ${name} starts since it was allowed. Allow it again in the start window’s MCP tab or the inspector.`);
         case 'blocked':
             throw new Error(`${name}, from ${entry.source}, was not allowed to run here.`);
+        case 'allowed':
+            break;
         default:
             throw new Error(`${name} cannot be used: ${entry.problem ?? 'its definition is incomplete.'}`);
     }
+    if (!file || !def) throw new Error(`${name} cannot be used: its definition could not be read.`);
+    const missing = missingIn(entry);
+    if (missing.length > 0) {
+        throw new Error(
+            `${name} needs a value for ${missing.join(', ')}, which is set neither for it nor in Patchbay’s environment. Set it in the start window’s MCP tab or the inspector.`,
+        );
+    }
+    const values = await serverSecrets(pathKey(workspace), name);
+    return {name, source: entry.source, launch: launchOf(file, def, workspace, values)};
 }
 
 /** Allow a workspace server to run, or refuse it, as its file defines it now. */
@@ -408,6 +499,24 @@ export function setServerTrust(name: string, allowed: boolean): McpListing {
     const key = pathKey(workspace);
     trust[key] = {...trust[key], [name]: {hash: server.hash, allowed, at: new Date().toISOString()}};
     writeJson(mcpTrustFile(), trust);
+    return listMcpServers();
+}
+
+/**
+ * Set a value one of the workspace's servers looks up, or take it away with null,
+ * which leaves the server to Patchbay's environment or its default. Kept for this
+ * server alone, and never read back to a window.
+ */
+export async function setServerSecret(name: string, variable: string, value: string | null): Promise<McpListing> {
+    const {workspace, found} = scan();
+    if (!workspace) throw new Error('No workspace is open.');
+    const server = found.find((f) => f.entry.name === name && f.def !== undefined);
+    if (!server) throw new Error(`This workspace defines no server "${name}" a value can be set for.`);
+    // Taking one away is let through even once the definition has stopped using it.
+    if (value !== null && !server.entry.variables.some((v) => v.name === variable)) {
+        throw new Error(`${name}’s definition does not look up ${variable}.`);
+    }
+    await setSecret(pathKey(workspace), name, variable, value);
     return listMcpServers();
 }
 

@@ -292,6 +292,11 @@ export function registerIpc(): void {
         broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
         return listed;
     });
+    handle(IPC.settingsSetServerSecret, async (server: string, variable: string, value: string | null) => {
+        const listed = await mcpStore.setServerSecret(server, variable, value);
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return listed;
+    });
     handle(IPC.settingsOpenMcpFile, (source: WorkspaceMcpFile) => openInEditor(mcpStore.mcpFilePath(source)));
     handle(IPC.settingsRevealMcpFile, (source: WorkspaceMcpFile) =>
         shell.showItemInFolder(mcpStore.mcpFilePath(source)),

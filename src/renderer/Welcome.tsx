@@ -17,6 +17,7 @@ import type {
     McpListing,
     McpServerEntry,
     McpServerTool,
+    McpVariable,
     SkillSummary,
     WorkspaceMcpFile,
 } from '@shared/settings';
@@ -31,6 +32,7 @@ import { fileStem, RenameFlowDialog, type RenameResult } from './components/Rena
 import { SettingsButton } from './components/SettingsButton';
 import { SchemaDialog } from './components/SchemaDialog';
 import { SchemaFields } from './components/SchemaFields';
+import { SecretDialog } from './components/SecretDialog';
 import { skillTemplate } from './components/SkillLibrary';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
@@ -66,7 +68,8 @@ type Dialog =
     | { kind: 'rename-schema'; name: string }
     | { kind: 'delete-schema'; name: string }
     /** Leaving the open workspace stops what it is doing; asked about first. */
-    | { kind: 'switch'; question: Question; go(): void };
+    | { kind: 'switch'; question: Question; go(): void }
+    | { kind: 'set-secret'; server: McpServerEntry; variable: McpVariable };
 
 /** What the graph amounts to, for someone deciding which flow this is. */
 function shape(flow: Flow): string {
@@ -108,8 +111,26 @@ function mcpServersOf(flow: Flow): Set<string> {
 
 const serverKey = (server: McpServerEntry): string => `${server.source}:${server.name}`;
 
-/** Its tools are asked for again once what it starts, or where it connects, has changed. */
-const toolsKey = (server: McpServerEntry): string => `${serverKey(server)}:${server.summary}`;
+/**
+ * Its tools are asked for again once what it starts, or where it connects, has
+ * changed, or a value it looks up has been set or cleared.
+ */
+const toolsKey = (server: McpServerEntry): string =>
+    `${serverKey(server)}:${server.summary}:${server.variables.map((v) => `${v.name}=${v.source}`).join(',')}`;
+
+/** The values a server looks up that it has none of yet. */
+const missingValues = (server: McpServerEntry): McpVariable[] => server.variables.filter((v) => v.source === 'missing');
+
+/** Allowed, and with every value it looks up to be had: it can be started. */
+const startable = (server: McpServerEntry): boolean => server.state === 'allowed' && missingValues(server).length === 0;
+
+/** Where a value a server looks up would come from, as the MCP tab says it. */
+const VALUE_SOURCES: Record<McpVariable['source'], string> = {
+    set: 'set here',
+    environment: 'from the environment',
+    default: 'its default',
+    missing: 'missing',
+};
 
 /** The fields a schema lists, or null when it is not a group of fields. */
 const fieldNames = (schema: JsonSchema): string[] | null =>
@@ -367,6 +388,7 @@ export function Welcome(): JSX.Element {
                 s.summary,
                 ...s.envKeys,
                 ...s.headerKeys,
+                ...s.variables.map((v) => v.name),
                 s.problem ?? '',
             ),
         )
@@ -382,9 +404,8 @@ export function Welcome(): JSX.Element {
             ? []
             : [...serverTickedIn.keys()].filter((name) => !knownServers.has(name) && matches(name)).toSorted();
 
-    const selectedToolKey = tab === 'mcp' && serverSelected?.state === 'allowed' ? toolsKey(serverSelected) : null;
-    const selectedServerName =
-        tab === 'mcp' && serverSelected?.state === 'allowed' ? serverSelected.name : null;
+    const selectedToolKey = tab === 'mcp' && serverSelected && startable(serverSelected) ? toolsKey(serverSelected) : null;
+    const selectedServerName = tab === 'mcp' && serverSelected && startable(serverSelected) ? serverSelected.name : null;
 
     useEffect(() => {
         if (!selectedToolKey || !selectedServerName) return;
@@ -734,13 +755,25 @@ export function Welcome(): JSX.Element {
 
     // ── MCP servers ────────────────────────────────────────────────────────
 
+    /** Asked afresh next time, not shown what it offered before. */
+    const forgetTools = (server: McpServerEntry): void =>
+        setServerTools((current) =>
+            Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${serverKey(server)}:`))),
+        );
+
     const trustServer = (server: McpServerEntry, allowed: boolean): Promise<void> =>
         attempt(async () => {
             setMcpListing(await window.api.settings.trustServer(server.name, allowed));
-            // Allowed again after its file changed: asked afresh, not shown what it offered before.
-            setServerTools((current) =>
-                Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${serverKey(server)}:`))),
-            );
+            // Allowed again after its file changed.
+            forgetTools(server);
+        });
+
+    /** Null takes the value away, leaving the server to the environment or its default. */
+    const setSecret = (server: McpServerEntry, variable: McpVariable, value: string | null): Promise<void> =>
+        attempt(async () => {
+            setMcpListing(await window.api.settings.setServerSecret(server.name, variable.name, value));
+            // A new token can change what a server offers, or let it answer at all.
+            forgetTools(server);
         });
 
     const handOffMcpFile = (how: 'openMcpFile' | 'revealMcpFile', source: WorkspaceMcpFile): Promise<void> =>
@@ -1502,7 +1535,8 @@ export function Welcome(): JSX.Element {
                                         reads <code>.mcp.json</code>,{' '}
                                         <code>.vscode/mcp.json</code>, <code>.cursor/mcp.json</code> and{' '}
                                         <code>.gemini/settings.json</code> in the workspace folder. Servers you keep in
-                                        Claude Code or agy for every project stay theirs, and no run is handed them.{' '}
+                                        Claude Code or agy for every project stay theirs, and no run is handed
+                                        them.{' '}
                                         <b>Create .mcp.json</b> starts one at the top of the workspace.
                                     </div>
                                 )}
@@ -1624,6 +1658,14 @@ export function Welcome(): JSX.Element {
                                                             cannot be used
                                                         </span>
                                                     )}
+                                                    {missingValues(server).length > 0 && (
+                                                        <span
+                                                            className="badge warn"
+                                                            title={`Nothing starts it until ${missingValues(server).map((v) => v.name).join(', ')} has a value`}
+                                                        >
+                                                            needs a value
+                                                        </span>
+                                                    )}
                                                     {server.state === 'allowed' && users.length === 0 && (
                                                         <span
                                                             className="badge"
@@ -1635,7 +1677,58 @@ export function Welcome(): JSX.Element {
                                                 </div>
                                                 <div className="meta desc">{description}</div>
                                                 <div className="meta">{details.join(' · ')}</div>
-                                                {active && server.state === 'allowed' && (
+                                                {active && server.variables.length > 0 && (
+                                                    <div
+                                                        className="schema-fields values"
+                                                        // Its buttons are not the row's: a click on one leaves it picked.
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onDoubleClick={(e) => e.stopPropagation()}
+                                                        onKeyDown={(e) => e.stopPropagation()}
+                                                    >
+                                                        {server.variables.map((variable) => (
+                                                            <div key={variable.name} className="schema-field">
+                                                                <span className="name">{variable.name}</span>
+                                                                <span
+                                                                    className={`type${variable.source === 'missing' ? ' warn' : ''}`}
+                                                                >
+                                                                    {VALUE_SOURCES[variable.source]}
+                                                                </span>
+                                                                <span
+                                                                    className="desc">{variable.description ?? ''}</span>
+                                                                <span className="value-actions">
+                                                                    <button
+                                                                        className="compact"
+                                                                        onClick={() =>
+                                                                            setDialog({
+                                                                                kind: 'set-secret',
+                                                                                server,
+                                                                                variable
+                                                                            })
+                                                                        }
+                                                                    >
+                                                                        {variable.source === 'set' ? 'Change…' : 'Set…'}
+                                                                    </button>
+                                                                    {variable.source === 'set' && (
+                                                                        <button
+                                                                            className="compact"
+                                                                            title="Leave it to Patchbay’s environment, or the definition’s default"
+                                                                            onClick={() => void setSecret(server, variable, null)}
+                                                                        >
+                                                                            Clear
+                                                                        </button>
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {active && server.state === 'allowed' && !startable(server) && (
+                                                    <div className="schema-fields empty-fields">
+                                                        Set {missingValues(server).map((v) => v.name).join(', ')} to
+                                                        start it and list its tools.
+                                                    </div>
+                                                )}
+                                                {active && startable(server) && (
                                                     !fetched ? (
                                                         <div className="schema-fields empty-fields">
                                                             Listing tools…
@@ -1690,10 +1783,12 @@ export function Welcome(): JSX.Element {
                                                                 Block
                                                             </button>
                                                         )}
-                                                        <button onClick={() => void handOffMcpFile('openMcpFile', server.source)}>
+                                                        <button
+                                                            onClick={() => void handOffMcpFile('openMcpFile', server.source)}>
                                                             Edit {server.source}
                                                         </button>
-                                                        <button onClick={() => void handOffMcpFile('revealMcpFile', server.source)}>
+                                                        <button
+                                                            onClick={() => void handOffMcpFile('revealMcpFile', server.source)}>
                                                             Show in folder
                                                         </button>
                                                     </RowActions>
@@ -1814,6 +1909,19 @@ export function Welcome(): JSX.Element {
                     onConfirm={(name, location) => {
                         setDialog(null);
                         void createWorkspace(name, location);
+                    }}
+                />
+            )}
+
+            {dialog?.kind === 'set-secret' && (
+                <SecretDialog
+                    server={dialog.server.name}
+                    variable={dialog.variable}
+                    onCancel={() => setDialog(null)}
+                    onSave={(value) => {
+                        const {server, variable} = dialog;
+                        setDialog(null);
+                        void setSecret(server, variable, value);
                     }}
                 />
             )}

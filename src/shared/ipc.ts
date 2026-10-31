@@ -212,6 +212,11 @@ export interface Api {
         serverTools(server: string): Promise<McpServerTool[]>;
         /** Allow a server found in the workspace to run, or refuse it, as its file defines it now. */
         trustServer(server: string, allowed: boolean): Promise<McpListing>;
+        /**
+         * Set a value a workspace server looks up, kept encrypted for that server
+         * alone, or take it away with null. There is no call that reads one back.
+         */
+        setServerSecret(server: string, variable: string, value: string | null): Promise<McpListing>;
         /** Open one of the workspace's MCP server files in the system's app for `.json` files. */
         openMcpFile(source: WorkspaceMcpFile): Promise<void>;
         /** Show one of the workspace's MCP server files in the file manager. */
@@ -407,6 +412,7 @@ export const IPC = {
     settingsServers: 'settings:servers',
     settingsServerTools: 'settings:serverTools',
     settingsTrustServer: 'settings:trustServer',
+    settingsSetServerSecret: 'settings:setServerSecret',
     settingsOpenMcpFile: 'settings:openMcpFile',
     settingsRevealMcpFile: 'settings:revealMcpFile',
     settingsCreateMcpFile: 'settings:createMcpFile',

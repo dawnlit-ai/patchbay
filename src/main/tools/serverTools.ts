@@ -65,14 +65,9 @@ async function ask(launch: UsableServer['launch']): Promise<McpServerTool[]> {
     }
 }
 
-export function listServerTools(server: string): Promise<McpServerTool[]> {
-    let launch: UsableServer['launch'];
-    try {
-        launch = requireServer(server).launch;
-    } catch (e) {
-        return Promise.reject(e instanceof Error ? e : new Error(String(e)));
-    }
-    // Keyed by how the server is started, so editing its file asks again.
+export async function listServerTools(server: string): Promise<McpServerTool[]> {
+    const {launch} = await requireServer(server);
+    // Keyed by how the server is started, so editing its file, or a value set for it, asks again.
     const key = JSON.stringify(launch);
     const hit = listed.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.tools;

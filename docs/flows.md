@@ -134,8 +134,8 @@ Right-clicking one can also open its file in the app your system gives `.json` f
 the form cannot read opens there instead. A schema some node names but the folder no longer holds is listed at the
 bottom, with **Create it…**. Its **MCP** tab lists the [MCP servers](skills.md#mcp-servers) defined in the workspace
 (`.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`), which flows tick them,
-and the tools an allowed server offers, with **Allow**, **Block** and **Edit** on the picked row and **Create .mcp.json**
-in the rail. Its **README** tab shows the `README.md` at the top of the workspace folder — a
+and the tools an allowed server offers, with **Allow**, **Block** and **Edit** on the picked row, **Set…** beside each
+value it looks up, and **Create .mcp.json** in the rail. Its **README** tab shows the `README.md` at the top of the workspace folder — a
 repository's own README, for a workspace that is one.
 **Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
 with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab

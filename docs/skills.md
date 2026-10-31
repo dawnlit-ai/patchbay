@@ -51,29 +51,25 @@ and needs a record lookup, holds that lookup and not the same server's tool that
 
 Servers come from the workspace, like its flows, skills and schemas, so a flow is handed the same ones on every
 computer it is opened on. Patchbay reads `.mcp.json` (Claude Code), `.vscode/mcp.json`, `.cursor/mcp.json` and
-`.gemini/settings.json` in that order, fills in `${VAR}`, `${VAR:-default}`, `${env:VAR}` and `${workspaceFolder}`, and
-starts commands in the workspace's folder. A name defined in two files is taken from the first. Because a workspace's
-file can come from a cloned repository, a server found there is not started — not even to list its tools — until you
-click **Allow** on it in the start window's **MCP** tab or the inspector. Editing what a server starts asks again.
+`.gemini/settings.json` in that order, fills in `${VAR}`, `${VAR:-default}`, `${env:VAR}`, VS Code's `${input:id}` and
+`${workspaceFolder}` ([as below](#tokens-and-other-values)), and starts commands in the workspace's folder. A name
+defined in two files is taken from the first. Because a workspace's file can come from a cloned repository, a server
+found there is not started — not even to list its tools — until you click **Allow** on it in the start window's **MCP**
+tab or the inspector. Editing what a server starts asks again.
 
 Servers you keep for every project in an agent itself — `claude mcp add --scope user`, or agy's own settings — stay
 that agent's, for its own sessions. No run is handed them: a run starts with only the servers its node ticks.
-
-Write a token into a server's `env` or `headers` as `${VAR}` rather than as itself, so it stays out of a file you
-commit. Patchbay fills it from its own environment, which an app opened from the Finder or the Dock does not share
-with your terminal; one it cannot fill makes the server unusable, saying which, rather than starting it with a hole in
-its command.
 
 The start window's **MCP** tab lists the workspace's servers with their state, which flows tick their tools, and
 (once allowed) the tools each offers. From there you can allow or block them, open or create `.mcp.json`, or see any
 server a flow ticks that is not in the workspace. These files are watched like the `skills` folder, so a server added
 in your editor or by a `git pull` shows as it happens.
 
-A node that ticks a server no run can be handed — not allowed yet, blocked, or defined nowhere — leaves by its error
-port saying which, rather than running without the tools it was built to use. So does one on a Claude model whose
-server's definition sets a `cwd` other than the workspace folder: Claude starts every server there. agy starts each
-where its definition says, but cannot reach a server over the older SSE transport. agy is handed a run's servers in a
-file in that run's own folder, which the run is refused from reading or searching.
+A node that ticks a server no run can be handed — not allowed yet, blocked, missing a value, or defined nowhere —
+leaves by its error port saying which, rather than running without the tools it was built to use. So does one on a
+Claude model whose server's definition sets a `cwd` other than the workspace folder: Claude starts every server there.
+agy starts each where its definition says, but cannot reach a server over the older SSE transport. agy is handed a
+run's servers in a file in that run's own folder, which the run is refused from reading or searching.
 
 An app opened from the Finder or the Dock does not have a terminal's PATH, so a server's command — `npx`, `uvx`,
 `node` — is also looked for in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, both to list its tools and in
@@ -81,6 +77,23 @@ a run. One installed by a version manager such as nvm or Volta lives elsewhere: 
 
 A skill that calls another app's MCP tools (`mcp__<server-name>__*`) needs that server allowed in the workspace, and
 the tools it calls ticked on the node, before it can run.
+
+### Tokens and other values
+
+Write a token into a server's `env` or `headers` as a variable rather than as itself —
+`"Authorization": "Bearer ${CRM_TOKEN}"` — so it stays out of a file you commit, then set its value with **Set…**
+beside the server in the start window's **MCP** tab, or in the inspector. A value set there is kept for that one server in that one workspace,
+encrypted with the key your system keeps for Patchbay (the Keychain on macOS, DPAPI on Windows), in the app's data
+rather than the workspace. It is opened only when that server starts — to list its tools, or for a run whose node
+ticks it — and no window shows it again: it can be changed or cleared, not read. Another server naming the same
+variable does not get it. Linux without a keyring has nothing to keep one in, and Patchbay says so rather than keep it
+in the clear.
+
+A variable is filled from the value set for the server first, then from Patchbay's environment, then from the
+definition's own default, as in `${PORT:-3000}`. An app opened from the Finder or the Dock does not share your
+terminal's environment. VS Code's `${input:id}` is only ever a value set here, shown with the description its file's
+`inputs` give it. A server with a variable none of these fill can still be allowed, but is marked **needs a value**,
+and a node that ticks it stops at its error port saying which, rather than starting it with a hole in its command.
 
 ## The email-scoped tools
 

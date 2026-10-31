@@ -82,28 +82,40 @@ function modelsFor({models}: { models: ModelChoice[] }): Pick<AgentRunRequest, '
  * handed — not allowed yet, blocked, or defined nowhere — stops the step with `problem` rather than running without
  * the tools the node was built to use, as a missing skill does.
  */
-function nodeServers(
+async function nodeServers(
     mcpTools: string[],
-): { servers: Record<string, AgentMcpServer>; allowed: string[]; problem?: NodeOutcome } {
+): Promise<{ servers: Record<string, AgentMcpServer>; allowed: string[]; problem?: NodeOutcome }> {
     const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
-    for (const [name, {launch}] of usableServers()) {
+    const refused = (e: unknown): {
+        servers: Record<string, AgentMcpServer>;
+        allowed: string[];
+        problem: NodeOutcome
+    } => {
+        const message = e instanceof Error ? e.message : String(e);
+        return {servers, allowed, problem: {outPort: 'error', summary: message, error: message}};
+    };
+    for (const name of usableServers()) {
         const whole = `mcp__${name}`;
         // Only what the node names: a server's other tools stay refused, so an email
         // written to steer the agent cannot reach a tool the step never needed.
         const granted = mcpTools.filter((t) => t === whole || t.startsWith(`${whole}__`));
         if (granted.length === 0) continue;
-        servers[name] = launch;
+        // Only now are the values set for it opened: a server the node does not tick never has them read.
+        try {
+            servers[name] = (await requireServer(name)).launch;
+        } catch (e) {
+            return refused(e);
+        }
         allowed.push(...granted);
     }
     const unmet = mcpTools.find((t) => t.startsWith('mcp__') && !allowed.includes(t));
     if (unmet !== undefined) {
         try {
-            // Throws, saying what stands in the way of the server it names.
-            requireServer(unmet.slice('mcp__'.length).split('__')[0]!);
+            // Rejects, saying what stands in the way of the server it names.
+            await requireServer(unmet.slice('mcp__'.length).split('__')[0]!);
         } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            return {servers, allowed, problem: {outPort: 'error', summary: message, error: message}};
+            return refused(e);
         }
     }
     return {servers, allowed};
@@ -295,7 +307,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         onEvent: ctx.onEvent,
         actions: [],
     });
-    const extra = nodeServers(config.mcpTools);
+    const extra = await nodeServers(config.mcpTools);
     if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(capabilities), ...extra.allowed];
     if (config.includeAttachments) allowedTools.push('Read');
@@ -432,7 +444,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         actions,
     });
 
-    const extra = nodeServers(config.mcpTools);
+    const extra = await nodeServers(config.mcpTools);
     if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(config), ...extra.allowed];
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');

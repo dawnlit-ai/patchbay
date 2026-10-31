@@ -31,6 +31,9 @@ const TOKEN = 'mcpcheck-token';
 
 const data = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-'));
 app.setPath('userData', data);
+// Its own name, so the key the values set for servers are sealed with is its own
+// Keychain item ("Patchbay mcpcheck Safe Storage"), not the app's.
+app.setName('Patchbay mcpcheck');
 
 let failures = 0;
 
@@ -52,7 +55,9 @@ async function main(): Promise<void> {
         '../src/main/store/skillStore'
         );
     const {stopWatchingFolders, watchFolders} = await import('../src/main/store/folderWatch');
-    const {listMcpServers, requireServer, setServerTrust, usableServers} = await import('../src/main/store/mcpStore');
+    const {listMcpServers, requireServer, setServerSecret, setServerTrust, usableServers} = await import(
+        '../src/main/store/mcpStore'
+        );
     const {withToolPath} = await import('../src/main/agents/toolPath');
     const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
 
@@ -741,9 +746,11 @@ async function main(): Promise<void> {
         byName('local')[1]?.source === '.vscode/mcp.json' &&
         byName('local')[1]?.state === 'shadowed',
     );
+    check('reserved server name "email" is flagged as invalid', byName('email')[0]?.state === 'invalid');
     check(
-        'reserved server name "email" and missing env variables are flagged as invalid',
-        byName('email')[0]?.state === 'invalid' && byName('missingEnv')[0]?.state === 'invalid',
+        'a variable with no value leaves the server to be allowed, saying which it is missing',
+        byName('missingEnv')[0]?.state === 'new' &&
+        JSON.stringify(byName('missingEnv')[0]?.variables) === '[{"name":"PATCHBAY_NEVER_SET","source":"missing"}]',
     );
     check('untrusted workspace servers are not usable until allowed', usableServers().size === 0);
     const beforeTrust = await client.callTool({name: 'list_server_tools', arguments: {server: 'loopback'}});
@@ -751,7 +758,7 @@ async function main(): Promise<void> {
 
     setServerTrust('loopback', true);
     setServerTrust('local', true);
-    const localLaunch = usableServers().get('local')?.launch;
+    const localLaunch = (await requireServer('local')).launch;
     check(
         'allowing a workspace server expands ${workspaceFolder} and ${VAR:-default} and sets cwd to the workspace',
         localLaunch?.type === 'stdio' &&
@@ -794,17 +801,14 @@ async function main(): Promise<void> {
 
     // A ticked server no run can be handed says what stands in its way: a node
     // that ticks it stops at its error port with that.
-    const whyRefused = (name: string): string => {
-        try {
-            requireServer(name);
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : String(e);
-        }
-    };
-    check('a server defined nowhere is refused by name', whyRefused('nowhere').includes('no MCP server "nowhere"'));
-    check('a blocked workspace server is refused as not allowed', whyRefused('local').includes('not allowed'));
-    check('one never allowed says it has not been', whyRefused('vscodeOnly').includes('has not been allowed'));
+    const whyRefused = (name: string): Promise<string> =>
+        requireServer(name).then(
+            () => '',
+            (e: unknown) => (e instanceof Error ? e.message : String(e)),
+        );
+    check('a server defined nowhere is refused by name', (await whyRefused('nowhere')).includes('no MCP server "nowhere"'));
+    check('a blocked workspace server is refused as not allowed', (await whyRefused('local')).includes('not allowed'));
+    check('one never allowed says it has not been', (await whyRefused('vscodeOnly')).includes('has not been allowed'));
 
     // The same two as before, so what was decided about them stands, and one more by address.
     writeFileSync(
@@ -822,7 +826,7 @@ async function main(): Promise<void> {
         }),
     );
     setServerTrust('remote', true);
-    const remote = usableServers().get('remote')?.launch;
+    const remote = (await requireServer('remote')).launch;
     check(
         'an HTTP workspace server is handed over by address, with its headers filled in',
         remote?.type === 'http' && remote.url.endsWith(`:${PORT}/mcp`) && remote.headers?.Authorization === `Bearer ${TOKEN}`,
@@ -849,7 +853,92 @@ async function main(): Promise<void> {
         'a server an older Settings kept is dropped from the file, its env values with it',
         !onDisk.includes('mcpServers') && !onDisk.includes('mcpcheck-old-secret') && !('mcpServers' in getSettings()),
     );
-    check('and is not a server a node can be handed', whyRefused('old').includes('no MCP server "old"'));
+    check('and is not a server a node can be handed', (await whyRefused('old')).includes('no MCP server "old"'));
+
+    // Values set for one server: sealed in the app's data, handed to that server
+    // alone, ahead of the environment, and never listed.
+    const {mcpSecretsFile} = await import('../src/main/paths');
+    delete process.env.PATCHBAY_MCPCHECK_VALUE;
+    writeFileSync(
+        join(root, '.mcp.json'),
+        JSON.stringify({
+            mcpServers: {
+                sealed: {
+                    type: 'http',
+                    url: `http://127.0.0.1:${PORT}/mcp`,
+                    headers: {Authorization: 'Bearer ${PATCHBAY_MCPCHECK_VALUE}'},
+                },
+                neighbour: {command: 'node', args: ['n.js', '${PATCHBAY_MCPCHECK_VALUE}']},
+            },
+        }),
+    );
+    writeFileSync(
+        join(root, '.vscode', 'mcp.json'),
+        JSON.stringify({
+            inputs: [{type: 'promptString', id: 'api-key', description: 'The CRM key', password: true}],
+            servers: {prompted: {command: 'node', args: ['p.js'], env: {KEY: '${input:api-key}'}}},
+        }),
+    );
+    const variablesOf = (name: string) => listMcpServers().servers.find((s) => s.name === name)?.variables ?? [];
+    setServerTrust('sealed', true);
+    setServerTrust('neighbour', true);
+    setServerTrust('prompted', true);
+    check(
+        'an allowed server missing a value is not usable, and says which value and where to set it',
+        !usableServers().has('sealed') &&
+        (await whyRefused('sealed')).includes('needs a value for PATCHBAY_MCPCHECK_VALUE') &&
+        (await whyRefused('sealed')).includes('MCP tab'),
+    );
+    check(
+        "VS Code's ${input:…} is a value to set, with its description",
+        JSON.stringify(variablesOf('prompted')) === '[{"name":"input:api-key","source":"missing","description":"The CRM key"}]',
+    );
+    const refusedUnused = await setServerSecret('sealed', 'NOT_USED', 'x').then(() => false, () => true);
+    check('a value its definition does not look up is refused', refusedUnused);
+
+    await setServerSecret('sealed', 'PATCHBAY_MCPCHECK_VALUE', TOKEN);
+    await setServerSecret('prompted', 'input:api-key', 'mcpcheck-crm-key');
+    const sealedFile = readFileSync(mcpSecretsFile(), 'utf8');
+    check('a value set is sealed: the file in the app data holds none of it', !sealedFile.includes(TOKEN) && !sealedFile.includes('mcpcheck-crm-key'));
+    check(
+        'the listing says it is set, and nothing more',
+        variablesOf('sealed')[0]?.source === 'set' && !JSON.stringify(listMcpServers()).includes(TOKEN),
+    );
+    const sealed = (await requireServer('sealed')).launch;
+    check(
+        'starting it opens the value into its header',
+        usableServers().has('sealed') && sealed.type === 'http' && sealed.headers?.Authorization === `Bearer ${TOKEN}`,
+    );
+    check(
+        'and a server reached with it lists its tools',
+        (await call('list_server_tools', {server: 'sealed'})).includes('mcp__sealed__list_flows'),
+    );
+    check(
+        'a value set for one server is not another’s, though both name it',
+        variablesOf('neighbour')[0]?.source === 'missing' && (await whyRefused('neighbour')).includes('needs a value'),
+    );
+    const prompted = (await requireServer('prompted')).launch;
+    check('an ${input:…} is filled from the value set for it', prompted.type === 'stdio' && prompted.env?.KEY === 'mcpcheck-crm-key');
+    check('get_settings does not give a value set for a server', !(await call('get_settings')).includes(TOKEN));
+
+    process.env.PATCHBAY_MCPCHECK_VALUE = 'from-the-environment';
+    const ahead = (await requireServer('sealed')).launch;
+    const neighbour = (await requireServer('neighbour')).launch;
+    check(
+        'a value set comes before the environment, which fills in the server it was not set for',
+        ahead.type === 'http' && ahead.headers?.Authorization === `Bearer ${TOKEN}` &&
+        neighbour.type === 'stdio' && neighbour.args?.[1] === 'from-the-environment' &&
+        variablesOf('neighbour')[0]?.source === 'environment',
+    );
+    await setServerSecret('sealed', 'PATCHBAY_MCPCHECK_VALUE', null);
+    const cleared = (await requireServer('sealed')).launch;
+    check(
+        'cleared, it is left to the environment, and leaves the file',
+        cleared.type === 'http' && cleared.headers?.Authorization === 'Bearer from-the-environment' &&
+        variablesOf('sealed')[0]?.source === 'environment' &&
+        !readFileSync(mcpSecretsFile(), 'utf8').includes('"sealed"'),
+    );
+    delete process.env.PATCHBAY_MCPCHECK_VALUE;
 
     // Opened from the Finder, the app has launchd's PATH: what starts a server —
     // the listing above, or the agent a run hands it to — gets the folders npx,

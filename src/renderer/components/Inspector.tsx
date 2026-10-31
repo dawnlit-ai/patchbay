@@ -29,10 +29,18 @@ import {
     type TriggerConfig,
 } from '@shared/flow';
 import type { InboxFolderOption, ModelOption } from '@shared/ipc';
-import { AGENT_NAMES, type AgentId, type McpListing, type McpServerEntry, type McpServerTool } from '@shared/settings';
+import {
+    AGENT_NAMES,
+    type AgentId,
+    type McpListing,
+    type McpServerEntry,
+    type McpServerTool,
+    type McpVariable,
+} from '@shared/settings';
 import { FolderTree } from './FolderTree';
 import { NameDialog } from './NameDialog';
 import { SchemaEditor } from './SchemaEditor';
+import { SecretDialog } from './SecretDialog';
 import { PickFilter, PickGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
 import { type DataTokens, tint } from '../slotColors';
@@ -995,7 +1003,7 @@ interface ServerListing {
  * The tools a node takes from the workspace's MCP servers, ticked one by one:
  * the run is handed those and no others. Each allowed server is asked for its
  * list only while such a node is open here; one that has not been allowed yet
- * waits on its button first.
+ * waits on its button first, and one missing a value it looks up waits on that.
  */
 function McpToolsField({
                            config,
@@ -1004,9 +1012,13 @@ function McpToolsField({
                        }: Section<{ mcpTools: string[] }> & { hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
     const [unreadable, setUnreadable] = useState<McpListing['unreadable']>([]);
-    /** Why allowing a server failed: this window has no banner to say it in. */
+    /** Why allowing a server, or setting a value for one, failed: this window has no banner to say it in. */
     const [trustError, setTrustError] = useState<string | null>(null);
     const [query, setQuery] = useState('');
+    const [setting, setSetting] = useState<{ server: string; variable: McpVariable } | null>(null);
+    const missing = (entry: McpServerEntry): McpVariable[] => entry.variables.filter((v) => v.source === 'missing');
+    /** Allowed, and with every value it looks up to be had. */
+    const startable = (entry: McpServerEntry): boolean => entry.state === 'allowed' && missing(entry).length === 0;
 
     useEffect(() => {
         let cancelled = false;
@@ -1023,7 +1035,7 @@ function McpToolsField({
             setUnreadable(listing.unreadable);
             setServers(shown.map((entry) => ({entry, tools: null, error: null})));
             for (const entry of shown) {
-                if (entry.state !== 'allowed') continue;
+                if (entry.state !== 'allowed' || entry.variables.some((v) => v.source === 'missing')) continue;
                 window.api.settings.serverTools(entry.name).then(
                     (tools) => update(entry.name, {tools}),
                     (e: Error) => update(entry.name, {error: e.message}),
@@ -1050,6 +1062,10 @@ function McpToolsField({
         setTrustError(null);
         window.api.settings.trustServer(name, true).catch((e: Error) => setTrustError(e.message));
     };
+    const saveSecret = (server: string, variable: string, value: string): void => {
+        setTrustError(null);
+        window.api.settings.setServerSecret(server, variable, value).catch((e: Error) => setTrustError(e.message));
+    };
 
     const picked = config.mcpTools;
     const set = (ref: string, on: boolean): void =>
@@ -1060,7 +1076,7 @@ function McpToolsField({
             ...(tools ?? []).map((t) => `mcp__${entry.name}__${t.name}`),
         ]),
     );
-    const settled = servers?.every(({entry, tools, error}) => entry.state !== 'allowed' || tools || error) ?? false;
+    const settled = servers?.every(({entry, tools, error}) => !startable(entry) || tools || error) ?? false;
     // Ticked but offered by no server here: shown, so the tick can be taken off.
     const stranded =
         settled
@@ -1068,7 +1084,7 @@ function McpToolsField({
                 (t) =>
                     !offered.has(t) &&
                     !(servers ?? []).some(
-                        ({entry}) => entry.state !== 'allowed' && t.startsWith(`mcp__${entry.name}__`),
+                        ({entry}) => !startable(entry) && t.startsWith(`mcp__${entry.name}__`),
                     ),
             )
             : [];
@@ -1138,6 +1154,23 @@ function McpToolsField({
                                 <>
                                     From <code>{from}</code>: {entry.problem}
                                 </>
+                            ) : missing(entry).length > 0 ? (
+                                <>
+                                    Needs a value for{' '}
+                                    {missing(entry).map((variable, i) => (
+                                        <Fragment key={variable.name}>
+                                            {i > 0 && ', '}
+                                            <code>{variable.name}</code>{' '}
+                                            <button
+                                                className="compact"
+                                                onClick={() => setSetting({server: entry.name, variable})}
+                                            >
+                                                Set…
+                                            </button>
+                                        </Fragment>
+                                    ))}{' '}
+                                    before it can start. It is kept encrypted on this computer.
+                                </>
                             ) : takesAll ? undefined : error ? (
                                 `Could not ask ${entry.name} for its tools: ${error}`
                             ) : !tools ? (
@@ -1178,6 +1211,17 @@ function McpToolsField({
                     />
                 );
             })}
+            {setting && (
+                <SecretDialog
+                    server={setting.server}
+                    variable={setting.variable}
+                    onCancel={() => setSetting(null)}
+                    onSave={(value) => {
+                        setSetting(null);
+                        saveSecret(setting.server, setting.variable.name, value);
+                    }}
+                />
+            )}
             {stranded.length > 0 && (
                 <PickGroup
                     title="No server here offers"

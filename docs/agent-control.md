@@ -55,8 +55,9 @@ a queued one out before it starts. When an email never became a run at all, `get
   fetching a body is the job of the run's own scoped tools, and those cannot reach a second message. A run already
   recorded is another matter — `get_run` returns the prompts a node sent, email and all, because a trace you cannot
   read is not a trace.
-- **No tool writes settings or allows a server.** The Claude and agy executables and the servers handed to a
-  Processor decide what code a run executes, so they stay with the person at the window.
+- **No tool writes settings, allows a server or sets a value for one.** The Claude and agy executables and the
+  servers handed to a Processor decide what code a run executes, so they stay with the person at the window, and
+  `get_settings` says which of a server's values are set without giving any of them.
 - **No tool opens another workspace.** Switching closes the person's canvases and stops their flows being watched.
 - **Nothing sends mail.** Nothing in this app does.
 

@@ -68,6 +68,7 @@ const api: Api = {
             return res.tools ?? [];
         },
         trustServer: (server, allowed) => call(IPC.settingsTrustServer, server, allowed),
+        setServerSecret: (server, variable, value) => call(IPC.settingsSetServerSecret, server, variable, value),
         openMcpFile: (source) => call(IPC.settingsOpenMcpFile, source),
         revealMcpFile: (source) => call(IPC.settingsRevealMcpFile, source),
         createMcpFile: () => call(IPC.settingsCreateMcpFile),

@@ -35,6 +35,25 @@ export type WorkspaceMcpFile = (typeof WORKSPACE_MCP_FILES)[number];
 export type McpServerState = 'allowed' | 'new' | 'changed' | 'blocked' | 'shadowed' | 'invalid';
 
 /**
+ * A value a server's definition looks up — `${GITHUB_TOKEN}`, or VS Code's
+ * `${input:github-token}` — and where it would come from if the server started now.
+ * Never the value itself.
+ */
+export interface McpVariable {
+    /** As the definition names it: `GITHUB_TOKEN`, or `input:github-token`. */
+    name: string;
+    /**
+     * - `set` — set for this server in Patchbay, kept encrypted on this computer; it comes first.
+     * - `environment` — found in Patchbay's environment. An `input:` is never looked for there.
+     * - `default` — the definition's own, as in `${PORT:-3000}`.
+     * - `missing` — none of these: nothing starts the server until it has one.
+     */
+    source: 'set' | 'environment' | 'default' | 'missing';
+    /** What `.vscode/mcp.json`'s `inputs` says an `input:` is. */
+    description?: string;
+}
+
+/**
  * One MCP server as the windows list it, found in the workspace.
  * Holds no secrets: an environment or a header is listed by its name alone.
  */
@@ -48,6 +67,8 @@ export interface McpServerEntry {
     /** The names of the environment variables or headers it sets. */
     envKeys: string[];
     headerKeys: string[];
+    /** The values its definition looks up, each once, in the order it first names them. */
+    variables: McpVariable[];
     state: McpServerState;
     /** Why it is `invalid` or `shadowed`. */
     problem?: string;

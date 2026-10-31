@@ -195,6 +195,11 @@ export const settingsFile = (): string => join(dataRoot(), 'settings.json');
  * the app's data, not the workspace: a file that could allow itself would not be asked about.
  */
 export const mcpTrustFile = (): string => join(dataRoot(), 'mcp-trust.json');
+/**
+ * The values set for each workspace's servers, encrypted. In the app's data for
+ * the same reason, and so a token never lands in a folder that gets committed.
+ */
+export const mcpSecretsFile = (): string => join(dataRoot(), 'mcp-secrets.json');
 export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
 /** The console's files, one JSONL per day. */
