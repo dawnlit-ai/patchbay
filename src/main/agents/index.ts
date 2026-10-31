@@ -82,11 +82,21 @@ export function createAgents(host: AgentHost): Agents {
     };
 
     const run = ({fallbacks, ...step}: AgentRunRequest): Promise<AgentRunResult> =>
-        inTurn({...step, fallbacks}, (backend, choice, waitOutLimit) => backend.run({...step, ...choice, waitOutLimit}));
+        inTurn({...step, fallbacks}, (backend, choice, waitOutLimit) => backend.run({
+            ...step, ...choice,
+            waitOutLimit
+        }));
 
     const decide = ({fallbacks, question, state, about, prefer, ...step}: ChoiceRequest): Promise<ChoiceResult> =>
         inTurn({...step, fallbacks}, async (backend, choice, waitOutLimit): Promise<ChoiceResult> => {
-            if (backend.decide) return backend.decide({...step, ...choice, waitOutLimit, question, state, about, prefer});
+            if (backend.decide) return backend.decide({
+                ...step, ...choice,
+                waitOutLimit,
+                question,
+                state,
+                about,
+                prefer
+            });
             const result = await backend.run({
                 ...step,
                 ...choice,

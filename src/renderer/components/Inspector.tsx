@@ -152,8 +152,7 @@ function ModelField({
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
     else if (off.includes(agent)) {
         hint = `${AGENT_NAMES[agent]} is switched off in Settings → Agents, so the step passes ${value} over. The node keeps it meanwhile.`;
-    }
-    else if (agent === 'jev') {
+    } else if (agent === 'jev') {
         hint = `${value} is not among the models Jev lists now. They are listed once a TypeSafe API key is set in Settings → Agents, and a pinned version once it has answered since Patchbay started. The node keeps ${value} meanwhile.`;
     }
     // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.

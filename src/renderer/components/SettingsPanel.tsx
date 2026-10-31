@@ -36,7 +36,7 @@ interface Props {
     onRestartToUpdate(): void;
 }
 
-/** The settings window's content: a rail of pages, the current page, and Save. */
+/** The settings window's content: a rail of pages and the current page, each saved as it is edited. */
 
 type Page = 'agents' | 'runs' | 'agent' | 'updates';
 
@@ -48,15 +48,28 @@ const PAGES: { id: Page; label: string }[] = [
 ];
 
 /**
- * What each page edits, for marking unsaved pages. The token is left out: main
+ * What the pages edit, each saved as it changes. The token is left out: main
  * keeps its own on save, so a stale copy here is not a change.
  */
-const EDITS: Record<Page, (s: Settings) => unknown> = {
-    agents: (s) => [s.claudeExecutablePath, s.agyExecutablePath, s.agents],
-    runs: (s) => [s.pollingEnabled, s.maxConcurrentRuns],
-    agent: (s) => [s.agentControl.enabled, s.agentControl.port],
-    updates: (s) => s.updateChannel,
-};
+const edits = (s: Settings): unknown => [
+    s.claudeExecutablePath,
+    s.agyExecutablePath,
+    s.agents,
+    s.pollingEnabled,
+    s.maxConcurrentRuns,
+    s.agentControl.enabled,
+    s.agentControl.port,
+    s.updateChannel,
+];
+
+/** The fields typed into, saved once typing pauses rather than at each key. */
+const typed = (s: Settings): unknown => [s.claudeExecutablePath, s.agyExecutablePath, s.agentControl.port];
+
+/** How long typing has to pause before what was typed is saved; a switch, a move or a choice is saved at once. */
+const TYPING_PAUSE_MS = 600;
+
+/** A port the server can take: not one of the system's, below 1024. */
+const usablePort = (port: number): boolean => Number.isInteger(port) && port >= 1024 && port <= 65535;
 
 const CHANNEL_LABELS: Record<UpdateChannel, string> = {stable: 'Stable', nightly: 'Nightly'};
 
@@ -87,7 +100,7 @@ const RUN_COUNTS = Array.from(
     (_, i) => CONCURRENT_RUNS_RANGE.min + i,
 );
 
-/** How long "Copied" and "Changes saved" stay up before the words go back. */
+/** How long "Copied" stays up before the button's words go back. */
 const ACK_MS = 1800;
 
 /** What to paste into a terminal to point Claude Code at this install. */
@@ -306,7 +319,8 @@ function ApiKeyRow({
                     label="API key"
                     hint={
                         <>
-                            Kept encrypted on this computer and sent to the agent with each question. It comes before{' '}
+                            Kept encrypted on this computer and sent to the agent with each question. It comes
+                            before{' '}
                             {variable} in Patchbay's environment, and Patchbay does not show it again.
                         </>
                     }
@@ -346,10 +360,37 @@ export function SettingsPanel({
     const [revealToken, setRevealToken] = useState(false);
     /** Which copy button just put something on the clipboard. */
     const [copied, setCopied] = useState<string | null>(null);
-    const [justSaved, setJustSaved] = useState(false);
 
-    const edited = (p: Page): boolean => !same(EDITS[p](draft), EDITS[p](settings));
-    const dirty = PAGES.some((p) => edited(p.id));
+    /** A save waiting for typing to pause, for the window to make if it closes first. */
+    const waiting = useRef<Settings | null>(null);
+
+    // Every edit is saved: a switch, a move or a choice at once, what is typed once
+    // typing pauses. A newer edit replaces one still waiting. A port the server
+    // cannot take, as one is while it is retyped, is not saved; the rest still is.
+    useEffect(() => {
+        const next = usablePort(draft.agentControl.port)
+            ? draft
+            : {...draft, agentControl: {...draft.agentControl, port: settings.agentControl.port}};
+        if (same(edits(next), edits(settings))) return;
+        waiting.current = next;
+        const timer = setTimeout(() => {
+            waiting.current = null;
+            onSave(next);
+        }, same(typed(next), typed(settings)) ? 0 : TYPING_PAUSE_MS);
+        return () => {
+            clearTimeout(timer);
+            waiting.current = null;
+        };
+        // Run for an edit, or once a save has gone through.
+    }, [JSON.stringify(edits(draft)), settings]);
+
+    useEffect(() => {
+        const flush = (): void => {
+            if (waiting.current) onSave(waiting.current);
+        };
+        window.addEventListener('pagehide', flush);
+        return () => window.removeEventListener('pagehide', flush);
+    }, [onSave]);
 
     // Each from the draft as it stands when React applies it, not as this render
     // saw it, so two edits landing before a re-render both survive.
@@ -357,8 +398,8 @@ export function SettingsPanel({
 
     /**
      * Each agent as the saved settings find it, shown as soon as its own check
-     * ends: one slow agent does not hold up the other. Asked again on Save, as a
-     * new path changes the answer.
+     * ends: one slow agent does not hold up the other. Asked again once a new
+     * path or switch is saved, as either changes the answer.
      */
     const [agentStates, setAgentStates] = useState<Record<string, AgentStatus>>({});
     const [checking, setChecking] = useState<Record<string, boolean>>({});
@@ -389,7 +430,8 @@ export function SettingsPanel({
         }
     }, []);
 
-    useEffect(checkAgents, [settings.claudeExecutablePath, settings.agyExecutablePath, switchedOn.join()]);
+    // Which agents are on, not their order: a move, saved at once, changes nothing worth checking.
+    useEffect(checkAgents, [settings.claudeExecutablePath, settings.agyExecutablePath, switchedOn.toSorted().join()]);
 
     const moveAgent = (from: number, to: number): void =>
         setDraft((d) => {
@@ -411,28 +453,6 @@ export function SettingsPanel({
             setTimeout(() => setCopied((current) => (current === what ? null : current)), ACK_MS);
         });
     };
-
-    // A new `settings` means Save went through. Compared by identity, so the first
-    // render (and StrictMode's rerun) say nothing.
-    const shown = useRef(settings);
-    useEffect(() => {
-        if (shown.current === settings) return;
-        shown.current = settings;
-        setJustSaved(true);
-        const timer = setTimeout(() => setJustSaved(false), ACK_MS);
-        return () => clearTimeout(timer);
-    }, [settings]);
-
-    // Ctrl+S, the way every other editor on the desk saves.
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent): void => {
-            if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return;
-            e.preventDefault();
-            if (dirty) onSave(draft);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [dirty, draft, onSave]);
 
     /** What the rail says about a page besides its name. */
     const meta = (p: Page): ReactNode => {
@@ -467,7 +487,6 @@ export function SettingsPanel({
                         onClick={() => setPage(id)}
                     >
                         {label}
-                        {edited(id) && <span className="edited" title="Unsaved changes"/>}
                         <span className="spacer"/>
                         {meta(id)}
                     </button>
@@ -600,8 +619,9 @@ export function SettingsPanel({
                                     </button>
                                 </div>
                                 <p className="set-note">
-                                    Checked as saved: a path typed above, or an agent switched on, is checked once
-                                    it is saved. An API key is set as soon as it is entered.
+                                    Saved as you change it: a switch or a move at once, a path once you stop
+                                    typing, an API key as soon as it is entered. Each agent is checked again once
+                                    its change is saved.
                                 </p>
                             </>
                         )}
@@ -656,11 +676,9 @@ export function SettingsPanel({
                                     <Row
                                         label="Let an agent drive this app"
                                         description={
-                                            draft.agentControl.enabled !== settings.agentControl.enabled
-                                                ? `Save changes to ${draft.agentControl.enabled ? 'start' : 'stop'} the server.`
-                                                : settings.agentControl.enabled
-                                                    ? 'Anything holding the token below can connect.'
-                                                    : "Nothing can connect while it's off."
+                                            settings.agentControl.enabled
+                                                ? 'Anything holding the token below can connect.'
+                                                : "Nothing can connect while it's off."
                                         }
                                         control={
                                             <Switch
@@ -672,7 +690,11 @@ export function SettingsPanel({
                                     />
                                     <Row
                                         label="Port"
-                                        description="Change it if something else on this computer already uses it. Saving moves the server over."
+                                        description={
+                                            usablePort(draft.agentControl.port)
+                                                ? 'Change it if something else on this computer already uses it. The server moves over once you stop typing.'
+                                                : `Pick a port from 1024 to 65535. The server stays on ${settings.agentControl.port} until then.`
+                                        }
                                         control={
                                             <input
                                                 className="port"
@@ -772,11 +794,9 @@ export function SettingsPanel({
                                     <Row
                                         label="Channel"
                                         description={
-                                            draft.updateChannel !== settings.updateChannel
-                                                ? 'Save changes to look on this channel now.'
-                                                : draft.updateChannel === 'nightly'
-                                                    ? "A build of each day's changes: first to have them, and first to have their bugs."
-                                                    : 'Releases, once they have been tried as nightlies.'
+                                            draft.updateChannel === 'nightly'
+                                                ? "A build of each day's changes: first to have them, and first to have their bugs. Switching looks on it at once."
+                                                : 'Releases, once they have been tried as nightlies. Switching looks on it at once.'
                                         }
                                         below={
                                             <div className="segmented" role="radiogroup" aria-label="Channel">
@@ -848,24 +868,6 @@ export function SettingsPanel({
                             </>
                         )}
                     </div>
-                </div>
-
-                <div className="set-foot">
-                    {dirty ? (
-                        <span className="state">
-                            <span className="edited"/>
-                            Unsaved changes
-                        </span>
-                    ) : (
-                        justSaved && <span className="state saved">Changes saved</span>
-                    )}
-                    <span className="spacer"/>
-                    <button disabled={!dirty} onClick={() => setDraft(settings)}>
-                        Discard
-                    </button>
-                    <button className="primary" title="Ctrl+S" disabled={!dirty} onClick={() => onSave(draft)}>
-                        Save changes
-                    </button>
                 </div>
             </div>
         </div>
