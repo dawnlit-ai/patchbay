@@ -226,7 +226,8 @@ interface QuotaGroup {
     name?: string;
     /** "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS". */
     description?: string;
-    buckets?: { window?: string; remaining_fraction?: number; reset_time?: string }[];
+    /** `disabled` while another window is used up: "the 5-hour limit does not currently apply". */
+    buckets?: { window?: string; remaining_fraction?: number; reset_time?: string; disabled?: boolean }[];
 }
 
 interface UsageAnswer {
@@ -299,7 +300,7 @@ async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindo
     return (await askForQuota(exe, signal)).flatMap((group) =>
         USAGE_WINDOWS.flatMap(([window, named]) =>
             (group.buckets ?? [])
-                .filter((b) => b.window === window && typeof b.remaining_fraction === 'number')
+                .filter((b) => b.window === window && !b.disabled && typeof b.remaining_fraction === 'number')
                 .map((b) => ({
                     label: `${groupName(group)} · ${named}`,
                     percentUsed: Math.round((1 - (b.remaining_fraction ?? 1)) * 100),
