@@ -214,23 +214,26 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
-        /** Every MCP server found in the open workspace, without secrets. */
+    };
+    /** The MCP servers the open workspace defines in its own files, which its nodes can tick tools from. */
+    mcp: {
+        /** Every one found, without secrets. */
         servers(): Promise<McpListing>;
-        /** The tools one of the MCP servers offers, asked of the server. */
+        /** The tools one of them offers, asked of the server. */
         serverTools(server: string): Promise<McpServerTool[]>;
-        /** Allow a server found in the workspace to run, or refuse it, as its file defines it now. */
+        /** Allow one to run, or refuse it, as its file defines it now. */
         trustServer(server: string, allowed: boolean): Promise<McpListing>;
         /**
-         * Set a value a workspace server looks up, kept encrypted for that server
-         * alone, or take it away with null. There is no call that reads one back.
+         * Set a value one of them looks up, kept encrypted for that server alone,
+         * or take it away with null. There is no call that reads one back.
          */
         setServerSecret(server: string, variable: string, value: string | null): Promise<McpListing>;
         /** Open one of the workspace's MCP server files in the system's app for `.json` files. */
-        openMcpFile(source: WorkspaceMcpFile): Promise<void>;
+        openFile(source: WorkspaceMcpFile): Promise<void>;
         /** Show one of the workspace's MCP server files in the file manager. */
-        revealMcpFile(source: WorkspaceMcpFile): Promise<void>;
+        revealFile(source: WorkspaceMcpFile): Promise<void>;
         /** Write a `.mcp.json` at the top of the workspace folder if it has none, then open it. */
-        createMcpFile(): Promise<void>;
+        createFile(): Promise<void>;
     };
     /**
      * The app's own MCP server. Switching it on and choosing its port are ordinary
@@ -425,13 +428,14 @@ export const IPC = {
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
-    settingsServers: 'settings:servers',
-    settingsServerTools: 'settings:serverTools',
-    settingsTrustServer: 'settings:trustServer',
-    settingsSetServerSecret: 'settings:setServerSecret',
-    settingsOpenMcpFile: 'settings:openMcpFile',
-    settingsRevealMcpFile: 'settings:revealMcpFile',
-    settingsCreateMcpFile: 'settings:createMcpFile',
+
+    mcpServers: 'mcp:servers',
+    mcpServerTools: 'mcp:serverTools',
+    mcpTrustServer: 'mcp:trustServer',
+    mcpSetServerSecret: 'mcp:setServerSecret',
+    mcpOpenFile: 'mcp:openFile',
+    mcpRevealFile: 'mcp:revealFile',
+    mcpCreateFile: 'mcp:createFile',
 
     agentControlStatus: 'agentControl:status',
     agentControlRegenerateToken: 'agentControl:regenerateToken',

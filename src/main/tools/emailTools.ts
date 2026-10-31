@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
@@ -75,11 +76,7 @@ async function withCsv(path: string): Promise<string[]> {
         if (sheets.length === 0) return [`${path} — a workbook with no visible sheet to read`, ...left];
         return [
             `${path} — a workbook, which Read cannot open; read ${sheets.length === 1 ? 'it as' : 'its sheets as'}:`,
-            ...sheets.map(({
-                               sheet,
-                               path: csv,
-                               rows
-                           }) => `  ${csv} (sheet "${sheet}", ${rows} row${rows === 1 ? '' : 's'})`),
+            ...sheets.map((s) => `  ${s.path} (sheet "${s.sheet}", ${s.rows} row${s.rows === 1 ? '' : 's'})`),
             ...left,
         ];
     } catch (e) {
@@ -249,7 +246,7 @@ export function createEmailToolServer(ctx: EmailToolContext) {
 
     return createSdkMcpServer({
         name: EMAIL_SERVER_NAME,
-        version: '1.0.0',
+        version: app.getVersion(),
         instructions:
             'These tools act on exactly one email — the one this run is about. None of them can reach another message, and none of them sends mail.',
         tools,

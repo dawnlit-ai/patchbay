@@ -6,10 +6,10 @@ one, so installing at least one is recommended. A Categorizer can also run on [J
 an API key. **Settings → Agents** shows each one's version, whether it is signed in, and how much of its plan's 5-hour
 and weekly limits it has used.
 
-It also lists the agents in order. The model lists offer each agent's models in that order, and a new node starts on
-the first one's it can run on — move Antigravity above Claude and new nodes start on one of agy's models. Switch an agent off and its
-models leave the lists, it is no longer checked, and a step on one of its models goes straight to its next model; one
-agent always stays on.
+It also lists the agents in order. The model lists offer each agent's models in that order, and a new node starts on the
+first one's it can run on — move Antigravity above Claude and new nodes start on one of agy's models. Switch an agent
+off and its models leave the lists, it is no longer checked, and a step on one of its models goes straight to its next
+model; one agent always stays on.
 
 ## Fallback models
 
@@ -18,10 +18,10 @@ tries them: it runs on the first one that is on, and the others are its fallback
 Gemini Pro, then Claude's own Sonnet. Drag a model up or down the list to change its turn, or switch one off to pass it
 over without losing it; one is always on.
 
-A step moves on only when the model before is at its usage limit, or its agent is switched off, not installed or cannot be reached —
-and never once the step has changed something: a Processor that drafted a reply before its quota ran out is not run
-again. A model known to be at its limit is passed over until the reset its agent named, and the run's trace says each
-time a step moved on and why. The last model waits for its limit to reset rather than failing, as a node with one
+A step moves on only when the model before is at its usage limit, or its agent is switched off, not installed or cannot
+be reached — and never once the step has changed something: a Processor that drafted a reply before its quota ran out is
+not run again. A model known to be at its limit is passed over until the reset its agent named, and the run's trace says
+each time a step moved on and why. The last model waits for its limit to reset rather than failing, as a node with one
 model does.
 
 ## Claude Code

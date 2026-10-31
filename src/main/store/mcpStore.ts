@@ -62,7 +62,7 @@ interface Found {
  * JSON with comments and trailing commas, as VS Code writes its own. Both are
  * taken out with strings left alone, then the rest is ordinary JSON.
  */
-export function parseJsonc(text: string): unknown {
+function parseJsonc(text: string): unknown {
     const source = text.replace(/^\uFEFF/, '');
     let bare = '';
     for (let i = 0; i < source.length; i++) {
@@ -192,6 +192,11 @@ interface Lookup {
     fallback?: string;
 }
 
+/** A `${…}` Patchbay fills in itself, such as the workspace folder. */
+interface Known {
+    known: string;
+}
+
 /** Gemini CLI's files also take a bare `$VAR`. */
 const variablePattern = (file: WorkspaceMcpFile): RegExp =>
     file === '.gemini/settings.json' ? /\$\{([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g : /\$\{([^}]*)\}/g;
@@ -201,9 +206,7 @@ const variablePattern = (file: WorkspaceMcpFile): RegExp =>
  * `${pathSeparator}` are known, as VS Code means them; `${VAR}`, `${VAR:-default}`,
  * `${env:VAR}` and `${input:id}` are looked up. Anything else is refused.
  */
-function variable(whole: string, braced: string | undefined, bare: string | undefined, root: string): {
-    known: string
-} | Lookup {
+function variable(whole: string, braced: string | undefined, bare: string | undefined, root: string): Known | Lookup {
     if (bare !== undefined) return {name: bare, env: bare};
     const inner = braced!.trim();
     if (inner === 'workspaceFolder' || inner === 'workspaceRoot') return {known: root};
@@ -442,13 +445,8 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
             }
             const earlier = taken.get(name);
             if (earlier) {
-                found.push({
-                    entry: {
-                        ...entry,
-                        state: 'shadowed',
-                        problem: `${earlier} also defines ${name}, and is read first.`
-                    }
-                });
+                const problem = `${earlier} also defines ${name}, and is read first.`;
+                found.push({entry: {...entry, state: 'shadowed', problem}});
                 continue;
             }
             taken.set(name, file);
@@ -497,11 +495,9 @@ const missingIn = (entry: McpServerEntry): string[] =>
  * they look up to be had. None is started, and no value is opened, to say so.
  */
 export function usableServers(): Set<string> {
-    return new Set(scan().found.filter(({
-                                            entry,
-                                            def
-                                        }) => entry.state === 'allowed' && def && missingIn(entry).length === 0)
-        .map(({entry}) => entry.name));
+    const startable = ({entry, def}: Found): boolean =>
+        entry.state === 'allowed' && def !== undefined && missingIn(entry).length === 0;
+    return new Set(scan().found.filter(startable).map(({entry}) => entry.name));
 }
 
 /**

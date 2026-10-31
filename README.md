@@ -100,7 +100,7 @@ Categorizers can also run on **Jev**, TypeSafe AI's model, with a TypeSafe API k
 ## Documentation
 
 - [Flows](docs/flows.md) — the nodes in detail, the slots data travels in, and workspaces
-- [Models and agents](docs/models.md) — fallback models, Claude Code, agy, and what runs cost
+- [Models and agents](docs/models.md) — fallback models, Claude Code, agy, Jev, and what runs cost
 - [Skills and tools](docs/skills.md) — the workspace's skill library, MCP servers, and the tools a run is handed
 - [Runs and the console](docs/runs.md) — what a run records, and what the app logs outside any run
 - [Letting an agent drive it](docs/agent-control.md) — Patchbay's own MCP server

@@ -243,8 +243,8 @@ function AgentState({
 
 /**
  * The key of an agent reached with one rather than a CLI: where it comes from,
- * set or taken away here, and the agent's state under it. Set at once, not on
- * Save, and never shown again.
+ * set or taken away here, and the agent's state under it. Kept encrypted, and
+ * never shown again.
  */
 function ApiKeyRow({
                        agent,

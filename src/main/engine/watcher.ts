@@ -305,7 +305,7 @@ export class Watcher {
         this.queue = this.queue.filter((item) => !which(item));
     }
 
-    /** Every trigger in the library, whether or not it names a mailbox yet. */
+    /** Every trigger in the open workspace's flows, whether or not it names a mailbox yet. */
     private triggers(): WatchedTrigger[] {
         return listFlows().flatMap(triggersOf);
     }

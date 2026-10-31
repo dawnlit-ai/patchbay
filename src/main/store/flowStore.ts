@@ -14,7 +14,7 @@ import {
 } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { findSchema, removeSchemaFile, renameSchemaFile, workspaceSchemas } from './schemaStore';
-import { editSchemas, emptyFlow, type Flow, parseFlow, repointSchema, schemaHolders, } from '@shared/flow';
+import { editSchemas, emptyFlow, type Flow, parseFlow, repointSchema, schemaHolders } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 

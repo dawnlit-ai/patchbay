@@ -18,7 +18,7 @@ import { WORKSPACE_MCP_FILES } from '@shared/settings';
  */
 
 /** Where a workspace keeps the files its export carries in place of its own. */
-export const EXPORT_OVERLAY = '.patchbay/export';
+const EXPORT_OVERLAY = '.patchbay/export';
 
 const FOLDERS = ['flows', 'skills', 'schemas'];
 

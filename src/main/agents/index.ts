@@ -72,31 +72,21 @@ export function createAgents(host: AgentHost): Agents {
                     : await ask(backend, choice, !next);
             // A cancelled run goes no further.
             if (result.ok || !next || !result.unavailable || step.signal?.aborted) return result;
-            step.onEvent({
-                at: now(),
-                type: 'note',
-                label: `${result.unavailable}, so the step goes to ${next.model}`
-            });
+            step.onEvent({at: now(), type: 'note', label: `${result.unavailable}, so the step goes to ${next.model}`});
             choice = next;
         }
     };
 
     const run = ({fallbacks, ...step}: AgentRunRequest): Promise<AgentRunResult> =>
-        inTurn({...step, fallbacks}, (backend, choice, waitOutLimit) => backend.run({
-            ...step, ...choice,
-            waitOutLimit
-        }));
+        inTurn({...step, fallbacks}, (backend, choice, waitOutLimit) =>
+            backend.run({...step, ...choice, waitOutLimit}),
+        );
 
     const decide = ({fallbacks, question, state, about, prefer, ...step}: ChoiceRequest): Promise<ChoiceResult> =>
         inTurn({...step, fallbacks}, async (backend, choice, waitOutLimit): Promise<ChoiceResult> => {
-            if (backend.decide) return backend.decide({
-                ...step, ...choice,
-                waitOutLimit,
-                question,
-                state,
-                about,
-                prefer
-            });
+            if (backend.decide) {
+                return backend.decide({...step, ...choice, waitOutLimit, question, state, about, prefer});
+            }
             const result = await backend.run({
                 ...step,
                 ...choice,

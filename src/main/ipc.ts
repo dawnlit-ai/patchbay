@@ -27,7 +27,7 @@ import { agents } from './agentHost';
 import { listServerTools } from './tools/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
-import { dataRoot, logsDir, runsDir, workspaceRoot } from './paths';
+import { logsDir, runsDir, workspaceRoot } from './paths';
 import { closeCanvases, openFlow, openFlows, showSettings, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 import { Updates } from './updates';
@@ -209,7 +209,6 @@ export function registerIpc(): void {
             version: app.getVersion(),
             developer: 'Dawnlit',
             license: 'AGPL-3.0-or-later',
-            dataDir: dataRoot(),
         }),
     );
     handle(IPC.openDeveloperSite, () => shell.openExternal(DEVELOPER_URL));
@@ -287,41 +286,8 @@ export function registerIpc(): void {
         if (picked.canceled || !path) return null;
         return flowStore.importFlowFile(path);
     });
+
     handle(IPC.settingsGet, () => getSettings());
-    handle(IPC.settingsServers, () => {
-        rewatch();
-        return mcpStore.listMcpServers();
-    });
-    handle(
-        IPC.settingsServerTools,
-        async (server: string) => {
-            try {
-                return {tools: await listServerTools(server)};
-            } catch (e) {
-                return {error: e instanceof Error ? e.message : String(e)};
-            }
-        },
-    );
-    handle(IPC.settingsTrustServer, (server: string, allowed: boolean) => {
-        const listed = mcpStore.setServerTrust(server, allowed);
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
-        return listed;
-    });
-    handle(IPC.settingsSetServerSecret, async (server: string, variable: string, value: string | null) => {
-        const listed = await mcpStore.setServerSecret(server, variable, value);
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
-        return listed;
-    });
-    handle(IPC.settingsOpenMcpFile, (source: WorkspaceMcpFile) => openInEditor(mcpStore.mcpFilePath(source)));
-    handle(IPC.settingsRevealMcpFile, (source: WorkspaceMcpFile) =>
-        shell.showItemInFolder(mcpStore.mcpFilePath(source)),
-    );
-    handle(IPC.settingsCreateMcpFile, () => {
-        const path = mcpStore.createMcpFile();
-        rewatch();
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
-        return openInEditor(path);
-    });
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token: a panel opened before a regeneration would send the old one back.
         const {agentControl, updateChannel} = getSettings();
@@ -333,6 +299,36 @@ export function registerIpc(): void {
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
         return saved;
+    });
+
+    handle(IPC.mcpServers, () => {
+        rewatch();
+        return mcpStore.listMcpServers();
+    });
+    handle(IPC.mcpServerTools, async (server: string) => {
+        try {
+            return {tools: await listServerTools(server)};
+        } catch (e) {
+            return {error: e instanceof Error ? e.message : String(e)};
+        }
+    });
+    handle(IPC.mcpTrustServer, (server: string, allowed: boolean) => {
+        const listed = mcpStore.setServerTrust(server, allowed);
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return listed;
+    });
+    handle(IPC.mcpSetServerSecret, async (server: string, variable: string, value: string | null) => {
+        const listed = await mcpStore.setServerSecret(server, variable, value);
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return listed;
+    });
+    handle(IPC.mcpOpenFile, (source: WorkspaceMcpFile) => openInEditor(mcpStore.mcpFilePath(source)));
+    handle(IPC.mcpRevealFile, (source: WorkspaceMcpFile) => shell.showItemInFolder(mcpStore.mcpFilePath(source)));
+    handle(IPC.mcpCreateFile, () => {
+        const path = mcpStore.createMcpFile();
+        rewatch();
+        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        return openInEditor(path);
     });
 
     handle(IPC.agentControlStatus, () => getAgentControl().status());

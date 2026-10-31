@@ -1,17 +1,18 @@
 # Releasing
 
-Three workflows in `.github/workflows` build every platform — Windows x64 and Arm, and Macs with Apple silicon and Intel — and
-publish them as GitHub releases, which installed copies read to update. `build.yml` is the build itself; the other two
-decide what to build and when. A build that fails on any platform takes its draft with it, so nothing half-built is
+Three workflows in `.github/workflows` build every platform — Windows x64 and Arm, and Macs with Apple silicon and Intel
+— and publish them as GitHub releases, which installed copies read to update. `build.yml` is the build itself; the other
+two decide what to build and when. A build that fails on any platform takes its draft with it, so nothing half-built is
 published.
 
 ## Nightly
 
 `nightly.yml` runs every morning and builds master if it has changed since the last nightly; **Run workflow** on the
-Actions tab builds one now. Neither builds a commit a stable release was tagged on: that build is out already. Its version is the one in `package.json`, or the next patch once a release of that is out,
-with `-nightly.<UTC date and time>` after it — so a nightly sorts after the release before it and before the one it
-leads up to. It is published as a prerelease, and only the five newest are kept: an installed copy reads GitHub's ten
-newest releases, and the latest stable one has to stay among them.
+Actions tab builds one now. Neither builds a commit a stable release was tagged on: that build is out already. Its
+version is the one in `package.json`, or the next patch once a release of that is out, with
+`-nightly.<UTC date and time>` after it — so a nightly sorts after the release before it and before the one it leads up
+to. It is published as a prerelease, and only the five newest are kept: an installed copy reads GitHub's ten newest
+releases, and the latest stable one has to stay among them.
 
 ## Stable
 

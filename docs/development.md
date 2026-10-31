@@ -80,7 +80,7 @@ src/
 ├─ main/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
 │  ├─ agents/   runs a step on Claude (Agent SDK), agy or Jev, then on its fallbacks; takes nothing from the app but its host
-│  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
+│  ├─ tools/    the email-scoped MCP tools a run is handed, and the workspace servers' tool lists
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
 │  ├─ store/    the open workspace, its flows, skills and schemas, settings, run traces (files on disk)
@@ -97,12 +97,13 @@ canvas interaction is translated straight back into a `Flow` edit. There is no s
 **Ports are derived from config, not stored.** Editing a categorizer's categories moves its ports with it, and the
 engine treats an edge leaving a port that no longer exists as a dead end it reports, rather than a silent stall.
 
-**Flows run in parallel, and every Outlook call is queued.** Up to *Runs at once* runs are under way together — three
-by default, from Settings — and never two of one flow, whose mail is handled in the order it arrived. What does not parallelise is Outlook. Its COM automation is
-single-threaded — a second script asking for the client while one is mid-call blocks until the first finishes, and if
-that one is slow the second burns its whole timeout waiting. So the poller, the inspector's folder lookup and a skill's
-`read_email` all funnel through one queue in `main/outlook/bridge.ts`: overlapping runs overlap while they are
-thinking, and take turns the moment they touch the mailbox.
+**Flows run in parallel, and every Outlook call is queued.** Up to *Runs at once* runs are under way together — three by
+default, from Settings — and never two of one flow, whose mail is handled in the order it arrived. What does not
+parallelise is Outlook. It answers one call at a time — on Windows its COM automation is single-threaded — so a second
+script asking for the client while one is mid-call blocks until the first finishes, and if that one is slow the second
+burns its whole timeout waiting. So the poller, the inspector's folder lookup and a skill's `read_email` all funnel
+through one queue in `main/outlook/bridge.ts`: overlapping runs overlap while they are thinking, and take turns the
+moment they touch the mailbox.
 
 **The workspace's skills are handed over as a local plugin.** A run works in the workspace's folder with no Claude Code
 setting sources, so a workspace that is also a Claude Code project does not lend its steps its own settings and

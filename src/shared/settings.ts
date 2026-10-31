@@ -245,8 +245,6 @@ export interface AboutInfo {
     version: string;
     developer: string;
     license: string;
-    /** The directory holding this install's settings, runs and logs. Workspaces live wherever they were made. */
-    dataDir: string;
 }
 
 /** One skill in the open workspace's library, which every flow in it shares. */

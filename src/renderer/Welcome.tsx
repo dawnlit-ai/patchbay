@@ -252,7 +252,7 @@ export function Welcome(): JSX.Element {
     }, []);
 
     const refreshMcp = useCallback(() => {
-        void window.api.settings.servers().then(setMcpListing);
+        void window.api.mcp.servers().then(setMcpListing);
     }, []);
 
     const refresh = useCallback(() => {
@@ -411,7 +411,7 @@ export function Welcome(): JSX.Element {
         if (!selectedToolKey || !selectedServerName) return;
         if (serverTools[selectedToolKey] !== undefined || fetchingTools.current.has(selectedToolKey)) return;
         fetchingTools.current.add(selectedToolKey);
-        void window.api.settings.serverTools(selectedServerName).then(
+        void window.api.mcp.serverTools(selectedServerName).then(
             (tools) => {
                 fetchingTools.current.delete(selectedToolKey);
                 setServerTools((current) => ({...current, [selectedToolKey]: {tools, error: null}}));
@@ -763,7 +763,7 @@ export function Welcome(): JSX.Element {
 
     const trustServer = (server: McpServerEntry, allowed: boolean): Promise<void> =>
         attempt(async () => {
-            setMcpListing(await window.api.settings.trustServer(server.name, allowed));
+            setMcpListing(await window.api.mcp.trustServer(server.name, allowed));
             // Allowed again after its file changed.
             forgetTools(server);
         });
@@ -771,15 +771,15 @@ export function Welcome(): JSX.Element {
     /** Null takes the value away, leaving the server to the environment or its default. */
     const setSecret = (server: McpServerEntry, variable: McpVariable, value: string | null): Promise<void> =>
         attempt(async () => {
-            setMcpListing(await window.api.settings.setServerSecret(server.name, variable.name, value));
+            setMcpListing(await window.api.mcp.setServerSecret(server.name, variable.name, value));
             // A new token can change what a server offers, or let it answer at all.
             forgetTools(server);
         });
 
-    const handOffMcpFile = (how: 'openMcpFile' | 'revealMcpFile', source: WorkspaceMcpFile): Promise<void> =>
+    const handOffMcpFile = (how: 'openFile' | 'revealFile', source: WorkspaceMcpFile): Promise<void> =>
         attempt(async () => {
             try {
-                await window.api.settings[how](source);
+                await window.api.mcp[how](source);
             } catch (e) {
                 refreshMcp();
                 throw e;
@@ -788,12 +788,12 @@ export function Welcome(): JSX.Element {
 
     const createMcpFile = (): Promise<void> =>
         attempt(async () => {
-            await window.api.settings.createMcpFile();
+            await window.api.mcp.createFile();
             refreshMcp();
         });
 
     const openServer = (server: McpServerEntry): void => {
-        void handOffMcpFile('openMcpFile', server.source);
+        void handOffMcpFile('openFile', server.source);
     };
 
     const serverActions = (server: McpServerEntry): MenuItem[] => {
@@ -809,9 +809,9 @@ export function Welcome(): JSX.Element {
             {
                 label: `Edit ${source}`,
                 separator: items.length > 0,
-                onSelect: () => void handOffMcpFile('openMcpFile', source),
+                onSelect: () => void handOffMcpFile('openFile', source),
             },
-            {label: 'Show in folder', onSelect: () => void handOffMcpFile('revealMcpFile', source)},
+            {label: 'Show in folder', onSelect: () => void handOffMcpFile('revealFile', source)},
         );
         return items;
     };
@@ -1565,7 +1565,7 @@ export function Welcome(): JSX.Element {
                                         </div>
                                         <button
                                             className="fixed"
-                                            onClick={() => void handOffMcpFile('openMcpFile', u.source)}
+                                            onClick={() => void handOffMcpFile('openFile', u.source)}
                                         >
                                             Open file
                                         </button>
@@ -1791,11 +1791,11 @@ export function Welcome(): JSX.Element {
                                                             </button>
                                                         )}
                                                         <button
-                                                            onClick={() => void handOffMcpFile('openMcpFile', server.source)}>
+                                                            onClick={() => void handOffMcpFile('openFile', server.source)}>
                                                             Edit {server.source}
                                                         </button>
                                                         <button
-                                                            onClick={() => void handOffMcpFile('revealMcpFile', server.source)}>
+                                                            onClick={() => void handOffMcpFile('revealFile', server.source)}>
                                                             Show in folder
                                                         </button>
                                                     </RowActions>

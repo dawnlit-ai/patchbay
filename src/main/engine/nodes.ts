@@ -77,22 +77,24 @@ function modelsFor({models}: { models: ModelChoice[] }): Pick<AgentRunRequest, '
     return {...first, fallbacks};
 }
 
+/** A step's servers from the workspace, the allowlist entries for their tools, and why it cannot have them. */
+interface NodeServers {
+    servers: Record<string, AgentMcpServer>;
+    allowed: string[];
+    problem?: NodeOutcome;
+}
+
 /**
  * The workspace's MCP servers that `mcpTools` names anything of, and the
  * allowlist entries for what it names. A server a node ticks that no run can be
- * handed — not allowed yet, blocked, or defined nowhere — stops the step with `problem` rather than running without
- * the tools the node was built to use, as a missing skill does.
+ * handed — not allowed yet, blocked, missing a value, or defined nowhere — stops
+ * the step with `problem` rather than running without the tools the node was
+ * built to use, as a missing skill does.
  */
-async function nodeServers(
-    mcpTools: string[],
-): Promise<{ servers: Record<string, AgentMcpServer>; allowed: string[]; problem?: NodeOutcome }> {
+async function nodeServers(mcpTools: string[]): Promise<NodeServers> {
     const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
-    const refused = (e: unknown): {
-        servers: Record<string, AgentMcpServer>;
-        allowed: string[];
-        problem: NodeOutcome
-    } => {
+    const refused = (e: unknown): NodeServers => {
         const message = e instanceof Error ? e.message : String(e);
         return {servers, allowed, problem: {outPort: 'error', summary: message, error: message}};
     };

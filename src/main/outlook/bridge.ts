@@ -14,8 +14,9 @@ import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
 import { log } from '../log';
 
 /**
- * A thin seam over @dawnlit/outlook-bridge, which drives Outlook over COM (each
- * call spawns PowerShell). Imported lazily so the app still starts without Outlook.
+ * A thin seam over @dawnlit/outlook-bridge, which drives Outlook over COM on
+ * Windows and AppleScript on a Mac, each call a script of its own. Imported
+ * lazily so the app still starts without Outlook.
  */
 
 type BridgeModule = typeof import('@dawnlit/outlook-bridge');
@@ -28,8 +29,9 @@ async function bridge(): Promise<BridgeModule> {
 }
 
 /**
- * Outlook's COM automation is single-threaded, and a concurrent call just burns
- * its timeout waiting, so every call queues here.
+ * Outlook answers one call at a time — on Windows, its COM automation is
+ * single-threaded — and a concurrent call just burns its timeout waiting, so
+ * every call queues here.
  */
 let chain: Promise<unknown> = Promise.resolve();
 

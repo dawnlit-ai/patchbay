@@ -88,12 +88,11 @@ rather than a fan-out. The five node kinds:
                     category and no reason; no other node can.
 - extractor       — pulls fields out of the email into the workspace schema
                     its \`schema\` names, and fills the slot named by
-                    \`output\`. Ports: "valid",
-                    "invalid" and "error"; only "valid" fills the slot.
-                    Like a processor it has the workspace's skills, ticks
-                    the \`skills\` it loads first, reads \`inputs\`
-                    and gets the \`mcpTools\` it names, but it cannot draft
-                    a reply, move the email or run commands.
+                    \`output\`. Ports: "valid", "invalid" and "error"; only
+                    "valid" fills the slot. Like a processor it has the
+                    workspace's skills, ticks the \`skills\` it loads first,
+                    reads \`inputs\` and gets the \`mcpTools\` it names, but
+                    it cannot draft a reply, move the email or run commands.
 - processor       — runs Claude scoped to one email, with every skill in
                     the workspace and none from elsewhere. \`skills\` ticks,
                     by name, the ones it loads before anything else.

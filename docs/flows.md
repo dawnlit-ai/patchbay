@@ -124,34 +124,32 @@ A **workspace** is a folder holding flows, the skills and schemas they share, an
 └─ README.md                optional: what the workspace is for
 ```
 
-One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether
-a trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
+One workspace is open at a time. The start window lists its flows — each one's size, when it was last edited, whether a
+trigger in it is being polled — and from it you open, create, duplicate, rename and delete them. Its **Skills** tab
 lists the skills they share, and which flows tick each one (see [Skills](skills.md#managing-skills)). Its **Schemas**
-tab lists the [named schemas](#named-schemas): each one's description, its fields, the flows and nodes that use it,
-and when it was last edited. The one picked shows every field with its kind and description, and **Edit…**,
-**Duplicate…** and **Delete…** under them. **New schema** and **Edit…** (or a double-click) open the schema in a
-dialog with its name and the same field editor as the inspector. Nothing is written until **Save**, renaming it there
-carries every flow along, and a click outside asks before it throws edits away. **Duplicate…** starts a new schema
-from a copy of an old one. Deleting one is refused while any node or schema names it, and the window says which.
-Right-clicking one can also open its file in the app your system gives `.json` files, or show it in its folder; a file
-the form cannot read opens there instead. A schema some node names but the folder no longer holds is listed at the
-bottom, with **Create it…**. Its **MCP** tab lists the [MCP servers](skills.md#mcp-servers) defined in the workspace
-(`.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`), which flows tick them,
-and the tools an allowed server offers, with **Allow**, **Block** and **Edit** on the picked row, **Set…** beside each
-value it looks up, and **Create .mcp.json** in the rail. Its **README** tab shows the `README.md` at the top of the workspace folder — a
-repository's own README, for a workspace that is one.
-**Open README.md** in its header opens the file in the app your system gives `.md` files, as a skill's **Edit** does;
-with none, the rail offers **Write a README**, which starts one from a template naming the flows and opens it. The tab
-shows what was saved when you come back to the window. Links in
-it copy their target rather than opening it, and images show as their alt text. **☰ Flows** in the canvas's top bar
-brings it back. **Switch workspace…** opens another one you have used, any folder, or a new one.
-Switching stops watching every flow and closes every canvas, so it asks first when either would happen, and it is
-refused while a run is under way or waiting.
+tab lists the [named schemas](#named-schemas): each one's description, its fields, the flows and nodes that use it, and
+when it was last edited. The one picked shows every field with its kind and description, and **Edit…**, **Duplicate…**
+and **Delete…** under them. **New schema** and **Edit…** (or a double-click) open the schema in a dialog with its name
+and the same field editor as the inspector. Nothing is written until **Save**, renaming it there carries every flow
+along, and a click outside asks before it throws edits away. **Duplicate…** starts a new schema from a copy of an old
+one. Deleting one is refused while any node or schema names it, and the window says which. Right-clicking one can also
+open its file in the app your system gives `.json` files, or show it in its folder; a file the form cannot read opens
+there instead. A schema some node names but the folder no longer holds is listed at the bottom, with **Create it…**. Its
+**MCP** tab lists the [MCP servers](skills.md#mcp-servers) defined in the workspace (`.mcp.json`, `.vscode/mcp.json`,
+`.cursor/mcp.json`, `.gemini/settings.json`), which flows tick them, and the tools an allowed server offers, with
+**Allow**, **Block** and **Edit** on the picked row, **Set…** beside each value it looks up, and **Create .mcp.json** in
+the rail. Its **README** tab shows the `README.md` at the top of the workspace folder — a repository's own README, for a
+workspace that is one. **Open README.md** in its header opens the file in the app your system gives `.md` files, as a
+skill's **Edit** does; with none, the rail offers **Write a README**, which starts one from a template naming the flows
+and opens it. The tab shows what was saved when you come back to the window. Links in it copy their target rather than
+opening it, and images show as their alt text. **☰ Flows** in the canvas's top bar brings it back. **Switch workspace…**
+opens another one you have used, any folder, or a new one. Switching stops watching every flow and closes every canvas,
+so it asks first when either would happen, and it is refused while a run is under way or waiting.
 
 **New workspace** asks for a name and a location — `Documents/Patchbay` the first time — and makes a folder named after
-it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows`, `skills` and
-`schemas` folders are made the first time something is written to them. A workspace is a folder you keep, not a copy the app holds, so
-one kept in git is edited, run and committed from one place.
+it there. **Open folder…** makes any folder the workspace, such as a git repository; its `flows`, `skills` and `schemas`
+folders are made the first time something is written to them. A workspace is a folder you keep, not a copy the app
+holds, so one kept in git is edited, run and committed from one place.
 
 **Export workspace…** saves the open workspace as one zip, to hand to someone who opens it in Patchbay. It holds a
 folder named after the workspace's, so unzipping each new export gives the same folder, with what Patchbay reads in

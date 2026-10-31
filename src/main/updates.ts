@@ -65,7 +65,7 @@ export class Updates {
             version: app.getVersion(),
             channel,
             state: why ? 'unavailable' : 'idle',
-            detail: why ?? undefined
+            detail: why ?? undefined,
         };
     }
 
@@ -160,7 +160,7 @@ export class Updates {
                 available: undefined,
                 progress: undefined,
                 detail: message(e),
-                checkedAt: new Date().toISOString()
+                checkedAt: new Date().toISOString(),
             });
         }
         return this.current;

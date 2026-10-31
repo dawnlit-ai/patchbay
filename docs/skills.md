@@ -28,10 +28,10 @@ step is told which to read first.
 ### Managing skills
 
 The list sits in a Processor's or Extractor's inspector, where a tick makes the node load a skill first, and on its own
-when no node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system gives
-`.md` files, and right-clicking a skill can also show its folder or delete it. **New** writes one from a template,
-ticks it on the node whose list it came from, and opens it. **Import…** copies chosen `SKILL.md` files into the
-library, each with the folder it sits in — which is how skills kept elsewhere, such as `~/.claude/skills`, come in.
+when no node is selected. Patchbay has no editor of its own: **Edit** opens a skill's `SKILL.md` in the app your system
+gives `.md` files, and right-clicking a skill can also show its folder or delete it. **New** writes one from a template,
+ticks it on the node whose list it came from, and opens it. **Import…** copies chosen `SKILL.md` files into the library,
+each with the folder it sits in — which is how skills kept elsewhere, such as `~/.claude/skills`, come in.
 
 The start window's **Skills** tab lists the same library beside the workspace's flows: each skill's description, which
 flows tick it, and when it was last edited, with **New skill** and **Import skills…** in the rail. The skill picked has
@@ -83,11 +83,11 @@ the tools it calls ticked on the node, before it can run.
 ### Tokens and other values
 
 Write a token into a server's `env` or `headers` as a variable rather than as itself —
-`"Authorization": "Bearer ${CRM_TOKEN}"` — so it stays out of a file you commit, then set its value with **Set…**
-beside the server in the start window's **MCP** tab, or in the inspector. A value set there is kept for that one server in that one workspace,
-encrypted with the key your system keeps for Patchbay (the Keychain on macOS, DPAPI on Windows), in the app's data
-rather than the workspace. It is opened only when that server starts — to list its tools, or for a run whose node
-ticks it — and no window shows it again: it can be changed or cleared, not read. Another server naming the same
+`"Authorization": "Bearer ${CRM_TOKEN}"` — so it stays out of a file you commit, then set its value with **Set…** beside
+the server in the start window's **MCP** tab, or in the inspector. A value set there is kept for that one server in that
+one workspace, encrypted with the key your system keeps for Patchbay (the Keychain on macOS, DPAPI on Windows), in the
+app's data rather than the workspace. It is opened only when that server starts — to list its tools, or for a run whose
+node ticks it — and no window shows it again: it can be changed or cleared, not read. Another server naming the same
 variable does not get it. Linux without a keyring has nothing to keep one in, and Patchbay says so rather than keep it
 in the clear.
 

@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -38,7 +39,7 @@ function transportFor(launch: UsableServer['launch']): Transport {
 }
 
 async function ask(launch: UsableServer['launch']): Promise<McpServerTool[]> {
-    const client = new Client({name: 'patchbay', version: '1.0.0'});
+    const client = new Client({name: 'patchbay', version: app.getVersion()});
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`it did not answer within ${TIMEOUT_MS / 1000} seconds`)), TIMEOUT_MS);

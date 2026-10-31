@@ -1057,7 +1057,7 @@ button.wide {
     border-color: var(--accent);
 }
 
-/* What a page is doing, said from the rail: off, how many, listening. */
+/* What a page is doing, said from the rail: polling off, the server on, an update ready. */
 .set-nav .meta {
     display: inline-flex;
     align-items: center;
@@ -1091,8 +1091,7 @@ button.wide {
     font-weight: 600;
 }
 
-.set-about .set-link,
-.set-label .set-link {
+.set-about .set-link {
     padding: 0;
     color: var(--accent);
     font-size: 11.5px;
@@ -1100,13 +1099,7 @@ button.wide {
     border: none;
 }
 
-/* The file a workspace's server was found in, beside its name. */
-.set-label .set-link {
-    font-weight: 400;
-}
-
-.set-about .set-link:hover:not(:disabled),
-.set-label .set-link:hover:not(:disabled) {
+.set-about .set-link:hover:not(:disabled) {
     background: none;
     text-decoration: underline;
 }

@@ -1013,7 +1013,7 @@ function ProcessorFields({
     );
 }
 
-/** A server from Settings or the workspace, and the tools it offered when asked. */
+/** One of the workspace's servers, and the tools it offered when asked. */
 interface ServerListing {
     entry: McpServerEntry;
     tools: McpServerTool[] | null;
@@ -1057,14 +1057,14 @@ function McpToolsField({
             setServers(shown.map((entry) => ({entry, tools: null, error: null})));
             for (const entry of shown) {
                 if (entry.state !== 'allowed' || entry.variables.some((v) => v.source === 'missing')) continue;
-                window.api.settings.serverTools(entry.name).then(
+                window.api.mcp.serverTools(entry.name).then(
                     (tools) => update(entry.name, {tools}),
                     (e: Error) => update(entry.name, {error: e.message}),
                 );
             }
         };
         const refresh = (): void => {
-            void window.api.settings.servers().then(apply);
+            void window.api.mcp.servers().then(apply);
         };
         refresh();
         const off = window.api.on.workspaceChanged((change) => {
@@ -1081,11 +1081,11 @@ function McpToolsField({
     // The listing comes back through workspaceChanged, as it does to every window.
     const trust = (name: string): void => {
         setTrustError(null);
-        window.api.settings.trustServer(name, true).catch((e: Error) => setTrustError(e.message));
+        window.api.mcp.trustServer(name, true).catch((e: Error) => setTrustError(e.message));
     };
     const saveSecret = (server: string, variable: string, value: string): void => {
         setTrustError(null);
-        window.api.settings.setServerSecret(server, variable, value).catch((e: Error) => setTrustError(e.message));
+        window.api.mcp.setServerSecret(server, variable, value).catch((e: Error) => setTrustError(e.message));
     };
 
     const picked = config.mcpTools;
