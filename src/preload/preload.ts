@@ -93,6 +93,8 @@ const api: Api = {
         models: () => call(IPC.agentsModels),
         status: (id) => call(IPC.agentsStatus, id),
         lastStatus: (id) => call(IPC.agentsLastStatus, id),
+        keySource: (id) => call(IPC.agentsKeySource, id),
+        setKey: (id, key) => call(IPC.agentsSetKey, id, key),
     },
     skills: {
         list: () => call(IPC.skillsList),

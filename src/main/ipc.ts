@@ -10,7 +10,7 @@ import {
 } from '@shared/ipc';
 import { type Flow, type JsonSchema, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
-import type { AboutInfo, Settings, WorkspaceMcpFile } from '@shared/settings';
+import type { AboutInfo, AgentId, Settings, WorkspaceMcpFile } from '@shared/settings';
 import * as flowStore from './store/flowStore';
 import * as mcpStore from './store/mcpStore';
 import * as schemaStore from './store/schemaStore';
@@ -19,6 +19,7 @@ import * as workspaceStore from './store/workspaceStore';
 import { rewatch, watchFolders } from './store/folderWatch';
 import * as traceStore from './store/traceStore';
 import { getSettings, saveSettings } from './store/settingsStore';
+import { agentKeySource, setAgentKey } from './store/keyStore';
 import * as outlook from './outlook/bridge';
 import { agents } from './agentHost';
 import { listServerTools } from './tools/serverTools';
@@ -341,6 +342,11 @@ export function registerIpc(): void {
     handle(IPC.agentsModels, () => agents.listModels());
     handle(IPC.agentsStatus, (id: string) => agents.status(id));
     handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));
+    handle(IPC.agentsKeySource, (id: AgentId) => agentKeySource(id));
+    handle(IPC.agentsSetKey, async (id: AgentId, key: string | null) => {
+        await setAgentKey(id, key);
+        return agentKeySource(id);
+    });
 
     // Skills and schemas are edited in other apps, so main watches their folders
     // and every window re-reads its list on a change, whoever made it.

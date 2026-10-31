@@ -22,7 +22,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
 ```
 
 - **Outlook Trigger** — polls the folders you tick through the real Outlook client, and starts one run per new email.
-- **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why.
+- **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why. Jev, TypeSafe AI's
+  model, can pick it instead, for a fraction of the cost but with no reason given.
 - **Extractor** — pulls fields out of the email into a workspace schema you pick, for later steps to read.
 - **Processor** — runs Claude with the workspace's [skills](docs/skills.md), the ones you tick first, holding tools
   scoped to this one email.
@@ -78,6 +79,9 @@ without them, but a Categorizer, Extractor or Processor runs on one. Patchbay in
   Anthropic API key. Patchbay runs the `claude` on your computer and reuses its login.
 - **The Antigravity CLI (`agy`)**, to run nodes on Gemini and the other models it offers. It needs a permission rule
   per tool — see [Models and agents](docs/models.md#agy).
+
+Categorizers can also run on **Jev**, TypeSafe AI's model, with a TypeSafe API key — see
+[Models and agents](docs/models.md#jev).
 
 ## First run
 

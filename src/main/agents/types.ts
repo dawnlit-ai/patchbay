@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
 import type { AgentId, AgentSetting } from '@shared/settings';
 import type { LiveText, TraceEvent } from '@shared/trace';
+import type { ChoiceAnswer, ChoiceQuestion } from './decision';
 
 /**
  * An MCP server a run is handed: a command to start, an address to connect to,
@@ -84,9 +85,30 @@ export interface AgentRunResult {
     unavailable?: string;
 }
 
+/**
+ * A step that only picks one of several named answers, asked as Jev asks it. An
+ * agent that answers such a question itself takes it as it is; any other is asked
+ * it in a prompt, held to a schema, and its answer read back in Jev's shape.
+ */
+export interface ChoiceRequest
+    extends Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks' | 'waitOutLimit' | 'cwd' | 'signal' | 'onEvent' | 'onLive'> {
+    question: ChoiceQuestion;
+    /** What the question is about: Jev's `state`. */
+    state: string;
+    /** What the state is, to head it with in a prompt: "Email". */
+    about: string;
+    /** The answer a tie goes to, when it is one of those tied. */
+    prefer?: string;
+}
+
+export interface ChoiceResult extends Omit<AgentRunResult, 'structured'> {
+    /** Set when `ok`. */
+    answer?: ChoiceAnswer;
+}
+
 /** One agent a step can run on. */
 export interface AgentBackend {
-    /** What Settings and its status call it: `claude` or `agy`. */
+    /** What Settings and its status call it: `claude`, `agy` or `jev`. */
     id: AgentId;
 
     /** Whether a node's stored model runs on this agent. */
@@ -102,6 +124,9 @@ export interface AgentBackend {
     status(): Promise<AgentStatus>;
 
     run(request: AgentRunRequest): Promise<AgentRunResult>;
+
+    /** Answers a choice itself, rather than being asked it in a prompt through `run`. */
+    decide?(request: ChoiceRequest): Promise<ChoiceResult>;
 }
 
 /** What the agents take from the app around them. */
@@ -111,6 +136,12 @@ export interface AgentHost {
 
     /** The `agy` binary the app names, if it names one. Otherwise it is looked for where agy installs itself. */
     agyExecutable(): string | undefined;
+
+    /**
+     * Jev's API key, opened, and where it came from ("set in Patchbay"). Null when
+     * there is none. Throws, saying why, when one is set but cannot be opened.
+     */
+    jevKey(): Promise<{ value: string; from: string } | null>;
 
     /** Every agent in the order Settings lists it, each switched on or off. */
     agents(): AgentSetting[];

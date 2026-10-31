@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import {
     type AboutInfo,
     AGENT_IDS,
+    AGENT_KEY_VARIABLES,
     AGENT_NAMES,
     type AgentControlSettings,
     type AgentControlStatus,
     type AgentId,
+    type AgentKeySource,
     CONCURRENT_RUNS_RANGE,
     type Settings,
     UPDATE_CHANNELS,
@@ -15,6 +17,7 @@ import {
 } from '@shared/settings';
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { ahead, time } from '../format';
+import { SecretPrompt } from './SecretDialog';
 
 interface Props {
     settings: Settings;
@@ -166,20 +169,26 @@ function Usage({usage}: { usage: UsageWindow[] }): JSX.Element | null {
     );
 }
 
-/** Each agent's executable setting, the marker its models carry, and what to say about the path. */
-const AGENT_EXECUTABLES: Record<
+/** The marker each agent's models carry in the model lists. */
+const AGENT_MARKERS: Record<AgentId, string> = {claude: '· claude', agy: '· agy', jev: '· jev'};
+
+/** What an agent's models are for, where that is narrower than every step. */
+const AGENT_SCOPES: Partial<Record<AgentId, string>> = {
+    jev: ' Only Categorizers are offered them, and each email a Categorizer sorts on one is sent to TypeSafe AI.',
+};
+
+/** The executable setting of each agent that is a CLI on this computer, and what to say about the path. */
+const AGENT_EXECUTABLES: Partial<Record<
     AgentId,
-    { key: 'claudeExecutablePath' | 'agyExecutablePath'; marker: string; label: string; description: string }
-> = {
+    { key: 'claudeExecutablePath' | 'agyExecutablePath'; label: string; description: string }
+>> = {
     claude: {
         key: 'claudeExecutablePath',
-        marker: '· claude',
         label: 'Claude executable',
         description: "Leave it blank to use the Claude Code installed on this computer. Set a path only if Patchbay can't find it.",
     },
     agy: {
         key: 'agyExecutablePath',
-        marker: '· agy',
         label: 'Antigravity executable',
         description:
             'Leave it blank to use the Antigravity CLI where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Its models join the model lists once it is found and signed in.',
@@ -216,6 +225,99 @@ function AgentState({
                 <Usage usage={status.usage}/>
             </div>
         </div>
+    );
+}
+
+/**
+ * The key of an agent reached with one rather than a CLI: where it comes from,
+ * set or taken away here, and the agent's state under it. Set at once, not on
+ * Save, and never shown again.
+ */
+function ApiKeyRow({
+                       agent,
+                       status,
+                       checking,
+                       off,
+                       onChanged,
+                   }: {
+    agent: AgentId;
+    status: AgentStatus | undefined;
+    checking: boolean;
+    off: boolean;
+
+    /** The key changed, so the agent is worth checking again. */
+    onChanged(): void;
+}): JSX.Element {
+    const variable = AGENT_KEY_VARIABLES[agent] ?? '';
+    const [source, setSource] = useState<AgentKeySource>(null);
+    const [asking, setAsking] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        void window.api.agents.keySource(agent).then(setSource);
+    }, [agent]);
+
+    const save = async (key: string | null): Promise<void> => {
+        setError(null);
+        try {
+            setSource(await window.api.agents.setKey(agent, key));
+            onChanged();
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    };
+
+    return (
+        <>
+            <Row
+                label="API key"
+                description={
+                    source === 'patchbay'
+                        ? 'Set here, kept encrypted on this computer and never shown again.'
+                        : source === 'environment'
+                            ? `Taken from ${variable} in Patchbay's environment. One set here comes first.`
+                            : `None yet. Set one here, or set ${variable} in Patchbay's environment.`
+                }
+                control={
+                    <>
+                        <button onClick={() => setAsking(true)}>{source === 'patchbay' ? 'Change…' : 'Set…'}</button>
+                        {source === 'patchbay' && (
+                            <button className="danger" onClick={() => void save(null)}>
+                                Remove
+                            </button>
+                        )}
+                    </>
+                }
+                below={
+                    <>
+                        {error && (
+                            <div className="agent-state bad">
+                                <span className="dot"/>
+                                <div>{error}</div>
+                            </div>
+                        )}
+                        <AgentState status={status} checking={checking} off={off}/>
+                    </>
+                }
+            />
+            {asking && (
+                <SecretPrompt
+                    title={`${source === 'patchbay' ? 'Change' : 'Set'} the API key for ${AGENT_NAMES[agent]}`}
+                    label="API key"
+                    hint={
+                        <>
+                            Kept encrypted on this computer and sent to the agent with each question. It comes before{' '}
+                            {variable} in Patchbay's environment, and Patchbay does not show it again.
+                        </>
+                    }
+                    onCancel={() => setAsking(false)}
+                    onSave={(key) => {
+                        setAsking(false);
+                        void save(key);
+                    }}
+                />
+            )}
+        </>
     );
 }
 
@@ -392,12 +494,13 @@ export function SettingsPanel({
                                 <PageHead title="Agents">
                                     What your Categorizer, Extractor and Processor nodes run on. The model lists
                                     offer each agent's models in this order, and a new node starts on the first
-                                    one's. Switch an agent off to take its models out of the lists.
+                                    one's it can run on. Switch an agent off to take its models out of the lists.
                                 </PageHead>
                                 <div className="agent-list" role="list" aria-label="Agents, in order">
                                     {draft.agents.map((agent, i) => {
                                         const name = AGENT_NAMES[agent.id];
-                                        const {key, marker, label, description} = AGENT_EXECUTABLES[agent.id];
+                                        const marker = AGENT_MARKERS[agent.id];
+                                        const executable = AGENT_EXECUTABLES[agent.id];
                                         const on = draft.agents.filter((a) => a.enabled);
                                         const above = draft.agents.slice(0, i).filter((a) => a.enabled).at(-1);
                                         const last = agent.enabled && on.length === 1;
@@ -422,6 +525,7 @@ export function SettingsPanel({
                                                                 : above
                                                                     ? `, listed after ${AGENT_NAMES[above.id]}'s.`
                                                                     : ', listed first, so new nodes start on one of them.'}
+                                                            {AGENT_SCOPES[agent.id]}
                                                         </>
                                                     }
                                                     control={
@@ -454,26 +558,38 @@ export function SettingsPanel({
                                                         </>
                                                     }
                                                 />
-                                                <Row
-                                                    label="Executable"
-                                                    description={description}
-                                                    below={
-                                                        <>
-                                                            <input
-                                                                className="mono"
-                                                                aria-label={label}
-                                                                value={draft[key]}
-                                                                placeholder="Found automatically"
-                                                                onChange={(e) => patch({[key]: e.target.value})}
-                                                            />
-                                                            <AgentState
-                                                                status={agentStates[agent.id]}
-                                                                checking={checking[agent.id] === true}
-                                                                off={!switchedOn.includes(agent.id)}
-                                                            />
-                                                        </>
-                                                    }
-                                                />
+                                                {executable ? (
+                                                    <Row
+                                                        label="Executable"
+                                                        description={executable.description}
+                                                        below={
+                                                            <>
+                                                                <input
+                                                                    className="mono"
+                                                                    aria-label={executable.label}
+                                                                    value={draft[executable.key]}
+                                                                    placeholder="Found automatically"
+                                                                    onChange={(e) => patch({[executable.key]: e.target.value})}
+                                                                />
+                                                                <AgentState
+                                                                    status={agentStates[agent.id]}
+                                                                    checking={checking[agent.id] === true}
+                                                                    off={!switchedOn.includes(agent.id)}
+                                                                />
+                                                            </>
+                                                        }
+                                                    />
+                                                ) : (
+                                                    <ApiKeyRow
+                                                        agent={agent.id}
+                                                        status={agentStates[agent.id]}
+                                                        checking={checking[agent.id] === true}
+                                                        off={!switchedOn.includes(agent.id)}
+                                                        onChanged={() => {
+                                                            if (switchedOn.includes(agent.id)) void checkAgent(agent.id);
+                                                        }}
+                                                    />
+                                                )}
                                             </div>
                                         );
                                     })}
@@ -485,7 +601,7 @@ export function SettingsPanel({
                                 </div>
                                 <p className="set-note">
                                     Checked as saved: a path typed above, or an agent switched on, is checked once
-                                    it is saved.
+                                    it is saved. An API key is set as soon as it is entered.
                                 </p>
                             </>
                         )}

@@ -108,16 +108,39 @@ export interface AgentControlSettings {
 
 const DEFAULT_AGENT_CONTROL_PORT = 8787;
 
-/** The agents a step can run on: `claude` takes every model no other agent claims, `agy` those stored as `agy:<id>`. */
-export type AgentId = 'claude' | 'agy';
+/**
+ * The agents a step can run on: `claude` takes every model no other agent claims,
+ * `agy` those stored as `agy:<id>`, and `jev` TypeSafe AI's, stored by their own
+ * names (`jev-latest`), which answer a Categorizer's question and nothing else.
+ */
+export type AgentId = 'claude' | 'agy' | 'jev';
 
-export const AGENT_IDS: AgentId[] = ['claude', 'agy'];
+export const AGENT_IDS: AgentId[] = ['claude', 'agy', 'jev'];
 
 /** What Settings and a run's trace call each agent. */
 export const AGENT_NAMES: Record<AgentId, string> = {
     claude: 'Claude by Anthropic',
     agy: 'Antigravity by Google',
+    jev: 'Jev by TypeSafe AI',
 };
+
+/**
+ * The agents reached with an API key rather than a CLI signed in on this
+ * computer, and the variable in Patchbay's environment that stands in for a key
+ * not set in the app.
+ */
+export const AGENT_KEY_VARIABLES: Partial<Record<AgentId, string>> = {
+    jev: 'TYPESAFE_AI_API_KEY',
+};
+
+/** Where an agent's API key comes from: set in Patchbay, Patchbay's environment, or nowhere yet. */
+export type AgentKeySource = 'patchbay' | 'environment' | null;
+
+/**
+ * Off until switched on: each email a step on one of its models takes is sent to
+ * a company the other agents do not send it to, so that is chosen, not assumed.
+ */
+const OFF_UNTIL_CHOSEN: AgentId[] = ['jev'];
 
 /** One agent as Settings → Agents lists it. */
 export interface AgentSetting {
@@ -126,7 +149,10 @@ export interface AgentSetting {
     enabled: boolean;
 }
 
-/** The agents a settings file lists, each once and in its order, with any it does not name on at the end. */
+/**
+ * The agents a settings file lists, each once and in its order, with any it does
+ * not name at the end: on, but for the ones that wait to be chosen.
+ */
 export function agentsInOrder(stored: unknown): AgentSetting[] {
     const listed: AgentSetting[] = [];
     for (const a of Array.isArray(stored) ? stored : []) {
@@ -135,7 +161,7 @@ export function agentsInOrder(stored: unknown): AgentSetting[] {
         }
     }
     const missing = AGENT_IDS.filter((id) => !listed.some((a) => a.id === id));
-    return [...listed, ...missing.map((id) => ({id, enabled: true}))];
+    return [...listed, ...missing.map((id) => ({id, enabled: !OFF_UNTIL_CHOSEN.includes(id)}))];
 }
 
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */

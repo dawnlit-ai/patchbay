@@ -12,8 +12,10 @@ of concurrent activity.
   inside it too. A folder made later — by you, or by a rule filing mail away — is not read until you tick it. A
   trigger reading more than one folder knows an email by sender, time and subject rather than by entry id, so filing
   one from one watched folder into another doesn't make it new again.
-- **Categorizer** — an if/else you write in prose. Give each branch a description; Claude picks exactly one, and says
-  why.
+- **Categorizer** — an if/else you write in prose. Give each branch a description; its model picks exactly one, and
+  says why. Every model answers as TypeSafe AI's Jev does — a probability for each branch, *Unmatched* included — and
+  the email leaves by the most likely one. The run's trace shows the whole answer. A Categorizer can run on
+  [Jev](models.md#jev) itself, which gives no reason.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the [workspace
   schema](#named-schemas) it names, and puts the result in a named slot. It leaves by *Valid* when every required
   field was in the email and the result matches the schema, by *Incomplete* when something is missing or wrong, or by

@@ -563,6 +563,18 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         }
         const schemaIssue = nodeSchemaIssue(schemas, node);
         if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
+        // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
+        if ('models' in node.config && !takesJev(node.kind)) {
+            const on = modelsInTurn(node.config.models);
+            const jev = on.filter((m) => isJevModel(m.model)).map((m) => m.model);
+            if (jev.length > 0) {
+                issues.push({
+                    nodeId: node.id,
+                    severity: jev.length === on.length ? 'error' : 'warning',
+                    message: `${node.name} lists ${jev.join(', ')}, but Jev answers a Categorizer's question and nothing else, so the step passes ${jev.length === 1 ? 'it' : 'them'} over.`,
+                });
+            }
+        }
         for (const name of requires(node)) {
             if (held.has(name)) continue;
             issues.push({
@@ -596,6 +608,24 @@ const DEFAULT_MODEL = 'opus';
 export const AGY_MODEL_PREFIX = 'agy:';
 export const isAgyModel = (model: string): boolean => model.startsWith(AGY_MODEL_PREFIX);
 
+/**
+ * Jev's models — TypeSafe AI's, which answer a question with a probability for
+ * each answer rather than write — are stored by their own names: `jev-latest`,
+ * `jev-1.14.0`.
+ */
+export const isJevModel = (model: string): boolean => model.startsWith('jev-');
+
+/** Claude takes every model no other agent claims: its aliases carry no prefix. */
+export const isClaudeModel = (model: string): boolean => !isAgyModel(model) && !isJevModel(model);
+
+/** Jev answers a Categorizer's question and nothing else: no other node is offered its models. */
+export const takesJev = (kind: NodeKind): boolean => kind === 'categorizer';
+
+/** Of the models the agents offer, the ones a node of this kind can run on. */
+export function offeredTo<M extends { value: string }>(kind: NodeKind, offered: readonly M[]): M[] {
+    return takesJev(kind) ? [...offered] : offered.filter((m) => !isJevModel(m.value));
+}
+
 /** The levels `agy --effort` takes, lowest first. */
 export const AGY_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** `agy models` lists a model once per level, as `<id>-<level>`; a run names the two apart. */
@@ -609,20 +639,19 @@ export interface OfferedModel {
 }
 
 /**
- * The model a new node starts on, from the models the agents offer now, listed in
- * Settings' order: the newest Opus when Claude's come first, else the first one
- * offered — agy's, where agy is listed above Claude, or Claude is switched off or
- * not installed. `effort` is the level wanted, kept where the model takes it;
- * otherwise a model that must have one gets its top level. Opus as well while the
- * list is on its way, or when nothing is installed to list any.
+ * The model a new node starts on, from the models the agents offer it now, listed
+ * in Settings' order: the newest Opus when Claude's come first, else the first one
+ * offered — agy's or Jev's, where that agent is listed above Claude, or Claude is
+ * switched off or not installed. `effort` is the level wanted, kept where the model
+ * takes it; otherwise a model that must have one gets its top level. Opus as well
+ * while the list is on its way, or when nothing is installed to list any.
  */
 export function startingModel(
     offered: readonly OfferedModel[] | null | undefined,
     effort: string,
 ): Omit<ModelChoice, 'enabled'> {
     const first = offered?.[0];
-    // Claude takes every model no other agent claims, so any such model is Claude's.
-    if (!first || !isAgyModel(first.value)) return {model: DEFAULT_MODEL, effort};
+    if (!first || isClaudeModel(first.value)) return {model: DEFAULT_MODEL, effort};
     const levels = first.effortLevels;
     if (levels.includes(effort)) return {model: first.value, effort};
     return {model: first.value, effort: first.effortRequired ? (levels.at(-1) ?? '') : ''};
@@ -630,7 +659,9 @@ export function startingModel(
 
 /** A node's defaults. `offered` is the agents' model list, which picks the model its steps start on. */
 export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] | null): NodeConfig {
-    const models = (effort: string): ModelChoice[] => [{...startingModel(offered, effort), enabled: true}];
+    const models = (effort: string): ModelChoice[] => [
+        {...startingModel(offered && offeredTo(kind, offered), effort), enabled: true},
+    ];
     switch (kind) {
         case 'trigger.outlook':
             return {

@@ -16,6 +16,7 @@ import {
 } from '@shared/flow';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
 import type { AgentMcpServer, AgentRunRequest } from '../agents';
+import type { ChoiceQuestion } from '../agents/decision';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { requireServer, usableServers } from '../store/mcpStore';
@@ -192,59 +193,58 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
         }
     }
 
-    const ids = config.categories.map((c) => c.id);
-    const prompt = [
-        'Classify the email below into exactly one of the categories.',
-        '',
-        'Categories:',
-        ...config.categories.map((c) => `- id "${c.id}" (${c.label}): ${c.description}`),
-        `- id "${UNMATCHED_PORT}": none of the above genuinely fits.`,
-        '',
-        'Choose by what the email actually is, not by keywords alone. If it plausibly',
-        `fits none of the described categories, choose "${UNMATCHED_PORT}" rather than`,
-        'forcing a match — a wrong branch is more expensive than an unmatched one.',
-        '',
-        '--- Email ---',
-        emailContext(ctx.email, body),
-    ].join('\n');
-
-    const result = await agents.run({
-        prompt,
+    // Asked as Jev asks it, with the email as the state the question is about.
+    const question: ChoiceQuestion = {
+        type: 'choice',
+        instructions: [
+            'Which of these categories does the email below belong to? Choose by what the email',
+            'actually is, not by keywords alone. If it plausibly fits none of them, it is',
+            `"${UNMATCHED_PORT}" rather than a forced match — a wrong branch is more expensive than`,
+            'an unmatched one.',
+        ].join('\n'),
+        criteria: {
+            ...Object.fromEntries(
+                config.categories.map((c) => [c.id, [c.label, c.description].filter(Boolean).join(' — ')]),
+            ),
+            [UNMATCHED_PORT]: 'None of the other categories genuinely fits.',
+        },
+    };
+    const result = await agents.decide({
+        question,
+        state: emailContext(ctx.email, body),
+        about: 'Email',
+        // A tie with Unmatched goes to it, for the reason the question gives.
+        prefer: UNMATCHED_PORT,
         ...modelsFor(config),
         cwd: workspaceRoot(),
-        // One judgement on text already in the prompt: with the built-in tools
-        // disabled it stays a single turn.
-        tools: [],
-        allowedTools: [],
         signal: ctx.signal,
         onEvent: ctx.onEvent,
         onLive: ctx.onLive,
-        jsonSchema: {
-            type: 'object',
-            properties: {
-                category: {type: 'string', enum: [...ids, UNMATCHED_PORT]},
-                confidence: {type: 'number', minimum: 0, maximum: 1},
-                reason: {type: 'string'},
-            },
-            required: ['category', 'confidence', 'reason'],
-            additionalProperties: false,
-        },
     });
-
-    if (!result.ok || !result.structured) {
+    const {answer} = result;
+    if (!result.ok || !answer) {
         return {
             outPort: null,
             summary: 'Classification failed',
-            error: result.error ?? 'no structured output',
+            error: result.error ?? result.unavailable ?? 'No answer came back.',
         };
     }
+    ctx.onEvent({at: now(), type: 'note', label: `Answer: ${answer.choice}`, detail: JSON.stringify(answer, null, 2)});
 
-    const answer = result.structured as { category: string; confidence: number; reason: string };
-    const chosen = config.categories.find((c) => c.id === answer.category);
-
+    const chosen = config.categories.find((c) => c.id === answer.choice);
+    const named = (id: string): string => {
+        const category = config.categories.find((c) => c.id === id);
+        return `${category ? category.label || category.id : 'Unmatched'} · ${Math.round((answer.probabilities[id] ?? 0) * 100)}%`;
+    };
+    // Jev gives no reason, so the runner-up stands in for one.
+    const [runnerUp] = Object.keys(answer.probabilities)
+        .filter((id) => id !== answer.choice)
+        .sort((a, b) => (answer.probabilities[b] ?? 0) - (answer.probabilities[a] ?? 0));
     return {
         outPort: chosen ? `cat:${chosen.id}` : UNMATCHED_PORT,
-        summary: `${chosen?.label ?? 'Unmatched'} · ${Math.round((answer.confidence ?? 0) * 100)}% — ${answer.reason}`,
+        summary: answer.reason
+            ? `${named(answer.choice)} — ${answer.reason}`
+            : [named(answer.choice), runnerUp && `then ${named(runnerUp)}`].filter(Boolean).join(', '),
     };
 }
 

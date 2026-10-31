@@ -79,7 +79,7 @@ src/
 ├─ shared/      flow graph, run/trace records, IPC contract   (both processes)
 ├─ main/
 │  ├─ engine/   graph walk + the poller that turns mail into runs
-│  ├─ agents/   runs a step on Claude (Agent SDK) or agy, then on its fallbacks; takes nothing from the app but its host
+│  ├─ agents/   runs a step on Claude (Agent SDK), agy or Jev, then on its fallbacks; takes nothing from the app but its host
 │  ├─ tools/    the email-scoped MCP tools a run is handed, and the Settings servers' tool lists
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge

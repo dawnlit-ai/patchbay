@@ -1,24 +1,28 @@
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 import type { McpVariable } from '@shared/settings';
 import { Modal } from './Modal';
 
 /**
- * Asks for a value a workspace server looks up — a token, usually — in a field
- * that shows dots, since a window gets screen-shared. What is typed goes to main
- * once and is never shown again: a set value can be replaced or cleared, not read.
+ * Asks for a secret — a token, an API key — in a field that shows dots, since a
+ * window gets screen-shared. What is typed goes to main once and is never shown
+ * again: a set value can be replaced or cleared, not read.
  */
-
-interface Props {
-    server: string;
-    variable: McpVariable;
+export function SecretPrompt({
+                                 title,
+                                 label,
+                                 hint,
+                                 onCancel,
+                                 onSave,
+                             }: {
+    title: string;
+    label: string;
+    hint: ReactNode;
 
     onCancel(): void;
 
     onSave(value: string): void;
-}
-
-export function SecretDialog({server, variable, onCancel, onSave}: Props): JSX.Element {
+}): JSX.Element {
     const [value, setValue] = useState('');
     const submit = (): void => {
         if (value) onSave(value);
@@ -26,7 +30,7 @@ export function SecretDialog({server, variable, onCancel, onSave}: Props): JSX.E
 
     return (
         <Modal
-            title={`${variable.source === 'set' ? 'Change' : 'Set'} ${variable.name} for ${server}`}
+            title={title}
             onClose={onCancel}
             footer={
                 <>
@@ -38,7 +42,7 @@ export function SecretDialog({server, variable, onCancel, onSave}: Props): JSX.E
             }
         >
             <label className="field">
-                <span>{variable.description ?? variable.name}</span>
+                <span>{label}</span>
                 <input
                     type="password"
                     autoFocus
@@ -50,12 +54,39 @@ export function SecretDialog({server, variable, onCancel, onSave}: Props): JSX.E
                         if (e.key === 'Enter') submit();
                     }}
                 />
-                <div className="hint">
+                <div className="hint">{hint}</div>
+            </label>
+        </Modal>
+    );
+}
+
+/** A value a workspace server looks up. */
+export function SecretDialog({
+                                 server,
+                                 variable,
+                                 onCancel,
+                                 onSave,
+                             }: {
+    server: string;
+    variable: McpVariable;
+
+    onCancel(): void;
+
+    onSave(value: string): void;
+}): JSX.Element {
+    return (
+        <SecretPrompt
+            title={`${variable.source === 'set' ? 'Change' : 'Set'} ${variable.name} for ${server}`}
+            label={variable.description ?? variable.name}
+            hint={
+                <>
                     Kept encrypted on this computer, for {server} in this workspace alone, and handed to it each time
                     it starts. It comes before Patchbay’s environment and the definition’s own default. It is not
                     written into the workspace, and Patchbay does not show it again.
-                </div>
-            </label>
-        </Modal>
+                </>
+            }
+            onCancel={onCancel}
+            onSave={onSave}
+        />
     );
 }

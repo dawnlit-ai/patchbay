@@ -82,8 +82,10 @@ rather than a fan-out. The five node kinds:
                     itself), read on its own and not the folders in it.
                     A folder made later is read only once it is listed.
 - categorizer     — an if/else written in prose: each category is an output port
-                    and Claude picks exactly one, with an "unmatched" port for
-                    the rest.
+                    and its model picks exactly one, with an "unmatched" port
+                    for the rest. It alone may run on Jev's models
+                    (\`jev-latest\`), which answer with a probability per
+                    category and no reason; no other node can.
 - extractor       — pulls fields out of the email into the workspace schema
                     its \`schema\` names, and fills the slot named by
                     \`output\`. Ports: "valid",

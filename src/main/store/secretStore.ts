@@ -1,6 +1,6 @@
-import { safeStorage } from 'electron';
 import { mcpSecretsFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
+import { seal as sealWith, unseal } from './sealed';
 
 /**
  * The values a workspace's MCP servers look up — a token, usually — set in the
@@ -31,17 +31,8 @@ export function secretNames(workspace: string): Map<string, Set<string>> {
     ]));
 }
 
-async function seal(value: string): Promise<string> {
-    // Linux without a keyring falls back to a key written into Chromium itself,
-    // which keeps nothing from anyone who can read the file.
-    const weak = process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text';
-    if (weak || !(await safeStorage.isAsyncEncryptionAvailable())) {
-        throw new Error(
-            'This computer has no keychain Patchbay can keep a secret in. Give the server the value through Patchbay’s environment instead.',
-        );
-    }
-    return (await safeStorage.encryptStringAsync(value)).toString('base64');
-}
+const seal = (value: string): Promise<string> =>
+    sealWith(value, 'Give the server the value through Patchbay’s environment instead.');
 
 /** Write one value, or take it away with null. Sealed first, so two set at once both land. */
 function store(workspace: string, server: string, name: string, sealed: string | null): void {
@@ -65,17 +56,17 @@ export async function serverSecrets(workspace: string, server: string): Promise<
     const sealed = readAll()[workspace]?.[server];
     const values: Record<string, string> = {};
     for (const [name, text] of Object.entries(isObject(sealed) ? sealed : {})) {
-        let opened: Electron.DecryptStringAsyncReturnValue;
+        let opened: Awaited<ReturnType<typeof unseal>>;
         try {
-            opened = await safeStorage.decryptStringAsync(Buffer.from(String(text), 'base64'));
+            opened = await unseal(String(text));
         } catch {
             throw new Error(
                 `The value set for ${name} on ${server} could not be opened on this computer — set on another one, or under a key the system no longer has. Set it again.`,
             );
         }
-        values[name] = opened.result;
+        values[name] = opened.value;
         // The system has a newer key: sealed again under it, for next time.
-        if (opened.shouldReEncrypt) store(workspace, server, name, await seal(opened.result));
+        if (opened.reseal) store(workspace, server, name, await seal(opened.value));
     }
     return values;
 }

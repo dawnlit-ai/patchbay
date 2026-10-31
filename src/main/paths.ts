@@ -200,6 +200,8 @@ export const mcpTrustFile = (): string => join(dataRoot(), 'mcp-trust.json');
  * the same reason, and so a token never lands in a folder that gets committed.
  */
 export const mcpSecretsFile = (): string => join(dataRoot(), 'mcp-secrets.json');
+/** The API keys of the agents reached with one, sealed: see keyStore. */
+export const agentKeysFile = (): string => join(dataRoot(), 'agent-keys.json');
 export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
 /** The console's files, one JSONL per day. */

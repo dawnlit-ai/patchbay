@@ -6,6 +6,8 @@ import type { LogEntry } from './log';
 import type {
     AboutInfo,
     AgentControlStatus,
+    AgentId,
+    AgentKeySource,
     EngineStatus,
     McpListing,
     McpServerTool,
@@ -93,7 +95,7 @@ export interface InboxFolderOption {
     itemCount: number;
 }
 
-/** A model Claude Code or agy offers, as its own model list names it. */
+/** A model Claude Code, agy or Jev offers, as its own model list names it. */
 export interface ModelOption {
     /** What a node stores and the run is started with — often an alias, such as `opus`. */
     value: string;
@@ -119,7 +121,7 @@ export interface UsageWindow {
 
 /** How one agent stands, as Settings → Agents shows it: found, which version, and signed in. */
 export interface AgentStatus {
-    /** `claude` or `agy`. */
+    /** `claude`, `agy` or `jev`. */
     id: string;
     name: string;
     /** The binary a run starts. Empty when none was found. */
@@ -260,10 +262,17 @@ export interface Api {
          * then the models agy offers.
          */
         models(): Promise<ModelOption[]>;
-        /** One agent's version, sign-in and usage, asked of it now: `claude` or `agy`. */
+        /** One agent's version, sign-in and usage, asked of it now: `claude`, `agy` or `jev`. */
         status(id: string): Promise<AgentStatus>;
         /** What the last check of that agent found this session, shown while the next runs. */
         lastStatus(id: string): Promise<AgentStatus | null>;
+        /** Where an agent that takes an API key — Jev — finds one now. Never the key itself. */
+        keySource(id: AgentId): Promise<AgentKeySource>;
+        /**
+         * Set that agent's key, kept encrypted on this computer, or take it away with
+         * null. There is no call that reads one back.
+         */
+        setKey(id: AgentId, key: string | null): Promise<AgentKeySource>;
     };
     /** The open workspace's one library, in its `skills` folder, which every flow in it shares. */
     skills: {
@@ -433,6 +442,8 @@ export const IPC = {
     agentsModels: 'agents:models',
     agentsStatus: 'agents:status',
     agentsLastStatus: 'agents:lastStatus',
+    agentsKeySource: 'agents:keySource',
+    agentsSetKey: 'agents:setKey',
 
     skillsList: 'skills:list',
     skillsCreate: 'skills:create',

@@ -11,10 +11,14 @@ import {
     type FlowNode,
     hasInput,
     isAgyModel,
+    isClaudeModel,
+    isJevModel,
     type JsonSchema,
     type ModelChoice,
     NODE_KIND_META,
     type NodeConfig,
+    type NodeKind,
+    offeredTo,
     outputPorts,
     type ProcessorConfig,
     provides,
@@ -25,6 +29,7 @@ import {
     SLOT_NAME,
     slotTypeLabel,
     startingModel,
+    takesJev,
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
@@ -85,8 +90,8 @@ interface Models {
 }
 
 /**
- * The models Claude Code and agy offer, and the effort levels each takes — asked
- * of them, so a model released after this build is offered without a new one.
+ * The models Claude Code, agy and Jev offer, and the effort levels each takes —
+ * asked of them, so a model released after this build is offered without a new one.
  */
 function useModels(): Models {
     const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -126,21 +131,33 @@ function ModelField({
                         models,
                         error,
                         off,
+                        jev,
                         onChange,
-                    }: Models & { label?: string; value: string; onChange(model: string): void }): JSX.Element {
+                    }: Models & {
+    label?: string;
+    value: string;
+    /** Whether the step is one Jev can take, a Categorizer's: no other is offered its models. */
+    jev: boolean;
+    onChange(model: string): void;
+}): JSX.Element {
     const listed = models?.find((m) => m.value === value);
     const sameToday = models?.find((m) => m.resolvedModel === value);
-    const agent: AgentId = isAgyModel(value) ? 'agy' : 'claude';
+    const agent: AgentId = isAgyModel(value) ? 'agy' : isJevModel(value) ? 'jev' : 'claude';
     let hint: string;
     if (error) hint = `Could not ask Claude which models it offers: ${error}`;
     else if (!models) hint = 'Asking Claude…';
-    else if (listed) hint = listed.description;
+    else if (agent === 'jev' && !jev) {
+        hint = `Jev answers a Categorizer's question and nothing else, so this step passes ${value} over. Pick another model.`;
+    } else if (listed) hint = listed.description;
     else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
     else if (off.includes(agent)) {
         hint = `${AGENT_NAMES[agent]} is switched off in Settings → Agents, so the step passes ${value} over. The node keeps it meanwhile.`;
     }
+    else if (agent === 'jev') {
+        hint = `${value} is not among the models Jev lists now. They are listed once a TypeSafe API key is set in Settings → Agents, and a pinned version once it has answered since Patchbay started. The node keeps ${value} meanwhile.`;
+    }
     // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.
-    else if (models.every((m) => isAgyModel(m.value))) {
+    else if (models.every((m) => !isClaudeModel(m.value))) {
         hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
     } else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
 
@@ -236,13 +253,17 @@ function moveTo<T>(list: T[], from: number, gap: number): T[] {
  * always on, since the step needs a model to run on.
  */
 function ModelsField({
+                         kind,
                          value,
                          onChange,
                      }: {
+    /** The node's kind, which decides the models it is offered: Jev's to a Categorizer alone. */
+    kind: NodeKind;
     value: ModelChoice[];
     onChange(models: ModelChoice[]): void;
 }): JSX.Element {
-    const listing = useModels();
+    const offered = useModels();
+    const listing = {...offered, models: offered.models && offeredTo(kind, offered.models)};
     // The entry being dragged, and the gap it would drop into: 0 is above the first, `value.length` below the last.
     const [dragging, setDragging] = useState<number | null>(null);
     const [dropAt, setDropAt] = useState<number | null>(null);
@@ -376,6 +397,7 @@ function ModelsField({
                             <div className="model-body">
                                 <ModelField
                                     {...listing}
+                                    jev={takesJev(kind)}
                                     value={choice.model}
                                     onChange={(model) =>
                                         replace(i, {model, effort: effortAfter(listing.models, model, choice.effort)})
@@ -538,7 +560,7 @@ function CategorizerFields({config, patch}: Section<CategorizerConfig>): JSX.Ele
         <>
             <Legend
                 label="Categories"
-                hint="Claude picks one branch by matching the email against these descriptions. Write them the way you would explain the difference to a new colleague."
+                hint="The model picks one branch by matching the email against these descriptions. Write them the way you would explain the difference to a new colleague."
             />
 
             {categories.map((cat, i) => (
@@ -580,7 +602,7 @@ function CategorizerFields({config, patch}: Section<CategorizerConfig>): JSX.Ele
 
             <div className="gap"/>
 
-            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
+            <ModelsField kind="categorizer" value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="gap"/>
             <label className="check">
@@ -878,7 +900,7 @@ function ExtractorFields({
                 Read the attachments too, not just the body
             </label>
 
-            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
+            <ModelsField kind="extractor" value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="gap"/>
             <McpToolsField
@@ -941,7 +963,7 @@ function ProcessorFields({
                 hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
             />
 
-            <ModelsField value={config.models} onChange={(models) => patch({models})}/>
+            <ModelsField kind="processor" value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="section-title">What this node may do</div>
             <label className="check" title={config.readEmail ? undefined : 'Needs the email ticked under Reads.'}>
