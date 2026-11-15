@@ -74,7 +74,7 @@ it is; only the person can open another.
 
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
-rather than a fan-out. The five node kinds:
+rather than a fan-out. The six node kinds:
 
 - trigger.outlook — watches the mailbox folders it ticks and starts a run per
                     new email. \`folders\` holds each one's path under the
@@ -102,13 +102,29 @@ rather than a fan-out. The five node kinds:
                     step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
                     list_server_tools gives a server's.
+- reply           — drafts a reply to the email from a template email in
+                    the mailbox's Templates folder, \`template\` being its
+                    subject, and runs no model. \`rules\` are read top to
+                    bottom, each {field, equals, reply, section}: \`field\`
+                    is a slot and a path into it ("quote.reply"), and the
+                    first rule whose field holds \`equals\` decides — no
+                    reply, or the reply with that [[SECTION]] ("" for a
+                    template with none). A rule that leaves out \`reply\`
+                    drafts nothing. \`otherwise\` ({reply, section}) decides
+                    when none matches. \`signature\` names an Outlook
+                    signature, \`replyAll\` widens it. Ports: "replied",
+                    "skipped" and "error"; the first two fill \`output\`
+                    with {replied, section, to, draftEntryId, why}. It only
+                    drafts, and never twice for one email.
 - terminal        — ends the path and records how the email came out, as
                     its \`disposition\`. It does nothing to the email: a
                     step that files it or saves its attachments does so
                     with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
-extractor); get_flow's slotsOnArrival says which slots are sure to reach a node.
+extractor), or by naming it in a rule's \`field\` (a reply); get_flow's
+slotsOnArrival says which slots are sure to reach a node, and its slotIssues
+flag a rule whose field the slot's schema lacks or whose value it never holds.
 
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as

@@ -3,12 +3,12 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
-export type NodeKind = 'trigger.outlook' | 'categorizer' | 'extractor' | 'processor' | 'terminal';
+export type NodeKind = 'trigger.outlook' | 'categorizer' | 'extractor' | 'processor' | 'reply' | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
 // As values too, for the inspector to offer and the importer to check against.
-export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'extractor', 'processor', 'terminal'];
+export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'extractor', 'processor', 'reply', 'terminal'];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
 
 /** One branch of a categorizer — the description is what the model matches on. */
@@ -149,6 +149,41 @@ export interface ProcessorConfig {
     mcpTools: string[];
 }
 
+/** What a Reply does: draft nothing, or draft the template with one of its sections. */
+export interface ReplyChoice {
+    /** Off, nothing is drafted and the email leaves by No reply. */
+    reply: boolean;
+    /** The template's [[SECTION]] to reply with. Empty for a template with none, and unused with no reply. */
+    section: string;
+}
+
+/** One row of a Reply's table: when `field` holds `equals`, this row's choice is made. */
+export interface ReplyRule extends ReplyChoice {
+    /** A slot an earlier node filled and the path into it: `quote.reply`, `placement.answering.kind`. */
+    field: string;
+    /** The value that makes the row match, as text: `offer`, `true`, `3`. */
+    equals: string;
+}
+
+/**
+ * Drafts a reply to the email from a template email, with no model: which
+ * section, if any, is decided by rules on what earlier nodes filled.
+ */
+export interface ReplyConfig {
+    /** The subject of a template email in the mailbox's Templates folder. */
+    template: string;
+    /** Read top to bottom; the first whose field holds its value decides. */
+    rules: ReplyRule[];
+    /** What happens when no rule matches. */
+    otherwise: ReplyChoice;
+    /** An Outlook signature by name, put in the template's {{SIGNATURE}} or below its text. Empty for none. */
+    signature: string;
+    /** Answer everyone on the email rather than only its sender. */
+    replyAll: boolean;
+    /** The slot later nodes read what happened by: filled whether a reply was drafted or not. */
+    output: string;
+}
+
 /** Ends a path and records how the email came out. It does nothing to the email: the steps before it do. */
 export interface TerminalConfig {
     disposition: Disposition;
@@ -159,6 +194,7 @@ export type NodeConfig =
     | ({ kind: 'categorizer' } & CategorizerConfig)
     | ({ kind: 'extractor' } & ExtractorConfig)
     | ({ kind: 'processor' } & ProcessorConfig)
+    | ({ kind: 'reply' } & ReplyConfig)
     | ({ kind: 'terminal' } & TerminalConfig);
 
 export interface FlowNode {
@@ -198,6 +234,10 @@ export interface Port {
 
 export const UNMATCHED_PORT = 'unmatched';
 
+/** A Reply's ports: a reply drafted on this run, and none drafted. */
+export const REPLIED_PORT = 'replied';
+export const SKIPPED_PORT = 'skipped';
+
 export function outputPorts(node: FlowNode): Port[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
@@ -219,6 +259,12 @@ export function outputPorts(node: FlowNode): Port[] {
             return [
                 {id: 'done', label: 'Done', tone: 'flow'},
                 {id: 'review', label: 'Needs review', tone: 'fallback'},
+                {id: 'error', label: 'Error', tone: 'error'},
+            ];
+        case 'reply':
+            return [
+                {id: REPLIED_PORT, label: 'Drafted', tone: 'flow'},
+                {id: SKIPPED_PORT, label: 'No reply', tone: 'fallback'},
                 {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'terminal':
@@ -410,7 +456,9 @@ export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema
  */
 export function slotTypeLabel(type: SlotType): string {
     if (type.kind === 'email') return 'Email';
-    return refName(type.schema) ?? 'No schema yet';
+    // A shape of the app's own, such as a Reply's, is named by its title.
+    const title = typeof type.schema.title === 'string' ? type.schema.title : null;
+    return refName(type.schema) ?? title ?? 'No schema yet';
 }
 
 /** A schema this module cannot follow into, and so cannot say what it requires. */
@@ -466,6 +514,11 @@ export function provides(node: FlowNode, port: string): Slot[] {
             return port === 'done' && node.config.output
                 ? [{name: node.config.output, type: {kind: 'json', schema: node.config.schema}}]
                 : [];
+        case 'reply':
+            // Whether it drafted or not, the nodes after it learn which and why.
+            return port === REPLIED_PORT || port === SKIPPED_PORT
+                ? [{name: node.config.output, type: {kind: 'json', schema: REPLY_SCHEMA}}]
+                : [];
         default:
             return [];
     }
@@ -480,11 +533,224 @@ export function requires(node: FlowNode): string[] {
             return [EMAIL_SLOT.name, ...node.config.inputs];
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
+        case 'reply':
+            return [EMAIL_SLOT.name, ...ruleSlots(node.config)];
         case 'categorizer':
             return [EMAIL_SLOT.name];
         case 'terminal':
             return [];
     }
+}
+
+// ── Replies ──────────────────────────────────────────────────────────────
+// A Reply decides with no model: its rules are a table over what earlier nodes
+// filled, checked against their schemas on the canvas so a typo cannot pass for
+// a rule that never matches.
+
+/** What a Reply fills its output slot with. */
+export interface ReplyOutcome {
+    replied: boolean;
+    section: string;
+    to: string;
+    draftEntryId: string;
+    why: string;
+}
+
+/** The shape of a Reply's output slot: the app's own, not one of the workspace's. */
+export const REPLY_SCHEMA: JsonSchema = {
+    type: 'object',
+    title: 'Reply',
+    properties: {
+        replied: {type: 'boolean', description: 'True when this run drafted the reply.'},
+        section: {
+            type: 'string',
+            description: 'The template section the reply used. Empty for a template with none, and when no reply was drafted.',
+        },
+        to: {type: 'string', description: 'Who the draft is addressed to, as Outlook gave it. Empty with no reply.'},
+        draftEntryId: {
+            type: 'string',
+            description: 'The draft’s Outlook id. Empty with no reply, or when Outlook could not tell the draft apart.',
+        },
+        why: {type: 'string', description: 'The rule that decided, or why no reply was drafted.'},
+    },
+    required: ['replied', 'section', 'to', 'draftEntryId', 'why'],
+};
+
+/** The slot a rule's field reads, and the path inside it. */
+function splitField(field: string): { slot: string; steps: string[] } {
+    const [slot = '', ...steps] = field.trim().split('.');
+    return {slot, steps};
+}
+
+/** The slots a Reply's rules read, each once. */
+function ruleSlots(config: ReplyConfig): string[] {
+    const slots = config.rules.map((rule) => splitField(rule.field).slot).filter(Boolean);
+    return [...new Set(slots)];
+}
+
+/** A value a rule can compare, as text; null for one it cannot — absent, a group, a list. */
+function ruleText(value: unknown): string | null {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return null;
+}
+
+/** What `data` holds at `field`: a slot, then a path into it. */
+function valueAt(data: Readonly<Record<string, unknown>>, field: string): unknown {
+    const {slot, steps} = splitField(field);
+    let at: unknown = Object.hasOwn(data, slot) ? data[slot] : undefined;
+    for (const step of steps) {
+        if (Array.isArray(at)) at = at[Number(step)];
+        else if (isObject(at) && Object.hasOwn(at, step)) at = at[step];
+        else return undefined;
+    }
+    return at;
+}
+
+/** A Reply's decision: what it does, the sentence that says why, and each rule's field as the run held it. */
+export interface ReplyDecision {
+    choice: ReplyChoice;
+    why: string;
+    /** One line per rule read, for the trace. */
+    checked: string[];
+}
+
+/** Which of a Reply's choices `data` makes. The first rule whose field holds its value decides. */
+export function decideReply(config: ReplyConfig, data: Readonly<Record<string, unknown>>): ReplyDecision {
+    const checked: string[] = [];
+    for (const [i, rule] of config.rules.entries()) {
+        const held = ruleText(valueAt(data, rule.field));
+        const matched = held !== null && held === rule.equals.trim();
+        checked.push(
+            `${i + 1}. ${rule.field} = "${rule.equals.trim()}"? ${held === null ? 'not there' : `it is "${held}"`}${matched ? ' — matched' : ''}`,
+        );
+        if (matched) {
+            return {
+                choice: {reply: rule.reply, section: rule.section.trim()},
+                why: `rule ${i + 1}: ${rule.field} is "${held}"`,
+                checked,
+            };
+        }
+    }
+    return {
+        choice: {reply: config.otherwise.reply, section: config.otherwise.section.trim()},
+        why: config.rules.length > 0 ? 'no rule matched' : 'it has no rules',
+        checked,
+    };
+}
+
+/** Marks a schema this module cannot follow into, where any path may lead. */
+const ANYTHING = Symbol('anything');
+
+/** The schema of the field `steps` lead to in `schema`, ANYTHING where it cannot be followed, undefined where there is none. */
+function fieldSchema(schema: unknown, steps: string[]): unknown {
+    let at: unknown = schema;
+    for (const step of steps) {
+        if (opaque(at)) return ANYTHING;
+        const shape = at as Json;
+        if (shape.type === 'array' || 'items' in shape) {
+            if (!/^\d+$/.test(step)) return undefined;
+            at = shape.items;
+            continue;
+        }
+        const properties = isObject(shape.properties) ? shape.properties : {};
+        if (Object.hasOwn(properties, step)) at = properties[step];
+        else if (isObject(shape.additionalProperties)) at = shape.additionalProperties;
+        else return undefined;
+    }
+    return at;
+}
+
+/** The values a field can be compared with, when its schema lists them: an enum's, or a yes / no's. */
+function fieldValues(field: unknown): string[] | null {
+    if (!isObject(field)) return null;
+    if (Array.isArray(field.enum)) return field.enum.map((v) => ruleText(v)).filter((v) => v !== null);
+    if (field.type === 'boolean') return ['true', 'false'];
+    return null;
+}
+
+/** A rule's field, followed into the schema of the slot it reads: why it cannot work, or its schema. */
+function ruleField(
+    schemas: Schemas,
+    held: Available,
+    field: string,
+): { problem: string } | { schema: unknown } {
+    const {slot, steps} = splitField(field);
+    const type = held.get(slot);
+    // A slot not filled on every path is flagged as a read, once, by checkSlots.
+    if (!type) return {schema: ANYTHING};
+    if (type.kind === 'email') return {problem: `the email is not data a rule can compare: read a slot an earlier node filled`};
+    if (steps.length === 0) return {problem: `${slot} is a whole ${slotTypeLabel(type)}: name a field in it, as ${slot}.<field>`};
+    let resolved: JsonSchema;
+    try {
+        resolved = resolveSchema(schemas, type.schema);
+    } catch {
+        // The node that fills the slot is flagged for its schema already.
+        return {schema: ANYTHING};
+    }
+    const schema = fieldSchema(resolved, steps);
+    if (schema === undefined) return {problem: `${slotTypeLabel(type)} has no field ${steps.join('.')}`};
+    return {schema};
+}
+
+/** What is wrong with a Reply's configuration, said as sentences, given the slots that reach it. */
+function replyIssues(node: FlowNode, config: ReplyConfig, schemas: Schemas, held: Available): string[] {
+    const issues: string[] = [];
+    if (!config.template.trim()) {
+        issues.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
+    }
+    for (const [i, rule] of config.rules.entries()) {
+        const at = `${node.name}’s rule ${i + 1}`;
+        if (!rule.field.trim()) {
+            issues.push(`${at} reads nothing: name a slot and a field in it, as quote.reply.`);
+            continue;
+        }
+        const found = ruleField(schemas, held, rule.field);
+        if ('problem' in found) {
+            issues.push(`${at} reads ${rule.field}, but ${found.problem}.`);
+            continue;
+        }
+        if (found.schema === ANYTHING) continue;
+        if (isObject(found.schema) && (found.schema.type === 'object' || found.schema.type === 'array')) {
+            issues.push(`${at} reads ${rule.field}, which is a ${found.schema.type === 'array' ? 'list' : 'group of fields'}: a rule compares one value.`);
+            continue;
+        }
+        const values = fieldValues(found.schema);
+        if (values && !values.includes(rule.equals.trim())) {
+            issues.push(
+                `${at} asks whether ${rule.field} is "${rule.equals.trim()}", which it never is: it is one of ${values.map((v) => `"${v}"`).join(', ')}.`,
+            );
+        }
+    }
+    return issues;
+}
+
+/**
+ * The fields of the slots that reach a node which a Reply's rule can compare —
+ * a text, number or yes / no, not inside a list — each as a rule names it, with
+ * the values its schema lists, if any. For the inspector to offer.
+ */
+export function ruleFields(schemas: Schemas, held: Available): { field: string; values: string[] | null }[] {
+    const found: { field: string; values: string[] | null }[] = [];
+    const walk = (schema: unknown, path: string, depth: number): void => {
+        if (!isObject(schema) || opaque(schema) || depth > 5) return;
+        if (schema.type === 'array' || 'items' in schema) return;
+        if (schema.type === 'object' || isObject(schema.properties)) {
+            const properties = isObject(schema.properties) ? schema.properties : {};
+            for (const [name, field] of Object.entries(properties)) walk(field, `${path}.${name}`, depth + 1);
+            return;
+        }
+        found.push({field: path, values: fieldValues(schema)});
+    };
+    for (const [slot, type] of held) {
+        if (type.kind !== 'json') continue;
+        try {
+            walk(resolveSchema(schemas, type.schema), slot, 0);
+        } catch {
+            // A schema that cannot be filled in has nothing to offer.
+        }
+    }
+    return found;
 }
 
 /** Slot name → its type, as guaranteed on arrival at a node. */
@@ -563,6 +829,11 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         }
         const schemaIssue = nodeSchemaIssue(schemas, node);
         if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
+        if (node.config.kind === 'reply') {
+            for (const message of replyIssues(node, node.config, schemas, held)) {
+                issues.push({nodeId: node.id, severity: 'error', message});
+            }
+        }
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
         if ('models' in node.config && !takesJev(node.kind)) {
             const on = modelsInTurn(node.config.models);
@@ -713,6 +984,16 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 allowFileSystem: false,
                 mcpTools: [],
             };
+        case 'reply':
+            return {
+                kind,
+                template: '',
+                rules: [],
+                otherwise: {reply: true, section: ''},
+                signature: '',
+                replyAll: false,
+                output: 'reply',
+            };
         case 'terminal':
             return {kind, disposition: 'done'};
     }
@@ -728,6 +1009,8 @@ function defaultNodeName(kind: NodeKind): string {
             return 'Extract';
         case 'processor':
             return 'Process';
+        case 'reply':
+            return 'Reply';
         case 'terminal':
             return 'Done';
     }
@@ -754,6 +1037,11 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         label: 'Processor',
         blurb: 'Runs Claude with the skills you assign, scoped to this email.',
         token: 'processor',
+    },
+    reply: {
+        label: 'Reply',
+        blurb: 'Drafts a reply from a template email, its section picked by rules on earlier data. Runs no model.',
+        token: 'reply',
     },
     terminal: {
         label: 'Terminal',
@@ -847,6 +1135,15 @@ function schemaOf(value: unknown): JsonSchema {
     return name === null ? {} : schemaRef(name);
 }
 
+/**
+ * A Reply's choice. With `reply` left out, `fallback` decides: a rule's falls to
+ * no reply, so a row written without saying which never drafts by mistake.
+ */
+function replyChoice(value: unknown, fallback: ReplyChoice): ReplyChoice {
+    const from = isObject(value) ? value : {};
+    return {reply: bool(from.reply, fallback.reply), section: str(from.section, fallback.section)};
+}
+
 /** One of a node's models. */
 function modelChoice(from: Json): ModelChoice {
     return {model: str(from.model, ''), effort: str(from.effort, ''), enabled: bool(from.enabled, true)};
@@ -932,6 +1229,24 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
+            };
+        }
+        case 'reply': {
+            const output = str(from.output, '');
+            return {
+                ...base,
+                template: str(from.template, base.template),
+                rules: (Array.isArray(from.rules) ? from.rules : []).filter(isObject).map(
+                    (rule): ReplyRule => ({
+                        field: str(rule.field, '').trim(),
+                        equals: str(rule.equals, ''),
+                        ...replyChoice(rule, {reply: false, section: ''}),
+                    }),
+                ),
+                otherwise: replyChoice(from.otherwise, base.otherwise),
+                signature: str(from.signature, base.signature),
+                replyAll: bool(from.replyAll, base.replyAll),
+                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
             };
         }
         case 'terminal':

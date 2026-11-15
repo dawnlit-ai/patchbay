@@ -23,6 +23,10 @@ import {
     type ProcessorConfig,
     provides,
     refName,
+    type ReplyChoice,
+    type ReplyConfig,
+    type ReplyRule,
+    ruleFields,
     schemaRef,
     type Schemas,
     shortId,
@@ -1322,6 +1326,195 @@ function InputsField({
     );
 }
 
+/** What a rule, or Otherwise, makes the node do: draft nothing, or the template with a section. */
+function ReplyChoiceFields({choice, onChange}: {
+    choice: ReplyChoice;
+    onChange(next: ReplyChoice): void
+}): JSX.Element {
+    return (
+        <div className="row">
+            <span className="rule-word fixed">→</span>
+            <select
+                className="fixed"
+                value={choice.reply ? 'reply' : 'none'}
+                onChange={(e) => onChange({...choice, reply: e.target.value === 'reply'})}
+            >
+                <option value="reply">Reply</option>
+                <option value="none">No reply</option>
+            </select>
+            {choice.reply && (
+                <input
+                    value={choice.section}
+                    placeholder="section, if the template has them"
+                    spellCheck={false}
+                    onChange={(e) => onChange({...choice, section: e.target.value})}
+                />
+            )}
+        </div>
+    );
+}
+
+function ReplyFields({
+                         nodeId,
+                         config,
+                         patch,
+                         available,
+                         shelf,
+                     }: Section<ReplyConfig> & SchemaProps & {
+    nodeId: string;
+    available: Available | undefined;
+}): JSX.Element {
+    // A draft, so a half-typed name is never saved in place of the last good one.
+    const [output, setOutput] = useState(config.output);
+    const outputProblem = slotNameProblem(output);
+
+    const fields = available ? ruleFields(shelf.schemas, available) : [];
+    const valuesOf = (field: string): string[] | null => fields.find((f) => f.field === field.trim())?.values ?? null;
+    const fieldList = `reply-fields-${nodeId}`;
+
+    const {rules} = config;
+    const replace = (index: number, rule: Partial<ReplyRule>): void =>
+        patch({rules: rules.map((r, j) => (j === index ? {...r, ...rule} : r))});
+    const move = (index: number, by: number): void => {
+        const next = [...rules];
+        const [rule] = next.splice(index, 1);
+        if (rule) next.splice(index + by, 0, rule);
+        patch({rules: next});
+    };
+
+    let rulesHint =
+        'Read top to bottom: the first rule whose field holds its value decides. A field is a slot an earlier node filled and the path into it, such as quote.reply.';
+    if (!available) rulesHint = 'Connect this node to a trigger to see which fields reach it.';
+
+    return (
+        <>
+            <Field
+                label="Template"
+                hint="The subject of a template email in this mailbox’s Templates folder. One template can hold several replies, each between [[SECTION]] and [[/SECTION]]."
+            >
+                <input
+                    value={config.template}
+                    placeholder="RateReply"
+                    spellCheck={false}
+                    onChange={(e) => patch({template: e.target.value})}
+                />
+            </Field>
+
+            <Legend label="Which reply" hint={rulesHint}/>
+            <datalist id={fieldList}>
+                {fields.map((f) => (
+                    <option key={f.field} value={f.field}/>
+                ))}
+            </datalist>
+            {rules.map((rule, i) => {
+                const values = valuesOf(rule.field);
+                const valueList = `${fieldList}-${i}`;
+                return (
+                    <div key={i} className="card">
+                        <div className="row">
+                            <input
+                                value={rule.field}
+                                list={fieldList}
+                                placeholder="slot.field"
+                                aria-label={`Rule ${i + 1}: field`}
+                                spellCheck={false}
+                                onChange={(e) => replace(i, {field: e.target.value})}
+                            />
+                            <span className="field-tools fixed">
+                                <button className="ghost icon" title="Move up" disabled={i === 0}
+                                        onClick={() => move(i, -1)}>
+                                    ↑
+                                </button>
+                                <button
+                                    className="ghost icon"
+                                    title="Move down"
+                                    disabled={i === rules.length - 1}
+                                    onClick={() => move(i, 1)}
+                                >
+                                    ↓
+                                </button>
+                                <button
+                                    className="ghost icon remove"
+                                    title={`Remove rule ${i + 1}`}
+                                    onClick={() => patch({rules: rules.filter((_, j) => j !== i)})}
+                                >
+                                    ✕
+                                </button>
+                            </span>
+                        </div>
+                        <div className="row">
+                            <span className="rule-word fixed">is</span>
+                            <input
+                                value={rule.equals}
+                                list={values ? valueList : undefined}
+                                placeholder={values ? values.join(' / ') : 'value'}
+                                aria-label={`Rule ${i + 1}: value`}
+                                spellCheck={false}
+                                onChange={(e) => replace(i, {equals: e.target.value})}
+                            />
+                            {values && (
+                                <datalist id={valueList}>
+                                    {values.map((v) => (
+                                        <option key={v} value={v}/>
+                                    ))}
+                                </datalist>
+                            )}
+                        </div>
+                        <ReplyChoiceFields choice={rule} onChange={(choice) => replace(i, choice)}/>
+                    </div>
+                );
+            })}
+            <button onClick={() => patch({rules: [...rules, {field: '', equals: '', reply: false, section: ''}]})}>
+                + Add rule
+            </button>
+
+            <div className="gap"/>
+            <Legend label="Otherwise" hint="When no rule matches."/>
+            <ReplyChoiceFields choice={config.otherwise} onChange={(otherwise) => patch({otherwise})}/>
+
+            <div className="gap"/>
+            <Field
+                label="Signature"
+                hint="An Outlook signature by its name, put in the template’s {{SIGNATURE}}, or below its text. Blank for none."
+            >
+                <input
+                    value={config.signature}
+                    placeholder="(none)"
+                    onChange={(e) => patch({signature: e.target.value})}
+                />
+            </Field>
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.replyAll}
+                    onChange={(e) => patch({replyAll: e.target.checked})}
+                />
+                Reply to everyone on the email, not only its sender
+            </label>
+
+            <Field
+                label="Output slot"
+                hint={outputProblem ?? 'Later nodes read whether a reply was drafted, and why, by this name.'}
+            >
+                <input
+                    value={output}
+                    onChange={(e) => {
+                        setOutput(e.target.value);
+                        if (!slotNameProblem(e.target.value)) patch({output: e.target.value});
+                    }}
+                />
+            </Field>
+
+            <div className="hint">
+                It only drafts: the reply waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of
+                each
+                draft it makes, so a second run over the same email drafts no second reply.
+            </div>
+            <div className="gap"/>
+        </>
+    );
+}
+
 function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
     return (
         <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
@@ -1475,6 +1668,10 @@ export function Inspector({
             {config.kind === 'processor' && (
                 <ProcessorFields key={node.id} config={config} patch={patch} library={library}
                                  available={available} shelf={shelf}/>
+            )}
+            {config.kind === 'reply' && (
+                <ReplyFields key={node.id} nodeId={node.id} config={config} patch={patch}
+                             available={available} shelf={shelf}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

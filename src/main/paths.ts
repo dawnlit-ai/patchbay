@@ -176,17 +176,26 @@ export const flowFileNamed = (name: string): string => join(flowsDirAt(), `${saf
 
 // ── The app's own data ───────────────────────────────────────────────────
 
+/** The open workspace as a file name: its folder's name and a hash of its path, so two of one name stay apart. */
+function workspaceKey(): string {
+    const root = workspaceRoot();
+    const tag = createHash('sha256').update(folded(root)).digest('hex').slice(0, 8);
+    return `${toFolderName(basename(root), 'workspace')}-${tag}`;
+}
+
 /**
  * Each workspace's runs are kept apart, in a folder named for it, so the runs
  * panel shows the open one's. They stay in the app's data rather than the
  * workspace: a trace holds the mail it handled, and a workspace may be a git
  * repository.
  */
-export const runsDir = (): string => {
-    const root = workspaceRoot();
-    const tag = createHash('sha256').update(folded(root)).digest('hex').slice(0, 8);
-    return ensure('runs', `${toFolderName(basename(root), 'workspace')}-${tag}`);
-};
+export const runsDir = (): string => ensure('runs', workspaceKey());
+/**
+ * The replies each workspace's Reply nodes drafted, one JSONL file a workspace.
+ * Beside its runs rather than among them, so clearing the runs does not forget
+ * which emails already have a reply.
+ */
+export const repliesFile = (): string => join(ensure('replies'), `${workspaceKey()}.jsonl`);
 /** Per-run scratch space — saved attachments, files a skill writes. */
 export const runScratchDir = (runId: string): string => ensureAt(join(runsDir(), safeSegment(runId) + '.files'));
 export const settingsFile = (): string => join(dataRoot(), 'settings.json');

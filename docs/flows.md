@@ -27,6 +27,9 @@ of concurrent activity.
   *Error*. Give it an output slot and one of the workspace's schemas and its result fills that slot on *Done*, so a
   long job can be split into steps that each hand their work to the next — and a run that stops shows which step it
   stopped at.
+- **Reply** — drafts a reply to the email from a template email in the mailbox, choosing the template's section by
+  [rules](#replies) on what earlier steps found. It runs no model. It leaves by *Drafted*, by *No reply* when its rules
+  say none, or when this email already has one, or by *Error*.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -36,6 +39,46 @@ fire fifty runs for last week's inbox.
 A Categorizer, Extractor or Processor can run on more than one model, each a fallback for the one before. See
 [Models and agents](models.md).
 
+## Replies
+
+Many flows end the same way: thank the sender, or confirm receipt, in wording the office has already written. A
+**Reply** does that without a model, so it costs nothing to run and gives the same answer every time.
+
+Its **template** is the subject of an email saved in the mailbox's `Templates` folder. One template can hold several
+replies around a shared greeting and signature, each between `[[SECTION]]` and `[[/SECTION]]` markers, such as
+`[[QUOTE]]…[[/QUOTE]]` and `[[NOQUOTE]]…[[/NOQUOTE]]`; a template without them is replied with whole. A *Signature*
+names an Outlook signature, which goes in the template's `{{SIGNATURE}}`, or below its text when it has none. *Reply
+to everyone* widens the reply from the sender to everyone on the email.
+
+Which reply, if any, is decided by its **rules**, read top to bottom. Each names a field — a slot an earlier node
+filled and the path into it, such as `quote.reply` or `placement.answering.kind` — the value that makes it match, and
+what follows: *No reply*, or *Reply* with a section. The first rule whose field holds its value decides; *Otherwise*
+decides when none does. The rate-replies flow's Acknowledge, for one:
+
+| Field                      | is         | →                |
+|----------------------------|------------|------------------|
+| `placement.logged_before`  | `true`     | No reply         |
+| `quote.reply`              | `offer`    | No reply         |
+| `placement.answering.kind` | `thanks`   | No reply         |
+| `quote.reply`              | `quote`    | Reply, `QUOTE`   |
+| `quote.reply`              | `no-quote` | Reply, `NOQUOTE` |
+| *Otherwise*                |            | No reply         |
+
+Each rule is checked against the schema of the slot it reads, so the canvas flags a field that schema lacks, a
+value it never holds — one outside a field's *One of a list*, or other than `true` or `false` for a *Yes / no* — and a
+slot not every path fills. The field box offers the fields that reach the node, and the value box a field's choices.
+
+A template the Reply cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a signature Outlook
+doesn't have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
+
+Whether it drafted or not, a Reply fills its **output slot** with what happened — `replied`, the `section`, who it
+went `to`, the draft's Outlook id and `why` — so the steps after it can say so.
+
+**It only drafts.** The reply waits in the mailbox's Drafts folder for a person to send. Patchbay records each draft a
+Reply makes, by the id Outlook gave it, in the app's data rather than the workspace. That record is how a second run
+over the same email — a re-run, or one after a later step failed — finds the reply already drafted and leaves by *No
+reply* without drafting another.
+
 ## Data on the wire
 
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
@@ -44,7 +87,7 @@ schema leaves by *Error* instead. A node adds slots and never takes one away, so
 step replies to it or files it.
 
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
-both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
+both. A Reply reads the slots its rules name. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
 it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor always
 reads the email, and any slots it ticks besides. The inspector's *Reads* list names the schema each slot carries
 beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.

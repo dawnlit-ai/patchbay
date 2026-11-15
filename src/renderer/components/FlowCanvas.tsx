@@ -193,6 +193,10 @@ function describe(node: FlowNode): string {
             return c.skills.length > 0
                 ? `skills: ${c.skills.join(', ')}`
                 : 'No skill assigned — instruction only';
+        case 'reply':
+            return c.template.trim()
+                ? `${c.template.trim()} · ${c.rules.length} rule${c.rules.length === 1 ? '' : 's'} · drafts only`
+                : 'No template yet';
         case 'terminal':
             return c.disposition;
     }

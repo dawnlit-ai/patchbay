@@ -1,0 +1,75 @@
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import type { EmailEnvelope } from '@shared/trace';
+import { repliesFile } from '../paths';
+
+/**
+ * Every reply a Reply node drafted in the open workspace, one JSON line each.
+ * Outlook has no mark a program can put on a draft on both platforms, so this is
+ * how the app knows a draft is its own: by the id Outlook gave it. It is also how
+ * a second run over the same email knows a reply is already drafted.
+ */
+
+/** The email a reply answers, as a later run finds it again: its entry id changes when it is filed. */
+export interface RepliedEmail {
+    senderEmail: string;
+    receivedTime: string;
+    subject: string;
+}
+
+export interface ReplyRecord {
+    /** When it was drafted. */
+    at: string;
+    runId: string;
+    flowId: string;
+    nodeId: string;
+    /** The mailbox the draft sits in. */
+    account: string;
+    /** Outlook's id for the draft; '' when Outlook could not tell it apart from another draft made in the same moment. */
+    draftEntryId: string;
+    to: string;
+    subject: string;
+    template: string;
+    section: string;
+    email: RepliedEmail;
+}
+
+export const repliedEmail = (email: EmailEnvelope): RepliedEmail => ({
+    senderEmail: email.senderEmail,
+    receivedTime: email.receivedTime,
+    subject: email.subject,
+});
+
+const sameEmail = (a: RepliedEmail, b: RepliedEmail): boolean =>
+    a.senderEmail.toLowerCase() === b.senderEmail.toLowerCase() &&
+    a.receivedTime === b.receivedTime &&
+    a.subject === b.subject;
+
+/** A torn final line (power loss mid-append) costs that record, not the list. */
+function parseRecord(line: string): ReplyRecord | null {
+    try {
+        return JSON.parse(line) as ReplyRecord;
+    } catch {
+        return null;
+    }
+}
+
+export function listReplies(): ReplyRecord[] {
+    const file = repliesFile();
+    if (!existsSync(file)) return [];
+    return readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map(parseRecord)
+        .filter((record) => record !== null);
+}
+
+/** The reply this node of this flow already drafted to `email`, newest first, if any. */
+export function findReply(flowId: string, nodeId: string, email: RepliedEmail): ReplyRecord | undefined {
+    return listReplies().findLast(
+        (record) => record.flowId === flowId && record.nodeId === nodeId && sameEmail(record.email, email),
+    );
+}
+
+export function recordReply(record: ReplyRecord): void {
+    appendFileSync(repliesFile(), JSON.stringify(record) + '\n', 'utf8');
+}

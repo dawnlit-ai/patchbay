@@ -55,6 +55,7 @@
     --k-categorizer: #2563eb;
     --k-extractor: #0d9488;
     --k-processor: #7c3aed;
+    --k-reply: #db2777;
     --k-terminal: #64748b;
 
     /*
@@ -123,6 +124,7 @@
     --k-categorizer: #60a5fa;
     --k-extractor: #2dd4bf;
     --k-processor: #c084fc;
+    --k-reply: #f472b6;
     --k-terminal: #9aa0a6;
 
     --data-email: #38bdf8;
@@ -165,6 +167,10 @@ body {
 
 .kind-processor {
     --k: var(--k-processor);
+}
+
+.kind-reply {
+    --k: var(--k-reply);
 }
 
 .kind-terminal {
@@ -1998,6 +2004,15 @@ button.add-field:hover:not(:disabled) {
 /* The card's gap already separates it; its own margin would double the space. */
 .card .check {
     margin-bottom: 0;
+}
+
+/* A Reply rule's joining word ("is", "→"), between its controls. */
+.rule-word {
+    align-self: center;
+    min-width: 14px;
+    color: var(--dim);
+    font-size: 11.5px;
+    text-align: center;
 }
 
 /* A node's models, in the order its step tries them. */

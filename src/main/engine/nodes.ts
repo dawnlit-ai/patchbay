@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
     type CategorizerConfig,
+    decideReply,
     type ExtractorConfig,
     type FlowNode,
     type JsonSchema,
@@ -9,8 +10,12 @@ import {
     needsField,
     nodeSchemaIssue,
     type ProcessorConfig,
+    REPLIED_PORT,
+    type ReplyConfig,
+    type ReplyOutcome,
     resolveNode,
     type Schemas,
+    SKIPPED_PORT,
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
@@ -20,12 +25,15 @@ import type { ChoiceQuestion } from '../agents/decision';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { requireServer, usableServers } from '../store/mcpStore';
+import { findReply, recordReply, repliedEmail } from '../store/replyStore';
 import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
 
 /** What the engine hands a node, and what it expects back. */
 export interface NodeContext {
+    runId: string;
+    flowId: string;
     node: FlowNode;
     /** The workspace's named schemas, which the node's schema may refer to. */
     schemas: Schemas;
@@ -586,6 +594,111 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     return {outPort, summary, provided: {[config.output]: answer.data}};
 }
 
+// ── Reply ────────────────────────────────────────────────────────────────
+// No model: the rules pick the section, Outlook fills the template, and the
+// draft waits in Drafts for a person. Nothing here sends.
+
+const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+async function runReply(ctx: NodeContext, config: ReplyConfig): Promise<NodeOutcome> {
+    const decision = decideReply(config, ctx.data);
+    ctx.onEvent({at: now(), type: 'note', label: `Decided by ${decision.why}`, detail: decision.checked.join('\n')});
+
+    const handOn = (outcome: Partial<ReplyOutcome>): Record<string, unknown> => ({
+        [config.output]: {
+            replied: false,
+            section: '',
+            to: '',
+            draftEntryId: '',
+            why: decision.why,
+            ...outcome,
+        } satisfies ReplyOutcome,
+    });
+
+    if (!decision.choice.reply) {
+        return {outPort: SKIPPED_PORT, summary: `No reply — ${decision.why}`, provided: handOn({})};
+    }
+
+    const template = config.template.trim();
+    if (!template) {
+        const message = `${ctx.node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`;
+        return {outPort: 'error', summary: message, error: message};
+    }
+
+    // A second run over this email — a re-run, or one after a later step failed —
+    // finds the draft the first one made, and makes none of its own.
+    const email = repliedEmail(ctx.email);
+    const earlier = findReply(ctx.flowId, ctx.node.id, email);
+    if (earlier) {
+        const why = `a reply to this email was already drafted, ${earlier.at} (run ${earlier.runId}), to ${earlier.to}`;
+        return {outPort: SKIPPED_PORT, summary: `No second reply — ${why}`, provided: handOn({why})};
+    }
+
+    const {section} = decision.choice;
+    const signature = config.signature.trim();
+    let result;
+    try {
+        result = await outlook.draftReply(ctx.email.ref, {
+            templateSubject: template,
+            ...(section ? {templateSection: section} : {}),
+            ...(signature ? {signatureName: signature} : {}),
+            replyAll: config.replyAll,
+        });
+    } catch (e) {
+        // A missing template, section, placeholder or signature fails every
+        // email the same way until it is fixed in Outlook; the bridge says which.
+        const message = errorText(e);
+        return {outPort: 'error', summary: `Could not draft the reply: ${message}`, error: message};
+    }
+
+    const from = `template ${template}${section ? ` [${section}]` : ''}`;
+    ctx.onEvent({
+        at: now(),
+        type: 'outlook',
+        label: `draft_reply → ${result.to} from ${from}`,
+        detail: [
+            `Subject: ${result.subject}`,
+            `Original sender: ${result.repliedToSender}`,
+            `Signature: ${signature || '(none)'}`,
+            `Reply all: ${config.replyAll ? 'yes' : 'no'}`,
+            `Draft id: ${result.draftEntryId || '(Outlook did not say)'}`,
+        ].join('\n'),
+    });
+
+    try {
+        recordReply({
+            at: now(),
+            runId: ctx.runId,
+            flowId: ctx.flowId,
+            nodeId: ctx.node.id,
+            account: ctx.email.ref.account,
+            draftEntryId: result.draftEntryId,
+            to: result.to,
+            subject: result.subject,
+            template,
+            section,
+            email,
+        });
+    } catch (e) {
+        // The draft is there, so the step still drafted: failing it would invite
+        // a re-run, and with nothing recorded, a second draft.
+        ctx.onEvent({
+            at: now(),
+            type: 'error',
+            label: 'Drafted, but could not record the draft: a re-run would draft a second one',
+            detail: errorText(e),
+        });
+    }
+
+    const signed = signature ? ` · signed ${signature}` : '';
+    const everyone = config.replyAll ? ' · reply all' : '';
+    return {
+        outPort: REPLIED_PORT,
+        summary: `${section || template} drafted to ${result.to}${signed}${everyone}`,
+        provided: handOn({replied: true, section, to: result.to, draftEntryId: result.draftEntryId}),
+    };
+}
+
 // ── Terminal ─────────────────────────────────────────────────────────────
 
 function runTerminal(config: TerminalConfig): NodeOutcome {
@@ -608,6 +721,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runExtractor(ctx, config);
         case 'processor':
             return runProcessor(ctx, config);
+        case 'reply':
+            return runReply(ctx, config);
         case 'terminal':
             return runTerminal(config);
     }
