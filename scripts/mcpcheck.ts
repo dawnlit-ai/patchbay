@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { ReplyConfig, ReplyOutcome } from '../src/shared/flow';
+import type { FlowNode, ReplyConfig, ReplyOutcome, SwitchConfig } from '../src/shared/flow';
 import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
 import type { EmailEnvelope } from '../src/shared/trace';
@@ -1232,6 +1232,150 @@ async function main(): Promise<void> {
     } else {
         check('an email already replied to gets no second draft', false, 'the record was not found, so it was not run');
     }
+
+    // A Switch decides as a Reply does, but by sending the email down a route
+    // of its own rather than drafting: each route is a port.
+    const {decideSwitch, parseFlow} = await import('../src/shared/flow');
+    const switchAdded = await call('add_node', {flowId: thanks, kind: 'switch'});
+    const switcher = (JSON.parse(switchAdded) as { id: string }).id;
+    check(
+        'a new switch has a port for each route, and one for otherwise',
+        switchAdded.includes('"port": "route:a"') && switchAdded.includes('"port": "route:b"') &&
+        switchAdded.includes('"port": "otherwise"'),
+    );
+    const parked = (JSON.parse(await call('add_node', {flowId: thanks, kind: 'terminal'})) as { id: string }).id;
+    await call('connect', {flowId: thanks, from: reader, port: 'valid', to: switcher});
+    await call('connect', {flowId: thanks, from: switcher, port: 'route:a', to: parked});
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: switcher,
+        config: {
+            rules: [
+                {field: 'verdict.replly', equals: 'offer', route: 'a'},
+                {field: 'verdict.reply', equals: 'quote', route: 'gone'},
+            ],
+        },
+    });
+    const switchFlagged = JSON.parse(await call('get_flow', {flowId: thanks})) as {
+        slotIssues: { nodeId: string; severity: string; message: string }[];
+    };
+    const switchIssues = switchFlagged.slotIssues.filter((i) => i.nodeId === switcher);
+    check(
+        'a switch’s rule is checked against its slot’s schema as a reply’s is',
+        switchIssues.some((i) => i.severity === 'error' && i.message.includes('reads verdict.replly, but Verdict has no field replly')),
+    );
+    check(
+        'a rule sent down a route the switch lacks is flagged',
+        switchIssues.some((i) => i.severity === 'error' && i.message.includes('rule 2 leads nowhere')),
+    );
+    check(
+        'a route no rule leads to is pointed out, but does not stop the flow',
+        switchIssues.some((i) => i.severity === 'warning' && i.message.includes('leads to Route B')),
+    );
+
+    const rerouted = JSON.parse(
+        await call('update_node', {
+            flowId: thanks,
+            nodeId: switcher,
+            config: {
+                routes: [
+                    {id: 'quote', label: 'Quote'},
+                    {id: 'noquote', label: 'No quote'},
+                    {id: 'skip', label: 'Skip'},
+                ],
+                rules: [
+                    {field: 'verdict.seen', equals: 'true', route: 'skip'},
+                    {field: 'verdict.reply', equals: 'offer', route: 'skip'},
+                    {field: 'verdict.answering.kind', equals: 'thanks', route: 'skip'},
+                    {field: 'verdict.reply', equals: 'quote', route: 'quote'},
+                    {field: 'verdict.reply', equals: 'no-quote', route: 'noquote'},
+                ],
+            },
+        }),
+    ) as { node: { config: SwitchConfig; outputs: { port: string }[] }; droppedEdges: number };
+    check(
+        'renaming its routes moves its ports, and drops the edge left on the old one',
+        rerouted.droppedEdges === 1 &&
+        rerouted.node.outputs.map((o) => o.port).join(',') === 'route:quote,route:noquote,route:skip,otherwise',
+    );
+    const switchClean = JSON.parse(await call('get_flow', {flowId: thanks})) as { slotIssues: { nodeId: string }[] };
+    check('a switch whose rules fit, and whose routes each have one, is not flagged',
+        !switchClean.slotIssues.some((i) => i.nodeId === switcher));
+
+    const routes = rerouted.node.config;
+    const routed = (slots: Record<string, unknown>) => decideSwitch(routes, slots);
+    check('the first rule that matches picks the route', routed(verdict('quote', true)).port === 'route:skip');
+    check('a later rule picks it when the ones above miss', routed(verdict('quote', false)).port === 'route:quote');
+    check('several rules can lead to one route', routed(verdict('offer', false)).port === 'route:skip');
+    check('a path into a group is followed', routed(verdict('quote', false, 'thanks')).port === 'route:skip');
+    const unmatched = routed({});
+    check('an email no rule matches leaves by otherwise, saying so',
+        unmatched.port === 'otherwise' && unmatched.why === 'no rule matched');
+
+    // Run as the engine runs it: it reaches neither Outlook nor a model.
+    const switchNode = getFlow(thanks)?.nodes.find((n) => n.id === switcher);
+    const switchRun = (node: FlowNode, slots: Record<string, unknown>) =>
+        executeNode({
+            runId: 'check-run',
+            flowId: thanks,
+            node,
+            schemas: {},
+            email: answered,
+            data: slots,
+            scratchDir: join(data, 'switch-check'),
+            signal: new AbortController().signal,
+            onEvent: () => {
+            },
+            onLive: () => {
+            },
+        });
+    if (switchNode?.config.kind === 'switch') {
+        const went = await switchRun(switchNode, verdict('quote', false));
+        check(
+            'a switch leaves by the route its rule picked, and says which rule',
+            went.outPort === 'route:quote' && went.summary === 'Quote — rule 4: verdict.reply is "quote"' && !went.error,
+        );
+        const config = switchNode.config;
+        const orphaned = await switchRun(
+            {...switchNode, config: {...config, routes: config.routes.filter((r) => r.id !== 'quote')}},
+            verdict('quote', false),
+        );
+        check(
+            'a rule leading to a route since removed stops the run rather than guessing',
+            orphaned.outPort === null && orphaned.error?.includes('leads to no route') === true,
+        );
+    } else {
+        check('a switch leaves by the route its rule picked, and says which rule', false, 'the switch was not saved');
+    }
+
+    // A flow file written by hand: routes keep their ids, a repeat gets a new one,
+    // and a list left empty stays empty.
+    const handWritten = parseFlow(
+        {
+            nodes: [
+                {
+                    id: 's1',
+                    kind: 'switch',
+                    config: {
+                        routes: [{id: 'x', label: 'X'}, {id: 'x', label: 'Also X'}, {label: 'Unnamed'}],
+                        rules: [{field: ' verdict.reply ', equals: 'quote', route: 'x'}],
+                    },
+                },
+                {id: 's2', kind: 'switch', config: {routes: []}},
+                {id: 's3', kind: 'switch'},
+            ],
+        },
+        'hand',
+        'Hand',
+    );
+    const [s1, s2, s3] = handWritten.nodes.map((n) => (n.config.kind === 'switch' ? n.config : null));
+    check(
+        'a hand-written switch’s routes keep distinct ids, and its rules their route',
+        s1?.routes.map((r) => r.id).join(',') === 'x,x-2,r3' && s1.rules[0]?.route === 'x' &&
+        s1.rules[0]?.field === 'verdict.reply',
+    );
+    check('a switch with its routes left empty keeps none, and one with no list gets the defaults',
+        s2?.routes.length === 0 && s3?.routes.length === 2);
     await call('delete_flow', {flowId: thanks});
     await call('delete_schema', {name: 'Verdict'});
 

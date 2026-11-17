@@ -16,6 +16,8 @@ of concurrent activity.
   says why. Every model answers as TypeSafe AI's Jev does — a probability for each branch, *Unmatched* included — and
   the email leaves by the most likely one. The run's trace shows the whole answer. A Categorizer can run on
   [Jev](models.md#jev) itself, which gives no reason.
+- **Switch** — an if/else written as [rules](#switches) on what earlier steps found, with no model. Each of its routes
+  is a port; the first rule that matches picks one, and an email no rule matches leaves by *Otherwise*.
 - **Extractor** — pulls fields out of the email (and its attachments, if you let it) into the [workspace
   schema](#named-schemas) it names, and puts the result in a named slot. It leaves by *Valid* when every required
   field was in the email and the result matches the schema, by *Incomplete* when something is missing or wrong, or by
@@ -39,6 +41,35 @@ fire fifty runs for last week's inbox.
 A Categorizer, Extractor or Processor can run on more than one model, each a fallback for the one before. See
 [Models and agents](models.md).
 
+## Switches
+
+A Categorizer decides from what the email says. Often an earlier step has already decided — an Extractor's
+`quote.reply`, a Processor's `placement.logged_before` — and all that is left is to send the email the right way. A
+**Switch** does that with no model, so it costs nothing to run and the same data always takes the same route.
+
+Its **routes** are its ways out, each a port of its own, named as you like. Its **rules**, read top to bottom, each name
+a field — a slot an earlier node filled and the path into it, such as `quote.reply` or `placement.answering.kind` — the
+value that makes it match, and the route it sends the email down. The first rule whose field holds its value decides;
+an email no rule matches leaves by *Otherwise*. The rate-replies flow's choice of reply, as a Switch with the routes
+*Quote*, *No quote* and *Skip*:
+
+| Field                      | is         | →        |
+|----------------------------|------------|----------|
+| `placement.logged_before`  | `true`     | Skip     |
+| `quote.reply`              | `offer`    | Skip     |
+| `placement.answering.kind` | `thanks`   | Skip     |
+| `quote.reply`              | `quote`    | Quote    |
+| `quote.reply`              | `no-quote` | No quote |
+
+Several rules can lead to one route. A Switch does nothing to the email and fills no slot; the run's trace records how
+each rule read and which one decided.
+
+Each rule is checked against the schema of the slot it reads, so the canvas flags a field that schema lacks, a value it
+never holds — one outside a field's *One of a list*, or other than `true` or `false` for a *Yes / no* — a group
+compared as one value, and a slot not every path fills. The field box offers the fields that reach the node, and the
+value box a field's choices. A rule left leading to a route since removed is flagged too, and a route no rule leads to
+is pointed out, since no email can leave by it.
+
 ## Replies
 
 Many flows end the same way: thank the sender, or confirm receipt, in wording the office has already written. A
@@ -50,9 +81,8 @@ replies around a shared greeting and signature, each between `[[SECTION]]` and `
 names an Outlook signature, which goes in the template's `{{SIGNATURE}}`, or below its text when it has none. *Reply
 to everyone* widens the reply from the sender to everyone on the email.
 
-Which reply, if any, is decided by its **rules**, read top to bottom. Each names a field — a slot an earlier node
-filled and the path into it, such as `quote.reply` or `placement.answering.kind` — the value that makes it match, and
-what follows: *No reply*, or *Reply* with a section. The first rule whose field holds its value decides; *Otherwise*
+Which reply, if any, is decided by its **rules**, written and checked as a [Switch's](#switches) are, each ending in
+*No reply*, or *Reply* with a section. The first rule whose field holds its value decides; *Otherwise*
 decides when none does. The rate-replies flow's Acknowledge, for one:
 
 | Field                      | is         | →                |
@@ -63,10 +93,6 @@ decides when none does. The rate-replies flow's Acknowledge, for one:
 | `quote.reply`              | `quote`    | Reply, `QUOTE`   |
 | `quote.reply`              | `no-quote` | Reply, `NOQUOTE` |
 | *Otherwise*                |            | No reply         |
-
-Each rule is checked against the schema of the slot it reads, so the canvas flags a field that schema lacks, a
-value it never holds — one outside a field's *One of a list*, or other than `true` or `false` for a *Yes / no* — and a
-slot not every path fills. The field box offers the fields that reach the node, and the value box a field's choices.
 
 A template the Reply cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a signature Outlook
 doesn't have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
@@ -87,7 +113,7 @@ schema leaves by *Error* instead. A node adds slots and never takes one away, so
 step replies to it or files it.
 
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
-both. A Reply reads the slots its rules name. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
+both. A Switch or a Reply reads the slots its rules name. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
 it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor always
 reads the email, and any slots it ticks besides. The inspector's *Reads* list names the schema each slot carries
 beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.

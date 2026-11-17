@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
     type CategorizerConfig,
     decideReply,
+    decideSwitch,
     type ExtractorConfig,
     type FlowNode,
     type JsonSchema,
@@ -9,6 +10,7 @@ import {
     modelsInTurn,
     needsField,
     nodeSchemaIssue,
+    outputPorts,
     type ProcessorConfig,
     REPLIED_PORT,
     type ReplyConfig,
@@ -16,6 +18,7 @@ import {
     resolveNode,
     type Schemas,
     SKIPPED_PORT,
+    type SwitchConfig,
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
@@ -256,6 +259,22 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
             ? `${named(answer.choice)} — ${answer.reason}`
             : [named(answer.choice), runnerUp && `then ${named(runnerUp)}`].filter(Boolean).join(', '),
     };
+}
+
+// ── Switch ───────────────────────────────────────────────────────────────
+// No model and nothing done to the email: the rules pick the way on.
+
+function runSwitch(ctx: NodeContext, config: SwitchConfig): NodeOutcome {
+    const decision = decideSwitch(config, ctx.data);
+    ctx.onEvent({at: now(), type: 'note', label: `Decided by ${decision.why}`, detail: decision.checked.join('\n')});
+    const port = outputPorts(ctx.node).find((p) => p.id === decision.port);
+    if (!port) {
+        // A rule sent down a route since removed, which the canvas flags; a test
+        // run of a flow being drawn can still get here.
+        const message = `${ctx.node.name} decided by ${decision.why}, but that rule leads to no route ${ctx.node.name} has: pick one for it.`;
+        return {outPort: null, summary: message, error: message};
+    }
+    return {outPort: port.id, summary: `${port.label} — ${decision.why}`};
 }
 
 // ── Extractor ────────────────────────────────────────────────────────────
@@ -717,6 +736,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runTrigger(ctx.email);
         case 'categorizer':
             return runCategorizer(ctx, config);
+        case 'switch':
+            return runSwitch(ctx, config);
         case 'extractor':
             return runExtractor(ctx, config);
         case 'processor':

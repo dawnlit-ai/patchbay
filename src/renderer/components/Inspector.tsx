@@ -27,12 +27,14 @@ import {
     type ReplyConfig,
     type ReplyRule,
     ruleFields,
+    type RuleTest,
     schemaRef,
     type Schemas,
     shortId,
     SLOT_NAME,
     slotTypeLabel,
     startingModel,
+    type SwitchConfig,
     takesJev,
     type TerminalConfig,
     type TriggerConfig,
@@ -1354,53 +1356,52 @@ function ReplyChoiceFields({choice, onChange}: {
     );
 }
 
-function ReplyFields({
-                         nodeId,
-                         config,
-                         patch,
-                         available,
-                         shelf,
-                     }: Section<ReplyConfig> & SchemaProps & {
+/** How a node's rules are read, or why the fields they can name are not known yet. */
+const rulesHint = (available: Available | undefined): string =>
+    available
+        ? 'Read top to bottom: the first rule whose field holds its value decides. A field is a slot an earlier node filled and the path into it, such as quote.reply.'
+        : 'Connect this node to a trigger to see which fields reach it.';
+
+/**
+ * A table of rules, a Switch's or a Reply's, read top to bottom: each a field, the
+ * value it is compared with, and beneath them what `outcome` draws for where the
+ * rule leads. The field box offers the fields that reach the node, and the value
+ * box a field's choices.
+ */
+function RuleTable<R extends RuleTest>({
+                                           nodeId,
+                                           rules,
+                                           onChange,
+                                           outcome,
+                                           blank,
+                                           available,
+                                           schemas,
+                                       }: {
     nodeId: string;
+    rules: R[];
+    onChange(rules: R[]): void;
+    /** What the rule leads to, drawn beneath its test; `change` edits the rule. */
+    outcome(rule: R, change: (patch: Partial<R>) => void): JSX.Element;
+    /** A new rule, as + Add rule makes it. */
+    blank: R;
     available: Available | undefined;
+    schemas: Schemas;
 }): JSX.Element {
-    // A draft, so a half-typed name is never saved in place of the last good one.
-    const [output, setOutput] = useState(config.output);
-    const outputProblem = slotNameProblem(output);
-
-    const fields = available ? ruleFields(shelf.schemas, available) : [];
+    const fields = available ? ruleFields(schemas, available) : [];
     const valuesOf = (field: string): string[] | null => fields.find((f) => f.field === field.trim())?.values ?? null;
-    const fieldList = `reply-fields-${nodeId}`;
+    const fieldList = `rule-fields-${nodeId}`;
 
-    const {rules} = config;
-    const replace = (index: number, rule: Partial<ReplyRule>): void =>
-        patch({rules: rules.map((r, j) => (j === index ? {...r, ...rule} : r))});
+    const replace = (index: number, rule: Partial<R>): void =>
+        onChange(rules.map((r, j) => (j === index ? {...r, ...rule} : r)));
     const move = (index: number, by: number): void => {
         const next = [...rules];
         const [rule] = next.splice(index, 1);
         if (rule) next.splice(index + by, 0, rule);
-        patch({rules: next});
+        onChange(next);
     };
-
-    let rulesHint =
-        'Read top to bottom: the first rule whose field holds its value decides. A field is a slot an earlier node filled and the path into it, such as quote.reply.';
-    if (!available) rulesHint = 'Connect this node to a trigger to see which fields reach it.';
 
     return (
         <>
-            <Field
-                label="Template"
-                hint="The subject of a template email in this mailbox’s Templates folder. One template can hold several replies, each between [[SECTION]] and [[/SECTION]]."
-            >
-                <input
-                    value={config.template}
-                    placeholder="RateReply"
-                    spellCheck={false}
-                    onChange={(e) => patch({template: e.target.value})}
-                />
-            </Field>
-
-            <Legend label="Which reply" hint={rulesHint}/>
             <datalist id={fieldList}>
                 {fields.map((f) => (
                     <option key={f.field} value={f.field}/>
@@ -1418,7 +1419,7 @@ function ReplyFields({
                                 placeholder="slot.field"
                                 aria-label={`Rule ${i + 1}: field`}
                                 spellCheck={false}
-                                onChange={(e) => replace(i, {field: e.target.value})}
+                                onChange={(e) => replace(i, {field: e.target.value} as Partial<R>)}
                             />
                             <span className="field-tools fixed">
                                 <button className="ghost icon" title="Move up" disabled={i === 0}
@@ -1436,7 +1437,7 @@ function ReplyFields({
                                 <button
                                     className="ghost icon remove"
                                     title={`Remove rule ${i + 1}`}
-                                    onClick={() => patch({rules: rules.filter((_, j) => j !== i)})}
+                                    onClick={() => onChange(rules.filter((_, j) => j !== i))}
                                 >
                                     ✕
                                 </button>
@@ -1450,7 +1451,7 @@ function ReplyFields({
                                 placeholder={values ? values.join(' / ') : 'value'}
                                 aria-label={`Rule ${i + 1}: value`}
                                 spellCheck={false}
-                                onChange={(e) => replace(i, {equals: e.target.value})}
+                                onChange={(e) => replace(i, {equals: e.target.value} as Partial<R>)}
                             />
                             {values && (
                                 <datalist id={valueList}>
@@ -1460,13 +1461,139 @@ function ReplyFields({
                                 </datalist>
                             )}
                         </div>
-                        <ReplyChoiceFields choice={rule} onChange={(choice) => replace(i, choice)}/>
+                        {outcome(rule, (change) => replace(i, change))}
                     </div>
                 );
             })}
-            <button onClick={() => patch({rules: [...rules, {field: '', equals: '', reply: false, section: ''}]})}>
-                + Add rule
+            <button onClick={() => onChange([...rules, blank])}>+ Add rule</button>
+        </>
+    );
+}
+
+function SwitchFields({
+                          nodeId,
+                          config,
+                          patch,
+                          available,
+                          shelf,
+                      }: Section<SwitchConfig> & SchemaProps & {
+    nodeId: string;
+    available: Available | undefined;
+}): JSX.Element {
+    const {routes, rules} = config;
+    const rename = (index: number, label: string): void =>
+        patch({routes: routes.map((r, j) => (j === index ? {...r, label} : r))});
+    // A rule that led down the route removed is left leading nowhere, which the
+    // canvas flags, rather than quietly sent down another.
+    const remove = (index: number): void => {
+        const gone = routes[index]?.id;
+        patch({
+            routes: routes.filter((_, j) => j !== index),
+            rules: rules.map((rule) => (rule.route === gone ? {...rule, route: ''} : rule)),
+        });
+    };
+
+    return (
+        <>
+            <Legend
+                label="Routes"
+                hint="Each route is a port of its own. The email leaves by the route of the first rule that matches, or by Otherwise when none does."
+            />
+            {routes.map((route, i) => (
+                <div key={route.id} className="row">
+                    <input
+                        value={route.label}
+                        placeholder="Route name"
+                        aria-label={`Route ${i + 1}`}
+                        onChange={(e) => rename(i, e.target.value)}
+                    />
+                    <span className="field-tools fixed">
+                        <button
+                            className="ghost icon remove"
+                            title={`Remove ${route.label || 'this route'}`}
+                            onClick={() => remove(i)}
+                        >
+                            ✕
+                        </button>
+                    </span>
+                </div>
+            ))}
+            <button onClick={() => patch({routes: [...routes, {id: shortId(), label: 'New route'}]})}>
+                + Add route
             </button>
+
+            <div className="gap"/>
+            <Legend label="Rules" hint={rulesHint(available)}/>
+            <RuleTable
+                nodeId={nodeId}
+                rules={rules}
+                onChange={(next) => patch({rules: next})}
+                blank={{field: '', equals: '', route: routes[0]?.id ?? ''}}
+                available={available}
+                schemas={shelf.schemas}
+                outcome={(rule, change) => (
+                    <div className="row">
+                        <span className="rule-word fixed">→</span>
+                        <select value={rule.route} onChange={(e) => change({route: e.target.value})}>
+                            {!routes.some((r) => r.id === rule.route) && <option value={rule.route}>Pick a route</option>}
+                            {routes.map((r) => (
+                                <option key={r.id} value={r.id}>
+                                    {r.label || r.id}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+            />
+
+            <div className="gap"/>
+            <div className="hint">
+                It runs no model and does nothing to the email: it only picks the way on. When no rule matches, the email
+                leaves by Otherwise.
+            </div>
+            <div className="gap"/>
+        </>
+    );
+}
+
+function ReplyFields({
+                         nodeId,
+                         config,
+                         patch,
+                         available,
+                         shelf,
+                     }: Section<ReplyConfig> & SchemaProps & {
+    nodeId: string;
+    available: Available | undefined;
+}): JSX.Element {
+    // A draft, so a half-typed name is never saved in place of the last good one.
+    const [output, setOutput] = useState(config.output);
+    const outputProblem = slotNameProblem(output);
+
+    return (
+        <>
+            <Field
+                label="Template"
+                hint="The subject of a template email in this mailbox’s Templates folder. One template can hold several replies, each between [[SECTION]] and [[/SECTION]]."
+            >
+                <input
+                    value={config.template}
+                    placeholder="RateReply"
+                    spellCheck={false}
+                    onChange={(e) => patch({template: e.target.value})}
+                />
+            </Field>
+
+            <Legend label="Which reply" hint={rulesHint(available)}/>
+            <RuleTable<ReplyRule>
+                nodeId={nodeId}
+                rules={config.rules}
+                onChange={(rules) => patch({rules})}
+                blank={{field: '', equals: '', reply: false, section: ''}}
+                available={available}
+                schemas={shelf.schemas}
+                outcome={(rule, change) => <ReplyChoiceFields choice={rule} onChange={change}/>}
+            />
 
             <div className="gap"/>
             <Legend label="Otherwise" hint="When no rule matches."/>
@@ -1661,6 +1788,10 @@ export function Inspector({
 
             {config.kind === 'trigger.outlook' && <TriggerFields key={node.id} config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
+            {config.kind === 'switch' && (
+                <SwitchFields key={node.id} nodeId={node.id} config={config} patch={patch}
+                              available={available} shelf={shelf}/>
+            )}
             {config.kind === 'extractor' && (
                 <ExtractorFields key={node.id} config={config} patch={patch} library={library}
                                  available={available} shelf={shelf}/>

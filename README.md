@@ -24,6 +24,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
 - **Outlook Trigger** — polls the folders you tick through the real Outlook client, and starts one run per new email.
 - **Categorizer** — an if/else you write in prose. Claude picks exactly one branch, and says why. Jev, TypeSafe AI's
   model, can pick it instead, for a fraction of the cost but with no reason given.
+- **Switch** — an if/else written as rules on what earlier steps found. No model runs, and the same data always takes
+  the same branch.
 - **Extractor** — pulls fields out of the email into a workspace schema you pick, for later steps to read.
 - **Processor** — runs Claude with the workspace's [skills](docs/skills.md), the ones you tick first, holding tools
   scoped to this one email.

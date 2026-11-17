@@ -3,12 +3,20 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
-export type NodeKind = 'trigger.outlook' | 'categorizer' | 'extractor' | 'processor' | 'reply' | 'terminal';
+export type NodeKind = 'trigger.outlook' | 'categorizer' | 'switch' | 'extractor' | 'processor' | 'reply' | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
 // As values too, for the inspector to offer and the importer to check against.
-export const NODE_KINDS: NodeKind[] = ['trigger.outlook', 'categorizer', 'extractor', 'processor', 'reply', 'terminal'];
+export const NODE_KINDS: NodeKind[] = [
+    'trigger.outlook',
+    'categorizer',
+    'switch',
+    'extractor',
+    'processor',
+    'reply',
+    'terminal',
+];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
 
 /** One branch of a categorizer — the description is what the model matches on. */
@@ -81,6 +89,36 @@ export interface CategorizerConfig {
     /** Fetch the full body before classifying. Off = subject and preview only. */
     includeBody: boolean;
     bodyMaxChars: number;
+}
+
+/** The test a rule makes, as a Switch's and a Reply's tables write it: whether `field` holds `equals`. */
+export interface RuleTest {
+    /** A slot an earlier node filled and the path into it: `quote.reply`, `placement.answering.kind`. */
+    field: string;
+    /** The value that makes the rule match, as text: `offer`, `true`, `3`. */
+    equals: string;
+}
+
+/** One of a Switch's ways out: a port of its own, as a Categorizer's category is. */
+export interface SwitchRoute {
+    id: string;
+    label: string;
+}
+
+/** One row of a Switch's table: when its field holds its value, the email leaves by `route`. */
+export interface SwitchRule extends RuleTest {
+    /** The id of the route it leaves by. */
+    route: string;
+}
+
+/**
+ * Sends the email down one of its routes with no model: the first rule whose
+ * field holds its value decides, and the email leaves by Otherwise when none does.
+ */
+export interface SwitchConfig {
+    routes: SwitchRoute[];
+    /** Read top to bottom; the first whose field holds its value decides. */
+    rules: SwitchRule[];
 }
 
 export interface ExtractorConfig {
@@ -157,13 +195,8 @@ export interface ReplyChoice {
     section: string;
 }
 
-/** One row of a Reply's table: when `field` holds `equals`, this row's choice is made. */
-export interface ReplyRule extends ReplyChoice {
-    /** A slot an earlier node filled and the path into it: `quote.reply`, `placement.answering.kind`. */
-    field: string;
-    /** The value that makes the row match, as text: `offer`, `true`, `3`. */
-    equals: string;
-}
+/** One row of a Reply's table: when its field holds its value, this row's choice is made. */
+export type ReplyRule = RuleTest & ReplyChoice;
 
 /**
  * Drafts a reply to the email from a template email, with no model: which
@@ -192,6 +225,7 @@ export interface TerminalConfig {
 export type NodeConfig =
     | ({ kind: 'trigger.outlook' } & TriggerConfig)
     | ({ kind: 'categorizer' } & CategorizerConfig)
+    | ({ kind: 'switch' } & SwitchConfig)
     | ({ kind: 'extractor' } & ExtractorConfig)
     | ({ kind: 'processor' } & ProcessorConfig)
     | ({ kind: 'reply' } & ReplyConfig)
@@ -234,6 +268,12 @@ export interface Port {
 
 export const UNMATCHED_PORT = 'unmatched';
 
+/** A Switch's port for an email no rule matched. */
+export const OTHERWISE_PORT = 'otherwise';
+
+/** The port a Switch's route leaves by. */
+export const routePort = (routeId: string): string => `route:${routeId}`;
+
 /** A Reply's ports: a reply drafted on this run, and none drafted. */
 export const REPLIED_PORT = 'replied';
 export const SKIPPED_PORT = 'skipped';
@@ -248,6 +288,13 @@ export function outputPorts(node: FlowNode): Port[] {
                     (c): Port => ({id: `cat:${c.id}`, label: c.label || c.id, tone: 'match'}),
                 ),
                 {id: UNMATCHED_PORT, label: 'Unmatched', tone: 'fallback'},
+            ];
+        case 'switch':
+            return [
+                ...node.config.routes.map(
+                    (r): Port => ({id: routePort(r.id), label: r.label || r.id, tone: 'match'}),
+                ),
+                {id: OTHERWISE_PORT, label: 'Otherwise', tone: 'fallback'},
             ];
         case 'extractor':
             return [
@@ -534,7 +581,10 @@ export function requires(node: FlowNode): string[] {
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
         case 'reply':
-            return [EMAIL_SLOT.name, ...ruleSlots(node.config)];
+            return [EMAIL_SLOT.name, ...ruleSlots(node.config.rules)];
+        case 'switch':
+            // Its rules are all it reads: the email goes on past it untouched.
+            return ruleSlots(node.config.rules);
         case 'categorizer':
             return [EMAIL_SLOT.name];
         case 'terminal':
@@ -542,10 +592,10 @@ export function requires(node: FlowNode): string[] {
     }
 }
 
-// ── Replies ──────────────────────────────────────────────────────────────
-// A Reply decides with no model: its rules are a table over what earlier nodes
-// filled, checked against their schemas on the canvas so a typo cannot pass for
-// a rule that never matches.
+// ── Rules ────────────────────────────────────────────────────────────────
+// A Switch and a Reply decide with no model: their rules are a table over what
+// earlier nodes filled, checked against their schemas on the canvas so a typo
+// cannot pass for a rule that never matches.
 
 /** What a Reply fills its output slot with. */
 export interface ReplyOutcome {
@@ -582,9 +632,9 @@ function splitField(field: string): { slot: string; steps: string[] } {
     return {slot, steps};
 }
 
-/** The slots a Reply's rules read, each once. */
-function ruleSlots(config: ReplyConfig): string[] {
-    const slots = config.rules.map((rule) => splitField(rule.field).slot).filter(Boolean);
+/** The slots a table of rules reads, each once. */
+function ruleSlots(rules: RuleTest[]): string[] {
+    const slots = rules.map((rule) => splitField(rule.field).slot).filter(Boolean);
     return [...new Set(slots)];
 }
 
@@ -607,6 +657,45 @@ function valueAt(data: Readonly<Record<string, unknown>>, field: string): unknow
     return at;
 }
 
+/** How a table of rules read the run's data: the first rule that matched and why, if one did, and one line per rule read. */
+interface RuleMatch<R extends RuleTest> {
+    matched: { rule: R; why: string } | null;
+    /** One line per rule read, for the trace. */
+    checked: string[];
+}
+
+/** Reads `rules` top to bottom against `data`, stopping at the first whose field holds its value. */
+function matchRules<R extends RuleTest>(rules: R[], data: Readonly<Record<string, unknown>>): RuleMatch<R> {
+    const checked: string[] = [];
+    for (const [i, rule] of rules.entries()) {
+        const held = ruleText(valueAt(data, rule.field));
+        const matched = held !== null && held === rule.equals.trim();
+        checked.push(
+            `${i + 1}. ${rule.field} = "${rule.equals.trim()}"? ${held === null ? 'not there' : `it is "${held}"`}${matched ? ' — matched' : ''}`,
+        );
+        if (matched) return {matched: {rule, why: `rule ${i + 1}: ${rule.field} is "${held}"`}, checked};
+    }
+    return {matched: null, checked};
+}
+
+/** Why a table decided nothing. */
+const noMatch = (rules: RuleTest[]): string => (rules.length > 0 ? 'no rule matched' : 'it has no rules');
+
+/** A Switch's decision: the port it leaves by, the sentence that says why, and each rule's field as the run held it. */
+export interface SwitchDecision {
+    port: string;
+    why: string;
+    /** One line per rule read, for the trace. */
+    checked: string[];
+}
+
+/** Which way `data` sends the email through a Switch. The first rule whose field holds its value decides. */
+export function decideSwitch(config: SwitchConfig, data: Readonly<Record<string, unknown>>): SwitchDecision {
+    const {matched, checked} = matchRules(config.rules, data);
+    if (matched) return {port: routePort(matched.rule.route), why: matched.why, checked};
+    return {port: OTHERWISE_PORT, why: noMatch(config.rules), checked};
+}
+
 /** A Reply's decision: what it does, the sentence that says why, and each rule's field as the run held it. */
 export interface ReplyDecision {
     choice: ReplyChoice;
@@ -617,24 +706,14 @@ export interface ReplyDecision {
 
 /** Which of a Reply's choices `data` makes. The first rule whose field holds its value decides. */
 export function decideReply(config: ReplyConfig, data: Readonly<Record<string, unknown>>): ReplyDecision {
-    const checked: string[] = [];
-    for (const [i, rule] of config.rules.entries()) {
-        const held = ruleText(valueAt(data, rule.field));
-        const matched = held !== null && held === rule.equals.trim();
-        checked.push(
-            `${i + 1}. ${rule.field} = "${rule.equals.trim()}"? ${held === null ? 'not there' : `it is "${held}"`}${matched ? ' — matched' : ''}`,
-        );
-        if (matched) {
-            return {
-                choice: {reply: rule.reply, section: rule.section.trim()},
-                why: `rule ${i + 1}: ${rule.field} is "${held}"`,
-                checked,
-            };
-        }
+    const {matched, checked} = matchRules(config.rules, data);
+    if (matched) {
+        const {rule, why} = matched;
+        return {choice: {reply: rule.reply, section: rule.section.trim()}, why, checked};
     }
     return {
         choice: {reply: config.otherwise.reply, section: config.otherwise.section.trim()},
-        why: config.rules.length > 0 ? 'no rule matched' : 'it has no rules',
+        why: noMatch(config.rules),
         checked,
     };
 }
@@ -693,13 +772,10 @@ function ruleField(
     return {schema};
 }
 
-/** What is wrong with a Reply's configuration, said as sentences, given the slots that reach it. */
-function replyIssues(node: FlowNode, config: ReplyConfig, schemas: Schemas, held: Available): string[] {
+/** What is wrong with a node's table of rules, said as sentences, given the slots that reach it. */
+function ruleIssues(node: FlowNode, rules: RuleTest[], schemas: Schemas, held: Available): string[] {
     const issues: string[] = [];
-    if (!config.template.trim()) {
-        issues.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
-    }
-    for (const [i, rule] of config.rules.entries()) {
+    for (const [i, rule] of rules.entries()) {
         const at = `${node.name}’s rule ${i + 1}`;
         if (!rule.field.trim()) {
             issues.push(`${at} reads nothing: name a slot and a field in it, as quote.reply.`);
@@ -725,8 +801,48 @@ function replyIssues(node: FlowNode, config: ReplyConfig, schemas: Schemas, held
     return issues;
 }
 
+/** What is wrong with a Reply's configuration, said as sentences, given the slots that reach it. */
+function replyIssues(node: FlowNode, config: ReplyConfig, schemas: Schemas, held: Available): string[] {
+    const issues: string[] = [];
+    if (!config.template.trim()) {
+        issues.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
+    }
+    return [...issues, ...ruleIssues(node, config.rules, schemas, held)];
+}
+
 /**
- * The fields of the slots that reach a node which a Reply's rule can compare —
+ * What is wrong with a Switch's configuration, given the slots that reach it: its
+ * rules, checked as a Reply's are; a rule sent down a route it doesn't have; and,
+ * not enough to keep the flow from being watched, a route no rule leads to.
+ */
+function switchIssues(node: FlowNode, config: SwitchConfig, schemas: Schemas, held: Available): FlowIssue[] {
+    const issues: FlowIssue[] = ruleIssues(node, config.rules, schemas, held).map((message) => ({
+        nodeId: node.id,
+        severity: 'error',
+        message,
+    }));
+    const routes = new Set(config.routes.map((r) => r.id));
+    for (const [i, rule] of config.rules.entries()) {
+        if (routes.has(rule.route)) continue;
+        issues.push({
+            nodeId: node.id,
+            severity: 'error',
+            message: `${node.name}’s rule ${i + 1} leads nowhere: pick the route it sends the email down.`,
+        });
+    }
+    for (const route of config.routes) {
+        if (config.rules.some((rule) => rule.route === route.id)) continue;
+        issues.push({
+            nodeId: node.id,
+            severity: 'warning',
+            message: `No rule of ${node.name}’s leads to ${route.label || route.id}, so no email leaves by it.`,
+        });
+    }
+    return issues;
+}
+
+/**
+ * The fields of the slots that reach a node which a rule can compare —
  * a text, number or yes / no, not inside a list — each as a rule names it, with
  * the values its schema lists, if any. For the inspector to offer.
  */
@@ -834,6 +950,7 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
                 issues.push({nodeId: node.id, severity: 'error', message});
             }
         }
+        if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
         if ('models' in node.config && !takesJev(node.kind)) {
             const on = modelsInTurn(node.config.models);
@@ -955,6 +1072,15 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
+        case 'switch':
+            return {
+                kind,
+                routes: [
+                    {id: 'a', label: 'Route A'},
+                    {id: 'b', label: 'Route B'},
+                ],
+                rules: [],
+            };
         case 'extractor':
             return {
                 kind,
@@ -1005,6 +1131,8 @@ function defaultNodeName(kind: NodeKind): string {
             return 'Outlook Inbox';
         case 'categorizer':
             return 'Categorize';
+        case 'switch':
+            return 'Switch';
         case 'extractor':
             return 'Extract';
         case 'processor':
@@ -1027,6 +1155,11 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         label: 'Categorizer',
         blurb: 'Sorts the email down one branch by matching your descriptions.',
         token: 'categorizer',
+    },
+    switch: {
+        label: 'Switch',
+        blurb: 'Sends the email down one route by rules on what earlier nodes found. Runs no model.',
+        token: 'switch',
     },
     extractor: {
         label: 'Extractor',
@@ -1129,6 +1262,21 @@ const skillTicks = (value: unknown, fallback: string[]): string[] => [...new Set
 const oneOf = <T extends string>(value: unknown, allowed: T[], fallback: T): T =>
     allowed.includes(value as T) ? (value as T) : fallback;
 
+/**
+ * `wanted`, or it with a number after it, so that it is not yet in `taken`,
+ * which it then joins. A category's or a route's id names the port its edge
+ * leaves from, so no two of a node's may share one.
+ */
+function distinctId(taken: Set<string>, wanted: string): string {
+    let id = wanted;
+    for (let n = 2; taken.has(id); n++) id = `${wanted}-${n}`;
+    taken.add(id);
+    return id;
+}
+
+/** A rule's test, as a file writes it. */
+const ruleTest = (rule: Json): RuleTest => ({field: str(rule.field, '').trim(), equals: str(rule.equals, '')});
+
 /** A node's schema: the reference it names, or `{}` until it picks one. */
 function schemaOf(value: unknown): JsonSchema {
     const name = refName(value);
@@ -1180,23 +1328,41 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 processBacklogOnStart: bool(from.processBacklogOnStart, base.processBacklogOnStart),
             };
         case 'categorizer': {
-            // Ids name the ports edges leave from, so they have to stay distinct.
             const taken = new Set<string>();
             const categories = (Array.isArray(from.categories) ? from.categories : [])
                 .filter(isObject)
-                .map((c, i): Category => {
-                    const wanted = str(c.id, '') || `c${i + 1}`;
-                    let id = wanted;
-                    for (let n = 2; taken.has(id); n++) id = `${wanted}-${n}`;
-                    taken.add(id);
-                    return {id, label: str(c.label, ''), description: str(c.description, '')};
-                });
+                .map(
+                    (c, i): Category => ({
+                        id: distinctId(taken, str(c.id, '') || `c${i + 1}`),
+                        label: str(c.label, ''),
+                        description: str(c.description, ''),
+                    }),
+                );
             return {
                 ...base,
                 categories: categories.length > 0 ? categories : base.categories,
                 models: modelsOf(from.models, base.models),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
+            };
+        }
+        case 'switch': {
+            const taken = new Set<string>();
+            // An empty list stays empty: a Switch may be left with Otherwise alone.
+            const routes = Array.isArray(from.routes)
+                ? from.routes.filter(isObject).map(
+                    (r, i): SwitchRoute => ({
+                        id: distinctId(taken, str(r.id, '') || `r${i + 1}`),
+                        label: str(r.label, ''),
+                    }),
+                )
+                : base.routes;
+            return {
+                ...base,
+                routes,
+                rules: (Array.isArray(from.rules) ? from.rules : [])
+                    .filter(isObject)
+                    .map((rule): SwitchRule => ({...ruleTest(rule), route: str(rule.route, '')})),
             };
         }
         case 'extractor': {
@@ -1238,8 +1404,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 template: str(from.template, base.template),
                 rules: (Array.isArray(from.rules) ? from.rules : []).filter(isObject).map(
                     (rule): ReplyRule => ({
-                        field: str(rule.field, '').trim(),
-                        equals: str(rule.equals, ''),
+                        ...ruleTest(rule),
                         ...replyChoice(rule, {reply: false, section: ''}),
                     }),
                 ),

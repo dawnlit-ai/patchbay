@@ -187,6 +187,10 @@ function describe(node: FlowNode): string {
                 : 'No mailbox selected yet';
         case 'categorizer':
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;
+        case 'switch':
+            return c.rules.length > 0
+                ? `${c.rules.length} rule${c.rules.length === 1 ? '' : 's'} · no model`
+                : 'No rules yet: every email leaves by Otherwise';
         case 'extractor':
             return `→ ${c.output} · ${refName(c.schema) ?? 'no schema yet'}${c.includeAttachments ? ' · reads attachments' : ''}`;
         case 'processor':

@@ -74,7 +74,7 @@ it is; only the person can open another.
 
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
-rather than a fan-out. The six node kinds:
+rather than a fan-out. The seven node kinds:
 
 - trigger.outlook — watches the mailbox folders it ticks and starts a run per
                     new email. \`folders\` holds each one's path under the
@@ -86,6 +86,16 @@ rather than a fan-out. The six node kinds:
                     for the rest. It alone may run on Jev's models
                     (\`jev-latest\`), which answer with a probability per
                     category and no reason; no other node can.
+- switch          — an if/else written as rules, with no model: each of
+                    \`routes\` ({id, label}) is an output port, "route:<id>",
+                    and \`rules\` are read top to bottom, each {field,
+                    equals, route}: \`field\` is a slot and a path into it
+                    ("quote.reply"), and the first rule whose field holds
+                    \`equals\` sends the email down the route whose id is
+                    its \`route\`. With none matching it leaves by
+                    "otherwise". It does nothing to the email. Pick it over
+                    a categorizer when what decides is data an earlier step
+                    already filled, not the email's wording.
 - extractor       — pulls fields out of the email into the workspace schema
                     its \`schema\` names, and fills the slot named by
                     \`output\`. Ports: "valid", "invalid" and "error"; only
@@ -122,9 +132,10 @@ rather than a fan-out. The six node kinds:
                     with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
-extractor), or by naming it in a rule's \`field\` (a reply); get_flow's
-slotsOnArrival says which slots are sure to reach a node, and its slotIssues
-flag a rule whose field the slot's schema lacks or whose value it never holds.
+extractor), or by naming it in a rule's \`field\` (a switch or a reply);
+get_flow's slotsOnArrival says which slots are sure to reach a node, and its
+slotIssues flag a rule whose field the slot's schema lacks or whose value it
+never holds, and a switch's rule that leads to no route it has.
 
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as
@@ -135,8 +146,9 @@ one; delete_schema is refused while any node or schema still names it.
 
 Work in this order: list_flows, then get_flow to see the ports a node actually
 has, then add_node / update_node / connect. Ports are derived from configuration
-rather than stored, so editing a categorizer's categories moves its ports — an
-edge left hanging by that is dropped, and the tool result says how many.
+rather than stored, so editing a categorizer's categories or a switch's routes
+moves its ports — an edge left hanging by that is dropped, and the tool result
+says how many.
 
 Before telling the person it works, run it: test_run puts one real email through
 the flow, and get_run returns the trace, including why each node left by the port
@@ -434,7 +446,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Configure a node',
             description:
-                'Change a node’s name, position or configuration. `config` is merged over what the node holds, so pass only the fields you are changing; a value of the wrong type falls back to that field’s default, and the result shows what actually stuck. Editing a categorizer’s categories moves its ports.',
+                'Change a node’s name, position or configuration. `config` is merged over what the node holds, so pass only the fields you are changing; a value of the wrong type falls back to that field’s default, and the result shows what actually stuck. Editing a categorizer’s categories or a switch’s routes moves its ports.',
             inputSchema: {
                 flowId: flowIdArg,
                 nodeId: z.string(),

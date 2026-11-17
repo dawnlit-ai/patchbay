@@ -53,6 +53,7 @@
     /* Node accents, per kind. */
     --k-trigger: #0f9d58;
     --k-categorizer: #2563eb;
+    --k-switch: #4f46e5;
     --k-extractor: #0d9488;
     --k-processor: #7c3aed;
     --k-reply: #db2777;
@@ -122,6 +123,7 @@
 
     --k-trigger: #4ade80;
     --k-categorizer: #60a5fa;
+    --k-switch: #a5b4fc;
     --k-extractor: #2dd4bf;
     --k-processor: #c084fc;
     --k-reply: #f472b6;
@@ -159,6 +161,10 @@ body {
 
 .kind-categorizer {
     --k: var(--k-categorizer);
+}
+
+.kind-switch {
+    --k: var(--k-switch);
 }
 
 .kind-extractor {
@@ -1775,9 +1781,13 @@ button.wide {
     flex: 1;
 }
 
-/* Opts a control out of the row's equal-width sharing. */
+/*
+ * Opts a control out of the row's equal-width sharing, at its own width: an
+ * input or select is otherwise as wide as the row, and pushes the rest out of it.
+ */
 .row > .fixed {
     flex: none;
+    width: auto;
 }
 
 /* The schema picker, over the schema it shows. */
@@ -2006,7 +2016,7 @@ button.add-field:hover:not(:disabled) {
     margin-bottom: 0;
 }
 
-/* A Reply rule's joining word ("is", "→"), between its controls. */
+/* A rule's joining word ("is", "→"), between its controls. */
 .rule-word {
     align-self: center;
     min-width: 14px;

@@ -94,8 +94,9 @@ Four decisions worth knowing:
 **The `Flow` object is the only copy of the graph.** React Flow's node array is derived on every render, and every
 canvas interaction is translated straight back into a `Flow` edit. There is no second graph to drift.
 
-**Ports are derived from config, not stored.** Editing a categorizer's categories moves its ports with it, and the
-engine treats an edge leaving a port that no longer exists as a dead end it reports, rather than a silent stall.
+**Ports are derived from config, not stored.** Editing a categorizer's categories, or a switch's routes, moves its
+ports with it, and the engine treats an edge leaving a port that no longer exists as a dead end it reports, rather
+than a silent stall.
 
 **Flows run in parallel, and every Outlook call is queued.** Up to *Runs at once* runs are under way together — three by
 default, from Settings — and never two of one flow, whose mail is handled in the order it arrived. What does not
