@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { FlowNode, ReplyConfig, ReplyOutcome, SwitchConfig } from '../src/shared/flow';
+import type { DraftOutcome, FlowNode, SwitchConfig, SwitchOutcome } from '../src/shared/flow';
 import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
 import type { EmailEnvelope } from '../src/shared/trace';
@@ -1066,9 +1066,9 @@ async function main(): Promise<void> {
         check('and one that has them all is left as it is', withToolPath({PATH: extended.PATH}).PATH === extended.PATH);
     }
 
-    // A Reply decides with no model: each rule is checked on the canvas against
-    // the schema of the slot it reads, and the first that matches decides.
-    const {decideReply} = await import('../src/shared/flow');
+    // A Switch decides with no model: each rule is checked on the canvas against
+    // the schema of the slot it reads, and the first that matches picks the route.
+    const {decideSwitch, parseFlow} = await import('../src/shared/flow');
     await call('set_schema', {
         name: 'Verdict',
         schema: {
@@ -1082,196 +1082,65 @@ async function main(): Promise<void> {
         },
     });
     const thanks = (JSON.parse(await call('create_flow', {name: 'Thanks by rule'})) as { id: string }).id;
-    const thanksIn = (JSON.parse(await call('add_node', {flowId: thanks, kind: 'trigger.outlook'})) as {
-        id: string
-    }).id;
-    const reader = (JSON.parse(await call('add_node', {flowId: thanks, kind: 'extractor'})) as { id: string }).id;
+    const addNode = async (kind: string): Promise<{ id: string; text: string }> => {
+        const text = await call('add_node', {flowId: thanks, kind});
+        return {id: (JSON.parse(text) as { id: string }).id, text};
+    };
+    const wire = (from: string, port: string, to: string) => call('connect', {flowId: thanks, from, port, to});
+    const thanksIn = (await addNode('trigger.outlook')).id;
+    const reader = (await addNode('extractor')).id;
     await call('update_node', {
         flowId: thanks,
         nodeId: reader,
         config: {output: 'verdict', schema: {$ref: '#/schemas/Verdict'}},
     });
-    const added = await call('add_node', {flowId: thanks, kind: 'reply'});
-    const replier = (JSON.parse(added) as { id: string }).id;
-    check(
-        'a new reply drafts or skips, and fills its slot either way',
-        added.includes('"port": "replied"') && added.includes('"port": "skipped"') && added.includes('"output": "reply"'),
-    );
-    await call('connect', {flowId: thanks, from: thanksIn, port: 'out', to: reader});
-    await call('connect', {flowId: thanks, from: reader, port: 'valid', to: replier});
-    const loose = await call('update_node', {
-        flowId: thanks,
-        nodeId: replier,
-        config: {
-            template: 'RateReply',
-            rules: [
-                {field: 'verdict.seen', equals: 'yes'},
-                {field: 'verdict.replly', equals: 'offer'},
-                {field: 'verdict.reply', equals: 'offr'},
-                {field: 'verdict.answering', equals: 'thanks'},
-                {field: 'order.id', equals: '1'},
-            ],
-        },
-    });
-    check(
-        'a rule that leaves out reply drafts nothing',
-        (JSON.parse(loose) as { node: { config: ReplyConfig } }).node.config.rules.every((rule) => !rule.reply),
-    );
-    const flagged = await call('get_flow', {flowId: thanks});
-    check('a yes / no compared with anything but true or false is flagged', flagged.includes('verdict.seen is \\"yes\\", which it never is'));
-    check('a field the slot’s schema lacks is flagged', flagged.includes('reads verdict.replly, but Verdict has no field replly'));
-    check('a value outside a field’s list is flagged', flagged.includes('verdict.reply is \\"offr\\", which it never is'));
-    check('a group compared as one value is flagged', flagged.includes('reads verdict.answering, which is a group of fields'));
-    check('a slot no path fills is flagged as any read is', flagged.includes('reads \\"order\\", but not every path here fills it'));
-
-    const tidy = await call('update_node', {
-        flowId: thanks,
-        nodeId: replier,
-        config: {
-            rules: [
-                {field: 'verdict.seen', equals: 'true', reply: false},
-                {field: 'verdict.answering.kind', equals: 'thanks', reply: false},
-                {field: 'verdict.reply', equals: 'quote', reply: true, section: 'QUOTE'},
-            ],
-            otherwise: {reply: true, section: 'NOQUOTE'},
-        },
-    });
-    const clean = JSON.parse(await call('get_flow', {flowId: thanks})) as { slotIssues: { nodeId: string }[] };
-    check('rules that fit their slot’s schema are not flagged', !clean.slotIssues.some((i) => i.nodeId === replier));
-
-    const rules = (JSON.parse(tidy) as { node: { config: ReplyConfig } }).node.config;
-    const verdict = (reply: string, seen: boolean, kind = 'request') => ({verdict: {reply, seen, answering: {kind}}});
-    const decided = (data: Record<string, unknown>) => decideReply(rules, data).choice;
-    check('the first rule that matches decides', !decided(verdict('quote', true)).reply);
-    check('a later rule decides when the ones above miss', decided(verdict('quote', false)).section === 'QUOTE');
-    check('a path into a group is followed', !decided(verdict('quote', false, 'thanks')).reply);
-    const otherwise = decided(verdict('no-quote', false));
-    check('otherwise decides when no rule matches', otherwise.reply && otherwise.section === 'NOQUOTE');
-    check('a field that is not there matches no rule', decided({}).section === 'NOQUOTE');
-
-    // The two ways it leaves without a draft, neither of which reaches Outlook:
-    // each is confirmed beforehand, so a fault there fails a check instead.
-    const {executeNode} = await import('../src/main/engine/nodes');
-    const {findReply, recordReply} = await import('../src/main/store/replyStore');
-    const replyNode = getFlow(thanks)?.nodes.find((n) => n.id === replier);
-    const answered: EmailEnvelope = {
-        ref: {
-            entryId: 'E1',
-            storeId: '',
-            account: 'nobody@example.invalid',
-            folderPath: '\\\\nobody@example.invalid\\Inbox'
-        },
-        subject: 'RE: Drayage Rate Request - Mobile, AL',
-        senderName: 'Jo',
-        senderEmail: 'jo@carrier.example',
-        receivedTime: '2026-11-14 09:30',
-        bodyPreview: '',
-        attachmentNames: [],
-    };
-    const replyRun = (slots: Record<string, unknown>) =>
-        executeNode({
-            runId: 'check-run',
-            flowId: thanks,
-            node: replyNode!,
-            schemas: {},
-            email: answered,
-            data: slots,
-            scratchDir: join(data, 'reply-check'),
-            signal: new AbortController().signal,
-            onEvent: () => {
-            },
-            onLive: () => {
-            },
-        });
-    const slotOf = (outcome: {
-        provided?: Record<string, unknown>
-    }) => outcome.provided?.reply as ReplyOutcome | undefined;
-    if (replyNode && !decided(verdict('offer', true)).reply) {
-        const passed = await replyRun(verdict('offer', true));
-        check(
-            'a rule saying no reply leaves by skipped, and hands on why',
-            passed.outPort === 'skipped' && slotOf(passed)?.replied === false && slotOf(passed)?.why === 'rule 1: verdict.seen is "true"',
-        );
-    } else {
-        check('a rule saying no reply leaves by skipped, and hands on why', false, 'the rules did not decide as expected');
-    }
-    recordReply({
-        at: '2026-11-14T15:31:00.000Z',
-        runId: 'earlier-run',
-        flowId: thanks,
-        nodeId: replier,
-        account: answered.ref.account,
-        draftEntryId: 'D1',
-        to: 'jo@carrier.example',
-        subject: answered.subject,
-        template: 'RateReply',
-        section: 'QUOTE',
-        // A sender's address in another case is the same sender.
-        email: {senderEmail: 'JO@Carrier.example', receivedTime: answered.receivedTime, subject: answered.subject},
-    });
-    const remembered = findReply(thanks, replier, {
-        senderEmail: answered.senderEmail,
-        receivedTime: answered.receivedTime,
-        subject: answered.subject,
-    });
-    check('a drafted reply is found again by its email', remembered?.draftEntryId === 'D1');
-    check(
-        'and only by the node that drafted it',
-        findReply(thanks, 'another-node', {
-            senderEmail: answered.senderEmail,
-            receivedTime: answered.receivedTime,
-            subject: answered.subject,
-        }) === undefined,
-    );
-    if (replyNode && remembered && decided(verdict('quote', false)).reply) {
-        const again = await replyRun(verdict('quote', false));
-        check(
-            'an email already replied to gets no second draft',
-            again.outPort === 'skipped' && slotOf(again)?.why.includes('earlier-run') === true,
-        );
-    } else {
-        check('an email already replied to gets no second draft', false, 'the record was not found, so it was not run');
-    }
-
-    // A Switch decides as a Reply does, but by sending the email down a route
-    // of its own rather than drafting: each route is a port.
-    const {decideSwitch, parseFlow} = await import('../src/shared/flow');
-    const switchAdded = await call('add_node', {flowId: thanks, kind: 'switch'});
-    const switcher = (JSON.parse(switchAdded) as { id: string }).id;
+    const switchAdded = await addNode('switch');
+    const switcher = switchAdded.id;
     check(
         'a new switch has a port for each route, and one for otherwise',
-        switchAdded.includes('"port": "route:a"') && switchAdded.includes('"port": "route:b"') &&
-        switchAdded.includes('"port": "otherwise"'),
+        switchAdded.text.includes('"port": "route:a"') && switchAdded.text.includes('"port": "route:b"') &&
+        switchAdded.text.includes('"port": "otherwise"'),
     );
-    const parked = (JSON.parse(await call('add_node', {flowId: thanks, kind: 'terminal'})) as { id: string }).id;
-    await call('connect', {flowId: thanks, from: reader, port: 'valid', to: switcher});
-    await call('connect', {flowId: thanks, from: switcher, port: 'route:a', to: parked});
+    const parked = (await addNode('terminal')).id;
+    await wire(thanksIn, 'out', reader);
+    await wire(reader, 'valid', switcher);
+    await wire(switcher, 'route:a', parked);
     await call('update_node', {
         flowId: thanks,
         nodeId: switcher,
         config: {
             rules: [
+                {field: 'verdict.seen', equals: 'yes', route: 'a'},
                 {field: 'verdict.replly', equals: 'offer', route: 'a'},
+                {field: 'verdict.reply', equals: 'offr', route: 'a'},
+                {field: 'verdict.answering', equals: 'thanks', route: 'a'},
+                {field: 'order.id', equals: '1', route: 'a'},
                 {field: 'verdict.reply', equals: 'quote', route: 'gone'},
             ],
         },
     });
-    const switchFlagged = JSON.parse(await call('get_flow', {flowId: thanks})) as {
-        slotIssues: { nodeId: string; severity: string; message: string }[];
-    };
-    const switchIssues = switchFlagged.slotIssues.filter((i) => i.nodeId === switcher);
-    check(
-        'a switch’s rule is checked against its slot’s schema as a reply’s is',
-        switchIssues.some((i) => i.severity === 'error' && i.message.includes('reads verdict.replly, but Verdict has no field replly')),
-    );
-    check(
-        'a rule sent down a route the switch lacks is flagged',
-        switchIssues.some((i) => i.severity === 'error' && i.message.includes('rule 2 leads nowhere')),
-    );
-    check(
-        'a route no rule leads to is pointed out, but does not stop the flow',
-        switchIssues.some((i) => i.severity === 'warning' && i.message.includes('leads to Route B')),
-    );
+    type Issue = { nodeId: string; severity: string; message: string };
+    const issuesOf = async (nodeId: string): Promise<Issue[]> =>
+        (JSON.parse(await call('get_flow', {flowId: thanks})) as { slotIssues: Issue[] }).slotIssues.filter(
+            (i) => i.nodeId === nodeId,
+        );
+    const flaggedWith = (issues: Issue[], severity: string, text: string) =>
+        issues.some((i) => i.severity === severity && i.message.includes(text));
+    const switchIssues = await issuesOf(switcher);
+    check('a yes / no compared with anything but true or false is flagged',
+        flaggedWith(switchIssues, 'error', 'verdict.seen is "yes", which it never is'));
+    check('a field the slot’s schema lacks is flagged',
+        flaggedWith(switchIssues, 'error', 'reads verdict.replly, but Verdict has no field replly'));
+    check('a value outside a field’s list is flagged',
+        flaggedWith(switchIssues, 'error', 'verdict.reply is "offr", which it never is'));
+    check('a group compared as one value is flagged',
+        flaggedWith(switchIssues, 'error', 'reads verdict.answering, which is a group of fields'));
+    check('a slot no path fills is flagged as any read is',
+        flaggedWith(switchIssues, 'error', 'reads "order", but not every path here fills it'));
+    check('a rule sent down a route the switch lacks is flagged',
+        flaggedWith(switchIssues, 'error', 'rule 6 leads nowhere'));
+    check('a route no rule leads to is pointed out, but does not stop the flow',
+        flaggedWith(switchIssues, 'warning', 'leads to Route B'));
 
     const rerouted = JSON.parse(
         await call('update_node', {
@@ -1290,6 +1159,7 @@ async function main(): Promise<void> {
                     {field: 'verdict.reply', equals: 'quote', route: 'quote'},
                     {field: 'verdict.reply', equals: 'no-quote', route: 'noquote'},
                 ],
+                output: 'ack',
             },
         }),
     ) as { node: { config: SwitchConfig; outputs: { port: string }[] }; droppedEdges: number };
@@ -1298,11 +1168,11 @@ async function main(): Promise<void> {
         rerouted.droppedEdges === 1 &&
         rerouted.node.outputs.map((o) => o.port).join(',') === 'route:quote,route:noquote,route:skip,otherwise',
     );
-    const switchClean = JSON.parse(await call('get_flow', {flowId: thanks})) as { slotIssues: { nodeId: string }[] };
     check('a switch whose rules fit, and whose routes each have one, is not flagged',
-        !switchClean.slotIssues.some((i) => i.nodeId === switcher));
+        (await issuesOf(switcher)).length === 0);
 
     const routes = rerouted.node.config;
+    const verdict = (reply: string, seen: boolean, kind = 'request') => ({verdict: {reply, seen, answering: {kind}}});
     const routed = (slots: Record<string, unknown>) => decideSwitch(routes, slots);
     check('the first rule that matches picks the route', routed(verdict('quote', true)).port === 'route:skip');
     check('a later rule picks it when the ones above miss', routed(verdict('quote', false)).port === 'route:quote');
@@ -1312,9 +1182,73 @@ async function main(): Promise<void> {
     check('an email no rule matches leaves by otherwise, saying so',
         unmatched.port === 'otherwise' && unmatched.why === 'no rule matched');
 
-    // Run as the engine runs it: it reaches neither Outlook nor a model.
-    const switchNode = getFlow(thanks)?.nodes.find((n) => n.id === switcher);
-    const switchRun = (node: FlowNode, slots: Record<string, unknown>) =>
+    // A Create email per reply behind it, and the routes meeting again after them.
+    const createAdded = await addNode('create-email');
+    const quoter = createAdded.id;
+    check(
+        'a new create email drafts, or finds its draft already made, and fills its slot either way',
+        createAdded.text.includes('"port": "drafted"') && createAdded.text.includes('"port": "skipped"') &&
+        createAdded.text.includes('"output": "draft"'),
+    );
+    const noQuoter = (await addNode('create-email')).id;
+    const judge = (await addNode('switch')).id;
+    await wire(switcher, 'route:quote', quoter);
+    await wire(switcher, 'route:noquote', noQuoter);
+    check('a create email with no template is flagged',
+        flaggedWith(await issuesOf(quoter), 'error', 'has no template yet'));
+    await call('update_node', {flowId: thanks, nodeId: quoter, config: {template: 'RateReply', section: 'QUOTE'}});
+    await call('update_node', {flowId: thanks, nodeId: noQuoter, config: {template: 'RateReply', section: 'NOQUOTE'}});
+    check('one with a template is not', (await issuesOf(quoter)).length === 0);
+    for (const [from, port] of [
+        [switcher, 'route:skip'],
+        [switcher, 'otherwise'],
+        [quoter, 'drafted'],
+        [quoter, 'skipped'],
+        [noQuoter, 'drafted'],
+        [noQuoter, 'skipped'],
+    ] as const) {
+        await wire(from, port, judge);
+    }
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: judge,
+        config: {
+            rules: [
+                {field: 'ack.route', equals: 'Qoute', route: 'a'},
+                {field: 'draft.drafted', equals: 'true', route: 'b'},
+            ],
+        },
+    });
+    const met = (JSON.parse(await call('get_flow', {flowId: thanks})) as {
+        nodes: { id: string; slotsOnArrival?: string[] }[];
+    }).nodes.find((n) => n.id === judge)?.slotsOnArrival ?? [];
+    check('where its routes meet again, the switch’s slot is there, and a create email’s is not',
+        met.includes('ack') && !met.includes('draft'));
+    const judged = await issuesOf(judge);
+    check('a later rule on the route it took is checked against its routes',
+        flaggedWith(judged, 'error', 'ack.route is "Qoute", which it never is: it is one of "Quote", "No quote", "Skip", "Otherwise"'));
+    check('and one on a draft only some of the routes made is flagged',
+        flaggedWith(judged, 'error', 'reads "draft", but not every path here fills it'));
+
+    // Run as the engine runs them: neither reaches a model, and Outlook is
+    // reached only by a draft, which none of these makes.
+    const {executeNode} = await import('../src/main/engine/nodes');
+    const {findReply, recordReply} = await import('../src/main/store/replyStore');
+    const answered: EmailEnvelope = {
+        ref: {
+            entryId: 'E1',
+            storeId: '',
+            account: 'nobody@example.invalid',
+            folderPath: '\\\\nobody@example.invalid\\Inbox'
+        },
+        subject: 'RE: Drayage Rate Request - Mobile, AL',
+        senderName: 'Jo',
+        senderEmail: 'jo@carrier.example',
+        receivedTime: '2026-11-14 09:30',
+        bodyPreview: '',
+        attachmentNames: [],
+    };
+    const runNode = (node: FlowNode, slots: Record<string, unknown>) =>
         executeNode({
             runId: 'check-run',
             flowId: thanks,
@@ -1322,21 +1256,28 @@ async function main(): Promise<void> {
             schemas: {},
             email: answered,
             data: slots,
-            scratchDir: join(data, 'switch-check'),
+            scratchDir: join(data, 'node-check'),
             signal: new AbortController().signal,
             onEvent: () => {
             },
             onLive: () => {
             },
         });
+    const saved = (id: string) => getFlow(thanks)?.nodes.find((n) => n.id === id);
+    const switchNode = saved(switcher);
     if (switchNode?.config.kind === 'switch') {
-        const went = await switchRun(switchNode, verdict('quote', false));
+        const went = await runNode(switchNode, verdict('quote', false));
+        const ack = went.provided?.ack as SwitchOutcome | undefined;
         check(
-            'a switch leaves by the route its rule picked, and says which rule',
-            went.outPort === 'route:quote' && went.summary === 'Quote — rule 4: verdict.reply is "quote"' && !went.error,
+            'a switch leaves by the route its rule picked, says which rule, and fills its slot with both',
+            went.outPort === 'route:quote' && went.summary === 'Quote — rule 4: verdict.reply is "quote"' && !went.error &&
+            ack?.route === 'Quote' && ack.why === 'rule 4: verdict.reply is "quote"',
         );
+        const fellThrough = await runNode(switchNode, {});
+        check('leaving by otherwise fills it too',
+            fellThrough.outPort === 'otherwise' && (fellThrough.provided?.ack as SwitchOutcome | undefined)?.route === 'Otherwise');
         const config = switchNode.config;
-        const orphaned = await switchRun(
+        const orphaned = await runNode(
             {...switchNode, config: {...config, routes: config.routes.filter((r) => r.id !== 'quote')}},
             verdict('quote', false),
         );
@@ -1345,7 +1286,43 @@ async function main(): Promise<void> {
             orphaned.outPort === null && orphaned.error?.includes('leads to no route') === true,
         );
     } else {
-        check('a switch leaves by the route its rule picked, and says which rule', false, 'the switch was not saved');
+        check('a switch leaves by the route its rule picked, says which rule, and fills its slot with both', false,
+            'the switch was not saved');
+    }
+
+    // One reply per email from a flow, whichever of its Create email nodes drafts it.
+    recordReply({
+        at: '2026-11-14T15:31:00.000Z',
+        runId: 'earlier-run',
+        flowId: thanks,
+        nodeId: quoter,
+        account: answered.ref.account,
+        draftEntryId: 'D1',
+        to: 'jo@carrier.example',
+        subject: answered.subject,
+        template: 'RateReply',
+        section: 'QUOTE',
+        // A sender's address in another case is the same sender.
+        email: {senderEmail: 'JO@Carrier.example', receivedTime: answered.receivedTime, subject: answered.subject},
+    });
+    const sameEmail = {senderEmail: answered.senderEmail, receivedTime: answered.receivedTime, subject: answered.subject};
+    check('a drafted reply is found again by its email', findReply(thanks, sameEmail)?.draftEntryId === 'D1');
+    check('and only by its own flow', findReply('another-flow', sameEmail) === undefined);
+    const noQuoteNode = saved(noQuoter);
+    if (noQuoteNode?.config.kind === 'create-email') {
+        const again = await runNode(noQuoteNode, {});
+        const draft = again.provided?.draft as DraftOutcome | undefined;
+        check(
+            'an email already replied to gets no second draft, from another of the flow’s nodes either',
+            again.outPort === 'skipped' && draft?.drafted === false && draft.draftEntryId === '' &&
+            draft.why.includes('another node of this flow') && draft.why.includes('earlier-run'),
+        );
+        const blank = await runNode({...noQuoteNode, config: {...noQuoteNode.config, template: ''}}, {});
+        check('one with no template leaves by error, drafting nothing',
+            blank.outPort === 'error' && blank.error?.includes('no template yet') === true);
+    } else {
+        check('an email already replied to gets no second draft, from another of the flow’s nodes either', false,
+            'the create email was not saved');
     }
 
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,
@@ -1359,6 +1336,7 @@ async function main(): Promise<void> {
                     config: {
                         routes: [{id: 'x', label: 'X'}, {id: 'x', label: 'Also X'}, {label: 'Unnamed'}],
                         rules: [{field: ' verdict.reply ', equals: 'quote', route: 'x'}],
+                        output: 'email',
                     },
                 },
                 {id: 's2', kind: 'switch', config: {routes: []}},
@@ -1374,8 +1352,60 @@ async function main(): Promise<void> {
         s1?.routes.map((r) => r.id).join(',') === 'x,x-2,r3' && s1.rules[0]?.route === 'x' &&
         s1.rules[0]?.field === 'verdict.reply',
     );
+    check('and an output slot it cannot have fills nothing', s1?.output === '');
     check('a switch with its routes left empty keeps none, and one with no list gets the defaults',
         s2?.routes.length === 0 && s3?.routes.length === 2);
+
+    // The 1.1.1 nightly's Reply nodes, read as the Create email that replaced them.
+    const nightly = parseFlow(
+        {
+            nodes: [
+                {
+                    id: 'always',
+                    kind: 'reply',
+                    config: {
+                        template: 'PreAlertReply',
+                        rules: [],
+                        otherwise: {reply: true, section: ''},
+                        replyAll: true,
+                        output: 'ack',
+                    },
+                },
+                {
+                    id: 'ruled',
+                    kind: 'reply',
+                    config: {
+                        template: 'RateReply',
+                        rules: [{field: 'quote.reply', equals: 'quote', reply: true, section: 'QUOTE'}],
+                        otherwise: {reply: true, section: 'NOQUOTE'},
+                    },
+                },
+                {id: 'held', kind: 'reply', config: {template: 'RateReply', otherwise: {reply: false}}},
+                {id: 'done', kind: 'terminal'},
+            ],
+            edges: [
+                {source: 'always', sourceHandle: 'replied', target: 'done'},
+                {source: 'always', sourceHandle: 'skipped', target: 'done'},
+            ],
+        },
+        'nightly',
+        'Nightly',
+    );
+    const legacy = (id: string) => {
+        const node = nightly.nodes.find((n) => n.id === id);
+        return node?.config.kind === 'create-email' ? node.config : null;
+    };
+    const always = legacy('always');
+    check(
+        'a nightly Reply that always replied becomes a create email exactly',
+        always?.template === 'PreAlertReply' && always.section === '' && always.replyAll && always.output === 'ack',
+    );
+    check('and its edges leave by the ports that replaced theirs',
+        nightly.edges.map((e) => e.sourceHandle).sort().join(',') === 'drafted,skipped');
+    check(
+        'one whose rules or otherwise could hold the reply back drafts nothing until it is looked at',
+        legacy('ruled')?.template === '' && legacy('ruled')?.section === 'NOQUOTE' && legacy('held')?.template === '',
+    );
     await call('delete_flow', {flowId: thanks});
     await call('delete_schema', {name: 'Verdict'});
 

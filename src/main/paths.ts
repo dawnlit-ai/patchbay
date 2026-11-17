@@ -191,7 +191,7 @@ function workspaceKey(): string {
  */
 export const runsDir = (): string => ensure('runs', workspaceKey());
 /**
- * The replies each workspace's Reply nodes drafted, one JSONL file a workspace.
+ * The replies each workspace's Create email nodes drafted, one JSONL file a workspace.
  * Beside its runs rather than among them, so clearing the runs does not forget
  * which emails already have a reply.
  */

@@ -93,9 +93,12 @@ rather than a fan-out. The seven node kinds:
                     ("quote.reply"), and the first rule whose field holds
                     \`equals\` sends the email down the route whose id is
                     its \`route\`. With none matching it leaves by
-                    "otherwise". It does nothing to the email. Pick it over
-                    a categorizer when what decides is data an earlier step
-                    already filled, not the email's wording.
+                    "otherwise". It does nothing to the email. With
+                    \`output\` set, every port fills that slot with {route,
+                    why}, route being the route's label or "Otherwise", so a
+                    step where its routes meet again can read which. Pick it
+                    over a categorizer when what decides is data an earlier
+                    step already filled, not the email's wording.
 - extractor       — pulls fields out of the email into the workspace schema
                     its \`schema\` names, and fills the slot named by
                     \`output\`. Ports: "valid", "invalid" and "error"; only
@@ -112,27 +115,25 @@ rather than a fan-out. The seven node kinds:
                     step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
                     list_server_tools gives a server's.
-- reply           — drafts a reply to the email from a template email in
+- create-email    — drafts a reply to the email from a template email in
                     the mailbox's Templates folder, \`template\` being its
-                    subject, and runs no model. \`rules\` are read top to
-                    bottom, each {field, equals, reply, section}: \`field\`
-                    is a slot and a path into it ("quote.reply"), and the
-                    first rule whose field holds \`equals\` decides — no
-                    reply, or the reply with that [[SECTION]] ("" for a
-                    template with none). A rule that leaves out \`reply\`
-                    drafts nothing. \`otherwise\` ({reply, section}) decides
-                    when none matches. \`signature\` names an Outlook
-                    signature, \`replyAll\` widens it. Ports: "replied",
-                    "skipped" and "error"; the first two fill \`output\`
-                    with {replied, section, to, draftEntryId, why}. It only
-                    drafts, and never twice for one email.
+                    subject and \`section\` the [[SECTION]] it drafts (""
+                    for a template with none), and runs no model.
+                    \`signature\` names an Outlook signature, \`replyAll\`
+                    widens it. Whether an email gets a reply, and which, is
+                    the path's to decide: put a switch before one
+                    create-email per reply. Ports: "drafted", "skipped" (an
+                    earlier run of this flow already drafted a reply to this
+                    email, from whichever of its create-email nodes) and
+                    "error"; the first two fill \`output\` with {drafted,
+                    section, to, draftEntryId, why}. It only drafts.
 - terminal        — ends the path and records how the email came out, as
                     its \`disposition\`. It does nothing to the email: a
                     step that files it or saves its attachments does so
                     with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
-extractor), or by naming it in a rule's \`field\` (a switch or a reply);
+extractor), or by naming it in a rule's \`field\` (a switch);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
 slotIssues flag a rule whose field the slot's schema lacks or whose value it
 never holds, and a switch's rule that leads to no route it has.

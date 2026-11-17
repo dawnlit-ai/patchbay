@@ -3,7 +3,14 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
-export type NodeKind = 'trigger.outlook' | 'categorizer' | 'switch' | 'extractor' | 'processor' | 'reply' | 'terminal';
+export type NodeKind =
+    | 'trigger.outlook'
+    | 'categorizer'
+    | 'switch'
+    | 'extractor'
+    | 'processor'
+    | 'create-email'
+    | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
 
@@ -14,7 +21,7 @@ export const NODE_KINDS: NodeKind[] = [
     'switch',
     'extractor',
     'processor',
-    'reply',
+    'create-email',
     'terminal',
 ];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
@@ -91,7 +98,7 @@ export interface CategorizerConfig {
     bodyMaxChars: number;
 }
 
-/** The test a rule makes, as a Switch's and a Reply's tables write it: whether `field` holds `equals`. */
+/** The test a Switch's rule makes: whether `field` holds `equals`. */
 export interface RuleTest {
     /** A slot an earlier node filled and the path into it: `quote.reply`, `placement.answering.kind`. */
     field: string;
@@ -119,6 +126,11 @@ export interface SwitchConfig {
     routes: SwitchRoute[];
     /** Read top to bottom; the first whose field holds its value decides. */
     rules: SwitchRule[];
+    /**
+     * The slot later nodes read which route it took, and why, by: filled on every
+     * port, so a step where its routes meet again can count on it. Empty fills nothing.
+     */
+    output: string;
 }
 
 export interface ExtractorConfig {
@@ -187,33 +199,21 @@ export interface ProcessorConfig {
     mcpTools: string[];
 }
 
-/** What a Reply does: draft nothing, or draft the template with one of its sections. */
-export interface ReplyChoice {
-    /** Off, nothing is drafted and the email leaves by No reply. */
-    reply: boolean;
-    /** The template's [[SECTION]] to reply with. Empty for a template with none, and unused with no reply. */
-    section: string;
-}
-
-/** One row of a Reply's table: when its field holds its value, this row's choice is made. */
-export type ReplyRule = RuleTest & ReplyChoice;
-
 /**
- * Drafts a reply to the email from a template email, with no model: which
- * section, if any, is decided by rules on what earlier nodes filled.
+ * Drafts a reply to the email from a template email, with no model, and never a
+ * second one: whether an email gets a reply, and which, is decided before it,
+ * by the path that reaches it.
  */
-export interface ReplyConfig {
+export interface CreateEmailConfig {
     /** The subject of a template email in the mailbox's Templates folder. */
     template: string;
-    /** Read top to bottom; the first whose field holds its value decides. */
-    rules: ReplyRule[];
-    /** What happens when no rule matches. */
-    otherwise: ReplyChoice;
+    /** The template's [[SECTION]] to reply with. Empty for a template with none. */
+    section: string;
     /** An Outlook signature by name, put in the template's {{SIGNATURE}} or below its text. Empty for none. */
     signature: string;
     /** Answer everyone on the email rather than only its sender. */
     replyAll: boolean;
-    /** The slot later nodes read what happened by: filled whether a reply was drafted or not. */
+    /** The slot later nodes read what happened by: filled whether it drafted or found a draft already made. */
     output: string;
 }
 
@@ -228,7 +228,7 @@ export type NodeConfig =
     | ({ kind: 'switch' } & SwitchConfig)
     | ({ kind: 'extractor' } & ExtractorConfig)
     | ({ kind: 'processor' } & ProcessorConfig)
-    | ({ kind: 'reply' } & ReplyConfig)
+    | ({ kind: 'create-email' } & CreateEmailConfig)
     | ({ kind: 'terminal' } & TerminalConfig);
 
 export interface FlowNode {
@@ -274,8 +274,8 @@ export const OTHERWISE_PORT = 'otherwise';
 /** The port a Switch's route leaves by. */
 export const routePort = (routeId: string): string => `route:${routeId}`;
 
-/** A Reply's ports: a reply drafted on this run, and none drafted. */
-export const REPLIED_PORT = 'replied';
+/** A Create email's ports: drafted on this run, and drafted by an earlier one. */
+export const DRAFTED_PORT = 'drafted';
 export const SKIPPED_PORT = 'skipped';
 
 export function outputPorts(node: FlowNode): Port[] {
@@ -292,9 +292,9 @@ export function outputPorts(node: FlowNode): Port[] {
         case 'switch':
             return [
                 ...node.config.routes.map(
-                    (r): Port => ({id: routePort(r.id), label: r.label || r.id, tone: 'match'}),
+                    (r): Port => ({id: routePort(r.id), label: routeLabel(r), tone: 'match'}),
                 ),
-                {id: OTHERWISE_PORT, label: 'Otherwise', tone: 'fallback'},
+                {id: OTHERWISE_PORT, label: OTHERWISE_LABEL, tone: 'fallback'},
             ];
         case 'extractor':
             return [
@@ -308,10 +308,10 @@ export function outputPorts(node: FlowNode): Port[] {
                 {id: 'review', label: 'Needs review', tone: 'fallback'},
                 {id: 'error', label: 'Error', tone: 'error'},
             ];
-        case 'reply':
+        case 'create-email':
             return [
-                {id: REPLIED_PORT, label: 'Drafted', tone: 'flow'},
-                {id: SKIPPED_PORT, label: 'No reply', tone: 'fallback'},
+                {id: DRAFTED_PORT, label: 'Drafted', tone: 'flow'},
+                {id: SKIPPED_PORT, label: 'Already drafted', tone: 'fallback'},
                 {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'terminal':
@@ -561,10 +561,15 @@ export function provides(node: FlowNode, port: string): Slot[] {
             return port === 'done' && node.config.output
                 ? [{name: node.config.output, type: {kind: 'json', schema: node.config.schema}}]
                 : [];
-        case 'reply':
-            // Whether it drafted or not, the nodes after it learn which and why.
-            return port === REPLIED_PORT || port === SKIPPED_PORT
-                ? [{name: node.config.output, type: {kind: 'json', schema: REPLY_SCHEMA}}]
+        case 'switch':
+            // Every way out, Otherwise too: where its routes meet again, the slot is there.
+            return node.config.output
+                ? [{name: node.config.output, type: {kind: 'json', schema: switchSchema(node.config)}}]
+                : [];
+        case 'create-email':
+            // Whether it drafted or found its draft already made, the nodes after it learn which.
+            return port === DRAFTED_PORT || port === SKIPPED_PORT
+                ? [{name: node.config.output, type: {kind: 'json', schema: DRAFT_SCHEMA}}]
                 : [];
         default:
             return [];
@@ -580,8 +585,8 @@ export function requires(node: FlowNode): string[] {
             return [EMAIL_SLOT.name, ...node.config.inputs];
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
-        case 'reply':
-            return [EMAIL_SLOT.name, ...ruleSlots(node.config.rules)];
+        case 'create-email':
+            return [EMAIL_SLOT.name];
         case 'switch':
             // Its rules are all it reads: the email goes on past it untouched.
             return ruleSlots(node.config.rules);
@@ -592,39 +597,78 @@ export function requires(node: FlowNode): string[] {
     }
 }
 
-// ── Rules ────────────────────────────────────────────────────────────────
-// A Switch and a Reply decide with no model: their rules are a table over what
-// earlier nodes filled, checked against their schemas on the canvas so a typo
-// cannot pass for a rule that never matches.
+// ── Drafts ───────────────────────────────────────────────────────────────
 
-/** What a Reply fills its output slot with. */
-export interface ReplyOutcome {
-    replied: boolean;
+/** What a Create email fills its output slot with. */
+export interface DraftOutcome {
+    drafted: boolean;
     section: string;
     to: string;
     draftEntryId: string;
     why: string;
 }
 
-/** The shape of a Reply's output slot: the app's own, not one of the workspace's. */
-export const REPLY_SCHEMA: JsonSchema = {
+/** The shape of a Create email's output slot: the app's own, not one of the workspace's. */
+export const DRAFT_SCHEMA: JsonSchema = {
     type: 'object',
-    title: 'Reply',
+    title: 'Draft',
     properties: {
-        replied: {type: 'boolean', description: 'True when this run drafted the reply.'},
+        drafted: {
+            type: 'boolean',
+            description: 'True when this run drafted it; false when an earlier run already had.'
+        },
         section: {
             type: 'string',
-            description: 'The template section the reply used. Empty for a template with none, and when no reply was drafted.',
+            description: 'The template section this run’s draft used. Empty for a template with none, and when it drafted none.',
         },
-        to: {type: 'string', description: 'Who the draft is addressed to, as Outlook gave it. Empty with no reply.'},
+        to: {
+            type: 'string',
+            description: 'Who this run’s draft is addressed to, as Outlook gave it. Empty when it drafted none.'
+        },
         draftEntryId: {
             type: 'string',
-            description: 'The draft’s Outlook id. Empty with no reply, or when Outlook could not tell the draft apart.',
+            description: 'This run’s draft’s Outlook id. Empty when it drafted none, or when Outlook could not tell the draft apart.',
         },
-        why: {type: 'string', description: 'The rule that decided, or why no reply was drafted.'},
+        why: {type: 'string', description: 'What it drafted, or why it drafted nothing.'},
     },
-    required: ['replied', 'section', 'to', 'draftEntryId', 'why'],
+    required: ['drafted', 'section', 'to', 'draftEntryId', 'why'],
 };
+
+// ── Rules ────────────────────────────────────────────────────────────────
+// A Switch decides with no model: its rules are a table over what earlier nodes
+// filled, checked against their schemas on the canvas so a typo cannot pass for
+// a rule that never matches.
+
+/** What a Switch fills its output slot with. */
+export interface SwitchOutcome {
+    /** The route the email left by, by its label, or Otherwise. */
+    route: string;
+    why: string;
+}
+
+/** What a Switch's ways out are called, on its ports and in its output slot: each route's label, and Otherwise. */
+export const OTHERWISE_LABEL = 'Otherwise';
+export const routeLabel = (route: SwitchRoute): string => route.label || route.id;
+
+/**
+ * The shape of a Switch's output slot: the app's own. Its route is one of the
+ * Switch's, listed, so a later Switch's rule on it is checked as any choice is.
+ */
+export function switchSchema(config: SwitchConfig): JsonSchema {
+    return {
+        type: 'object',
+        title: 'Route',
+        properties: {
+            route: {
+                type: 'string',
+                enum: [...new Set([...config.routes.map(routeLabel), OTHERWISE_LABEL])],
+                description: 'The route the email left by, by its label, or Otherwise when no rule matched.',
+            },
+            why: {type: 'string', description: 'The rule that decided, or that none did.'},
+        },
+        required: ['route', 'why'],
+    };
+}
 
 /** The slot a rule's field reads, and the path inside it. */
 function splitField(field: string): { slot: string; steps: string[] } {
@@ -696,27 +740,6 @@ export function decideSwitch(config: SwitchConfig, data: Readonly<Record<string,
     return {port: OTHERWISE_PORT, why: noMatch(config.rules), checked};
 }
 
-/** A Reply's decision: what it does, the sentence that says why, and each rule's field as the run held it. */
-export interface ReplyDecision {
-    choice: ReplyChoice;
-    why: string;
-    /** One line per rule read, for the trace. */
-    checked: string[];
-}
-
-/** Which of a Reply's choices `data` makes. The first rule whose field holds its value decides. */
-export function decideReply(config: ReplyConfig, data: Readonly<Record<string, unknown>>): ReplyDecision {
-    const {matched, checked} = matchRules(config.rules, data);
-    if (matched) {
-        const {rule, why} = matched;
-        return {choice: {reply: rule.reply, section: rule.section.trim()}, why, checked};
-    }
-    return {
-        choice: {reply: config.otherwise.reply, section: config.otherwise.section.trim()},
-        why: noMatch(config.rules),
-        checked,
-    };
-}
 
 /** Marks a schema this module cannot follow into, where any path may lead. */
 const ANYTHING = Symbol('anything');
@@ -801,19 +824,18 @@ function ruleIssues(node: FlowNode, rules: RuleTest[], schemas: Schemas, held: A
     return issues;
 }
 
-/** What is wrong with a Reply's configuration, said as sentences, given the slots that reach it. */
-function replyIssues(node: FlowNode, config: ReplyConfig, schemas: Schemas, held: Available): string[] {
-    const issues: string[] = [];
-    if (!config.template.trim()) {
-        issues.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
-    }
-    return [...issues, ...ruleIssues(node, config.rules, schemas, held)];
+/** Why a Create email cannot draft, said as a sentence, or null when it can. */
+export function createEmailIssue(node: FlowNode, config: CreateEmailConfig): string | null {
+    return config.template.trim()
+        ? null
+        : `${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`;
 }
 
 /**
  * What is wrong with a Switch's configuration, given the slots that reach it: its
- * rules, checked as a Reply's are; a rule sent down a route it doesn't have; and,
- * not enough to keep the flow from being watched, a route no rule leads to.
+ * rules, checked against the schemas of the slots they read; a rule sent down a
+ * route it doesn't have; and, not enough to keep the flow from being watched, a
+ * route no rule leads to.
  */
 function switchIssues(node: FlowNode, config: SwitchConfig, schemas: Schemas, held: Available): FlowIssue[] {
     const issues: FlowIssue[] = ruleIssues(node, config.rules, schemas, held).map((message) => ({
@@ -835,7 +857,7 @@ function switchIssues(node: FlowNode, config: SwitchConfig, schemas: Schemas, he
         issues.push({
             nodeId: node.id,
             severity: 'warning',
-            message: `No rule of ${node.name}’s leads to ${route.label || route.id}, so no email leaves by it.`,
+            message: `No rule of ${node.name}’s leads to ${routeLabel(route)}, so no email leaves by it.`,
         });
     }
     return issues;
@@ -945,10 +967,9 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         }
         const schemaIssue = nodeSchemaIssue(schemas, node);
         if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
-        if (node.config.kind === 'reply') {
-            for (const message of replyIssues(node, node.config, schemas, held)) {
-                issues.push({nodeId: node.id, severity: 'error', message});
-            }
+        if (node.config.kind === 'create-email') {
+            const message = createEmailIssue(node, node.config);
+            if (message) issues.push({nodeId: node.id, severity: 'error', message});
         }
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
@@ -1080,6 +1101,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                     {id: 'b', label: 'Route B'},
                 ],
                 rules: [],
+                output: '',
             };
         case 'extractor':
             return {
@@ -1110,15 +1132,14 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 allowFileSystem: false,
                 mcpTools: [],
             };
-        case 'reply':
+        case 'create-email':
             return {
                 kind,
                 template: '',
-                rules: [],
-                otherwise: {reply: true, section: ''},
+                section: '',
                 signature: '',
                 replyAll: false,
-                output: 'reply',
+                output: 'draft',
             };
         case 'terminal':
             return {kind, disposition: 'done'};
@@ -1137,8 +1158,8 @@ function defaultNodeName(kind: NodeKind): string {
             return 'Extract';
         case 'processor':
             return 'Process';
-        case 'reply':
-            return 'Reply';
+        case 'create-email':
+            return 'Create email';
         case 'terminal':
             return 'Done';
     }
@@ -1171,10 +1192,10 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         blurb: 'Runs Claude with the skills you assign, scoped to this email.',
         token: 'processor',
     },
-    reply: {
-        label: 'Reply',
-        blurb: 'Drafts a reply from a template email, its section picked by rules on earlier data. Runs no model.',
-        token: 'reply',
+    'create-email': {
+        label: 'Create email',
+        blurb: 'Drafts a reply from a template email in the mailbox, and never twice for one email. Runs no model.',
+        token: 'create-email',
     },
     terminal: {
         label: 'Terminal',
@@ -1283,13 +1304,26 @@ function schemaOf(value: unknown): JsonSchema {
     return name === null ? {} : schemaRef(name);
 }
 
+/** A slot a node fills, as a file names it: `fallback` unless it is a name a slot can have, and not the email's. */
+function outputName(value: unknown, fallback: string): string {
+    const output = str(value, '');
+    return SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : fallback;
+}
+
 /**
- * A Reply's choice. With `reply` left out, `fallback` decides: a rule's falls to
- * no reply, so a row written without saying which never drafts by mistake.
+ * A Reply node, as the 1.1.1 nightly wrote one, read as the Create email that
+ * replaced it. One that replied the same way to every email it reached, with no
+ * rules and an Otherwise that replies, becomes one exactly. One whose rules or
+ * Otherwise could hold the reply back loses its template as well, so that it
+ * drafts nothing until that choice is moved into a Switch before it: the canvas
+ * flags it, and a run that reaches it leaves by Error.
  */
-function replyChoice(value: unknown, fallback: ReplyChoice): ReplyChoice {
-    const from = isObject(value) ? value : {};
-    return {reply: bool(from.reply, fallback.reply), section: str(from.section, fallback.section)};
+function fromReply(raw: unknown): Json {
+    const from = isObject(raw) ? raw : {};
+    const otherwise = isObject(from.otherwise) ? from.otherwise : {};
+    const rules = Array.isArray(from.rules) ? from.rules : [];
+    const exact = rules.length === 0 && otherwise.reply !== false;
+    return {...from, template: exact ? from.template : '', section: otherwise.section};
 }
 
 /** One of a node's models. */
@@ -1363,13 +1397,14 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 rules: (Array.isArray(from.rules) ? from.rules : [])
                     .filter(isObject)
                     .map((rule): SwitchRule => ({...ruleTest(rule), route: str(rule.route, '')})),
+                // Optional, as a Processor's is: a name a slot can't have fills nothing.
+                output: outputName(from.output, ''),
             };
         }
-        case 'extractor': {
-            const output = str(from.output, '');
+        case 'extractor':
             return {
                 ...base,
-                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
+                output: outputName(from.output, base.output),
                 schema: schemaOf(from.schema),
                 instruction: str(from.instruction, base.instruction),
                 skills: skillTicks(from.skills, base.skills),
@@ -1378,16 +1413,14 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
-        }
-        case 'processor': {
-            const output = str(from.output, '');
+        case 'processor':
             return {
                 ...base,
                 skills: skillTicks(from.skills, base.skills),
                 instruction: str(from.instruction, base.instruction),
                 readEmail: bool(from.readEmail, base.readEmail),
                 inputs: strings(from.inputs, base.inputs),
-                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
+                output: outputName(from.output, base.output),
                 schema: schemaOf(from.schema),
                 models: modelsOf(from.models, base.models),
                 allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
@@ -1396,24 +1429,15 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
-        }
-        case 'reply': {
-            const output = str(from.output, '');
+        case 'create-email':
             return {
                 ...base,
                 template: str(from.template, base.template),
-                rules: (Array.isArray(from.rules) ? from.rules : []).filter(isObject).map(
-                    (rule): ReplyRule => ({
-                        ...ruleTest(rule),
-                        ...replyChoice(rule, {reply: false, section: ''}),
-                    }),
-                ),
-                otherwise: replyChoice(from.otherwise, base.otherwise),
+                section: str(from.section, base.section),
                 signature: str(from.signature, base.signature),
                 replyAll: bool(from.replyAll, base.replyAll),
-                output: SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : base.output,
+                output: outputName(from.output, base.output),
             };
-        }
         case 'terminal':
             return {
                 ...base,
@@ -1431,12 +1455,17 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
     const raw = isObject(value) ? value : {};
 
     const takenIds = new Set<string>();
+    /** The nightly's Reply nodes, by id, whose Drafted port was called `replied`. */
+    const retiredIds = new Set<string>();
     const nodes = (Array.isArray(raw.nodes) ? raw.nodes : []).filter(isObject).flatMap(
         (n, i): FlowNode[] => {
-            const kind = NODE_KINDS.find((k) => k === n.kind);
+            // The nightly's Reply is read as the Create email that replaced it.
+            const retired = n.kind === 'reply';
+            const kind = retired ? 'create-email' : NODE_KINDS.find((k) => k === n.kind);
             const nodeId = str(n.id, '') || `node-${i + 1}`;
             if (!kind || takenIds.has(nodeId)) return [];
             takenIds.add(nodeId);
+            if (retired) retiredIds.add(nodeId);
             const position = isObject(n.position) ? n.position : {};
             return [
                 {
@@ -1446,7 +1475,7 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
                     // Laid out in a row when the file carries no coordinates, so a
                     // flow written by hand still opens as something readable.
                     position: {x: num(position.x, 80 + i * 260), y: num(position.y, 200)},
-                    config: parseConfig(kind, n.config),
+                    config: parseConfig(kind, retired ? fromReply(n.config) : n.config),
                 },
             ];
         },
@@ -1458,12 +1487,13 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
     const edges = (Array.isArray(raw.edges) ? raw.edges : []).filter(isObject).flatMap(
         (e): FlowEdge[] => {
             const source = str(e.source, '');
-            const sourceHandle = str(e.sourceHandle, '');
+            const written = str(e.sourceHandle, '');
+            const sourceHandle = retiredIds.has(source) && written === 'replied' ? DRAFTED_PORT : written;
             const target = str(e.target, '');
             const targetNode = byId.get(target);
             if (!portsOf.get(source)?.has(sourceHandle)) return [];
             if (!targetNode || !hasInput(targetNode.kind)) return [];
-            const id = str(e.id, '') || edgeId(source, sourceHandle, target);
+            const id = (sourceHandle === written && str(e.id, '')) || edgeId(source, sourceHandle, target);
             if (takenEdges.has(id)) return [];
             takenEdges.add(id);
             return [{id, source, sourceHandle, target}];

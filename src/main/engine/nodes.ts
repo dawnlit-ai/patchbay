@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import {
     type CategorizerConfig,
-    decideReply,
+    type CreateEmailConfig,
+    createEmailIssue,
     decideSwitch,
+    DRAFTED_PORT,
+    type DraftOutcome,
     type ExtractorConfig,
     type FlowNode,
     type JsonSchema,
@@ -12,13 +15,11 @@ import {
     nodeSchemaIssue,
     outputPorts,
     type ProcessorConfig,
-    REPLIED_PORT,
-    type ReplyConfig,
-    type ReplyOutcome,
     resolveNode,
     type Schemas,
     SKIPPED_PORT,
     type SwitchConfig,
+    type SwitchOutcome,
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
@@ -274,7 +275,10 @@ function runSwitch(ctx: NodeContext, config: SwitchConfig): NodeOutcome {
         const message = `${ctx.node.name} decided by ${decision.why}, but that rule leads to no route ${ctx.node.name} has: pick one for it.`;
         return {outPort: null, summary: message, error: message};
     }
-    return {outPort: port.id, summary: `${port.label} — ${decision.why}`};
+    const provided = config.output
+        ? {[config.output]: {route: port.label, why: decision.why} satisfies SwitchOutcome}
+        : undefined;
+    return {outPort: port.id, summary: `${port.label} — ${decision.why}`, provided};
 }
 
 // ── Extractor ────────────────────────────────────────────────────────────
@@ -613,47 +617,34 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     return {outPort, summary, provided: {[config.output]: answer.data}};
 }
 
-// ── Reply ────────────────────────────────────────────────────────────────
-// No model: the rules pick the section, Outlook fills the template, and the
-// draft waits in Drafts for a person. Nothing here sends.
+// ── Create email ─────────────────────────────────────────────────────────
+// No model: Outlook fills the template, and the draft waits in Drafts for a
+// person. Nothing here sends.
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-async function runReply(ctx: NodeContext, config: ReplyConfig): Promise<NodeOutcome> {
-    const decision = decideReply(config, ctx.data);
-    ctx.onEvent({at: now(), type: 'note', label: `Decided by ${decision.why}`, detail: decision.checked.join('\n')});
-
-    const handOn = (outcome: Partial<ReplyOutcome>): Record<string, unknown> => ({
-        [config.output]: {
-            replied: false,
-            section: '',
-            to: '',
-            draftEntryId: '',
-            why: decision.why,
-            ...outcome,
-        } satisfies ReplyOutcome,
-    });
-
-    if (!decision.choice.reply) {
-        return {outPort: SKIPPED_PORT, summary: `No reply — ${decision.why}`, provided: handOn({})};
-    }
+async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Promise<NodeOutcome> {
+    const issue = createEmailIssue(ctx.node, config);
+    if (issue) return {outPort: 'error', summary: issue, error: issue};
 
     const template = config.template.trim();
-    if (!template) {
-        const message = `${ctx.node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`;
-        return {outPort: 'error', summary: message, error: message};
-    }
+    const section = config.section.trim();
+    const from = `template ${template}${section ? ` [${section}]` : ''}`;
+    const handOn = (outcome: Pick<DraftOutcome, 'why'> & Partial<DraftOutcome>): Record<string, unknown> => ({
+        [config.output]: {drafted: false, section: '', to: '', draftEntryId: '', ...outcome} satisfies DraftOutcome,
+    });
 
-    // A second run over this email — a re-run, or one after a later step failed —
-    // finds the draft the first one made, and makes none of its own.
+    // A second run over this email — a re-run, or one down another path after
+    // the first took a different route — finds the reply the first one drafted,
+    // whichever of the flow's nodes drafted it, and makes none of its own.
     const email = repliedEmail(ctx.email);
-    const earlier = findReply(ctx.flowId, ctx.node.id, email);
+    const earlier = findReply(ctx.flowId, email);
     if (earlier) {
-        const why = `a reply to this email was already drafted, ${earlier.at} (run ${earlier.runId}), to ${earlier.to}`;
+        const by = earlier.nodeId === ctx.node.id ? '' : ` by another node of this flow (${earlier.nodeId})`;
+        const why = `a reply to this email was already drafted${by}, ${earlier.at} (run ${earlier.runId}), to ${earlier.to}`;
         return {outPort: SKIPPED_PORT, summary: `No second reply — ${why}`, provided: handOn({why})};
     }
 
-    const {section} = decision.choice;
     const signature = config.signature.trim();
     let result;
     try {
@@ -670,7 +661,6 @@ async function runReply(ctx: NodeContext, config: ReplyConfig): Promise<NodeOutc
         return {outPort: 'error', summary: `Could not draft the reply: ${message}`, error: message};
     }
 
-    const from = `template ${template}${section ? ` [${section}]` : ''}`;
     ctx.onEvent({
         at: now(),
         type: 'outlook',
@@ -712,9 +702,15 @@ async function runReply(ctx: NodeContext, config: ReplyConfig): Promise<NodeOutc
     const signed = signature ? ` · signed ${signature}` : '';
     const everyone = config.replyAll ? ' · reply all' : '';
     return {
-        outPort: REPLIED_PORT,
+        outPort: DRAFTED_PORT,
         summary: `${section || template} drafted to ${result.to}${signed}${everyone}`,
-        provided: handOn({replied: true, section, to: result.to, draftEntryId: result.draftEntryId}),
+        provided: handOn({
+            drafted: true,
+            section,
+            to: result.to,
+            draftEntryId: result.draftEntryId,
+            why: `drafted from ${from}`,
+        }),
     };
 }
 
@@ -742,8 +738,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runExtractor(ctx, config);
         case 'processor':
             return runProcessor(ctx, config);
-        case 'reply':
-            return runReply(ctx, config);
+        case 'create-email':
+            return runCreateEmail(ctx, config);
         case 'terminal':
             return runTerminal(config);
     }

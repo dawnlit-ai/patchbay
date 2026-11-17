@@ -189,7 +189,7 @@ function describe(node: FlowNode): string {
             return `${c.categories.length} categor${c.categories.length === 1 ? 'y' : 'ies'} · ${modelsInTurn(c.models)[0]?.model ?? 'no model on'}`;
         case 'switch':
             return c.rules.length > 0
-                ? `${c.rules.length} rule${c.rules.length === 1 ? '' : 's'} · no model`
+                ? `${c.rules.length} rule${c.rules.length === 1 ? '' : 's'} · no model${c.output ? ` · → ${c.output}` : ''}`
                 : 'No rules yet: every email leaves by Otherwise';
         case 'extractor':
             return `→ ${c.output} · ${refName(c.schema) ?? 'no schema yet'}${c.includeAttachments ? ' · reads attachments' : ''}`;
@@ -197,9 +197,9 @@ function describe(node: FlowNode): string {
             return c.skills.length > 0
                 ? `skills: ${c.skills.join(', ')}`
                 : 'No skill assigned — instruction only';
-        case 'reply':
+        case 'create-email':
             return c.template.trim()
-                ? `${c.template.trim()} · ${c.rules.length} rule${c.rules.length === 1 ? '' : 's'} · drafts only`
+                ? `${c.template.trim()}${c.section.trim() ? ` [${c.section.trim()}]` : ''} · drafts only`
                 : 'No template yet';
         case 'terminal':
             return c.disposition;

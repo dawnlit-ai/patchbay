@@ -29,9 +29,9 @@ of concurrent activity.
   *Error*. Give it an output slot and one of the workspace's schemas and its result fills that slot on *Done*, so a
   long job can be split into steps that each hand their work to the next — and a run that stops shows which step it
   stopped at.
-- **Reply** — drafts a reply to the email from a template email in the mailbox, choosing the template's section by
-  [rules](#replies) on what earlier steps found. It runs no model. It leaves by *Drafted*, by *No reply* when its rules
-  say none, or when this email already has one, or by *Error*.
+- **Create email** — drafts a [reply](#create-email) to the email from a template email in the mailbox. It runs no
+  model, and drafts nothing an earlier run of the flow already drafted. It leaves by *Drafted*, by *Already drafted*,
+  or by *Error*.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -61,8 +61,10 @@ an email no rule matches leaves by *Otherwise*. The rate-replies flow's choice o
 | `quote.reply`              | `quote`    | Quote    |
 | `quote.reply`              | `no-quote` | No quote |
 
-Several rules can lead to one route. A Switch does nothing to the email and fills no slot; the run's trace records how
-each rule read and which one decided.
+Several rules can lead to one route. A Switch does nothing to the email; the run's trace records how each rule read
+and which one decided. Give it an **output slot** and every way out fills it with the `route` the email took — its
+label, or `Otherwise` — and `why`, so a step where the routes meet again, such as one that logs the email whichever way
+it went, can say which. A later Switch's rule on `route` is checked against the routes this one has.
 
 Each rule is checked against the schema of the slot it reads, so the canvas flags a field that schema lacks, a value it
 never holds — one outside a field's *One of a list*, or other than `true` or `false` for a *Yes / no* — a group
@@ -70,40 +72,36 @@ compared as one value, and a slot not every path fills. The field box offers the
 value box a field's choices. A rule left leading to a route since removed is flagged too, and a route no rule leads to
 is pointed out, since no email can leave by it.
 
-## Replies
+## Create email
 
 Many flows end the same way: thank the sender, or confirm receipt, in wording the office has already written. A
-**Reply** does that without a model, so it costs nothing to run and gives the same answer every time.
+**Create email** drafts that reply without a model, so it costs nothing to run and gives the same answer every time.
 
 Its **template** is the subject of an email saved in the mailbox's `Templates` folder. One template can hold several
 replies around a shared greeting and signature, each between `[[SECTION]]` and `[[/SECTION]]` markers, such as
-`[[QUOTE]]…[[/QUOTE]]` and `[[NOQUOTE]]…[[/NOQUOTE]]`; a template without them is replied with whole. A *Signature*
-names an Outlook signature, which goes in the template's `{{SIGNATURE}}`, or below its text when it has none. *Reply
-to everyone* widens the reply from the sender to everyone on the email.
+`[[QUOTE]]…[[/QUOTE]]` and `[[NOQUOTE]]…[[/NOQUOTE]]`; its **section** is the one it drafts, and a template without
+them is replied with whole. A *Signature* names an Outlook signature, which goes in the template's `{{SIGNATURE}}`, or
+below its text when it has none. *Reply to everyone* widens the reply from the sender to everyone on the email.
 
-Which reply, if any, is decided by its **rules**, written and checked as a [Switch's](#switches) are, each ending in
-*No reply*, or *Reply* with a section. The first rule whose field holds its value decides; *Otherwise*
-decides when none does. The rate-replies flow's Acknowledge, for one:
+Whether an email gets a reply, and which, is the path's to decide: a [Switch](#switches) before one Create email per
+reply. The rate-replies flow's Switch above sends *Quote* to a Create email drafting `QUOTE`, *No quote* to one
+drafting `NOQUOTE`, and *Skip* and *Otherwise* past both, to the step that logs the quote, where all four meet again.
 
-| Field                      | is         | →                |
-|----------------------------|------------|------------------|
-| `placement.logged_before`  | `true`     | No reply         |
-| `quote.reply`              | `offer`    | No reply         |
-| `placement.answering.kind` | `thanks`   | No reply         |
-| `quote.reply`              | `quote`    | Reply, `QUOTE`   |
-| `quote.reply`              | `no-quote` | Reply, `NOQUOTE` |
-| *Otherwise*                |            | No reply         |
+A template it cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a signature Outlook doesn't
+have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
 
-A template the Reply cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a signature Outlook
-doesn't have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
+It fills its **output slot** with what happened — `drafted`, the `section`, who it went `to`, the draft's Outlook id
+and `why` — so the steps after it can say so.
 
-Whether it drafted or not, a Reply fills its **output slot** with what happened — `replied`, the `section`, who it
-went `to`, the draft's Outlook id and `why` — so the steps after it can say so.
+**It only drafts, and never twice.** The reply waits in the mailbox's Drafts folder for a person to send. Patchbay
+records each draft, by the id Outlook gave it, in the app's data rather than the workspace. An email gets one reply
+from a flow: a second run over it — a re-run, or one after a later step failed — finds the reply already drafted, by
+whichever of the flow's Create email nodes, and leaves by *Already drafted* without drafting another, even when this
+time its route led to a different one.
 
-**It only drafts.** The reply waits in the mailbox's Drafts folder for a person to send. Patchbay records each draft a
-Reply makes, by the id Outlook gave it, in the app's data rather than the workspace. That record is how a second run
-over the same email — a re-run, or one after a later step failed — finds the reply already drafted and leaves by *No
-reply* without drafting another.
+A Reply node, as the 1.1.1 nightly had, is read as a Create email. One that replied the same way to every email that
+reached it becomes one exactly. One whose rules could hold the reply back comes in with no template, so that it drafts
+nothing, and is flagged until its choice is moved into a Switch before it.
 
 ## Data on the wire
 
@@ -113,9 +111,9 @@ schema leaves by *Error* instead. A node adds slots and never takes one away, so
 step replies to it or files it.
 
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
-both. A Switch or a Reply reads the slots its rules name. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
+both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
 it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor always
-reads the email, and any slots it ticks besides. The inspector's *Reads* list names the schema each slot carries
+reads the email, and any slots it ticks besides, and a Switch the slots its rules name. The inspector's *Reads* list names the schema each slot carries
 beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.
 
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
