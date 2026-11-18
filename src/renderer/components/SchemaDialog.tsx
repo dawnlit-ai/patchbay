@@ -3,11 +3,13 @@ import { useState } from 'react';
 import { type JsonSchema, SLOT_NAME } from '@shared/flow';
 import { Modal } from './Modal';
 import { SchemaEditor } from './SchemaEditor';
+import { SchemaFields } from './SchemaFields';
 
 /**
  * Making or changing one of the workspace's named schemas, its name included,
  * without leaving the start window or writing JSON. Nothing is written until
- * Save, and a click outside asks before it throws edits away.
+ * Save, and a click outside asks before it throws edits away. It can open on
+ * its fields to look at instead, with Edit a click away.
  */
 
 const BLANK: JsonSchema = {type: 'object', properties: {}, required: []};
@@ -24,6 +26,8 @@ interface Props {
     named: string[];
     /** Who uses it now, said under its name. */
     usage?: string;
+    /** Open on its fields, to look at rather than change, until Edit. Ignored for a new one. */
+    viewing?: boolean;
 
     onCancel(): void;
 
@@ -43,11 +47,13 @@ export function SchemaDialog({
                                  taken,
                                  named,
                                  usage,
+                                 viewing: startViewing = false,
                                  onCancel,
                                  onSave,
                                  onDelete,
                              }: Props): JSX.Element {
     const original = schema ?? BLANK;
+    const [viewing, setViewing] = useState(startViewing && name !== null);
     const [draftName, setDraftName] = useState(name ?? suggested);
     const [draft, setDraft] = useState<JsonSchema>(original);
     const [saving, setSaving] = useState(false);
@@ -70,6 +76,38 @@ export function SchemaDialog({
         setFailure(await onSave(wanted, name === null || changed ? draft : null));
         setSaving(false);
     };
+
+    if (viewing && name !== null) {
+        const about = typeof original.description === 'string' ? original.description : '';
+        return (
+            <Modal
+                wide
+                title={name}
+                // Nothing to lose yet, so a click outside just closes it.
+                onClose={onCancel}
+                footer={
+                    <>
+                        {onDelete && (
+                            <button className="danger" onClick={onDelete}>
+                                Delete…
+                            </button>
+                        )}
+                        <span className="spacer"/>
+                        <button onClick={onCancel}>Close</button>
+                        <button className="primary" autoFocus onClick={() => setViewing(false)}>
+                            Edit
+                        </button>
+                    </>
+                }
+            >
+                {about && <p>{about}</p>}
+                <div className="hint block">
+                    {usage ? `${usage} ` : ''}Its file is schemas/{name}.json.
+                </div>
+                <SchemaFields schema={original}/>
+            </Modal>
+        );
+    }
 
     return (
         <Modal

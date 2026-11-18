@@ -5,7 +5,6 @@ import {
     findTriggers,
     type Flow,
     type FlowNode,
-    type JsonSchema,
     NODE_KIND_META,
     NODE_KINDS,
     type Schemas,
@@ -16,6 +15,7 @@ import type { SchemaSummary } from '@shared/ipc';
 import { type EmailEnvelope, type Run, type RunSummary, toSummary } from '@shared/trace';
 import type { LogEntry } from '@shared/log';
 import type { EngineStatus, SkillSummary } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
@@ -90,19 +90,9 @@ export function App({initialFlowId}: Props): JSX.Element {
         setSkills(await window.api.skills.list());
     }, []);
 
-    /** Edits to a named schema not written to its file yet, by name. */
-    const pendingSchemas = useRef(new Map<string, JsonSchema>());
-    const schemaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    /** The workspace's too. An edit not written yet stays on screen over what the file holds. */
+    /** The workspace's too. */
     const refreshSchemas = useCallback(async () => {
-        const list = await window.api.schemas.list();
-        const pending = pendingSchemas.current;
-        setSchemaList(list.map((s) => (pending.has(s.name) ? {
-            ...s,
-            schema: pending.get(s.name)!,
-            problem: undefined
-        } : s)));
+        setSchemaList(await window.api.schemas.list());
     }, []);
 
     useEffect(() => {
@@ -230,22 +220,10 @@ export function App({initialFlowId}: Props): JSX.Element {
         [readFlow, setError],
     );
 
-    /** Write every edit to a named schema still waiting, now. */
-    const flushSchemas = useCallback(() => {
-        if (schemaTimer.current) clearTimeout(schemaTimer.current);
-        schemaTimer.current = null;
-        const pending = [...pendingSchemas.current];
-        pendingSchemas.current.clear();
-        for (const [name, schema] of pending) {
-            void window.api.schemas.save(name, schema).catch((e: Error) => setError(e.message));
-        }
-    }, [setError]);
-
-    /** Write queued edits — the flow's, and any to a named schema — now, rather than when their timers say so. */
+    /** Write the flow's queued edits now, rather than when the timer says so. */
     const flushSave = useCallback(() => {
         if (queued.current) writeFlow(queued.current);
-        flushSchemas();
-    }, [writeFlow, flushSchemas]);
+    }, [writeFlow]);
 
     /** Flush on blur, so another window reading this flow off disk sees what is on the canvas. */
     useEffect(() => {
@@ -305,17 +283,6 @@ export function App({initialFlowId}: Props): JSX.Element {
     const schemas: Schemas = useMemo(
         () => Object.fromEntries(schemaList.flatMap((s) => (s.schema ? [[s.name, s.schema]] : []))),
         [schemaList],
-    );
-
-    /** Shown at once, and written once typing pauses, as the flow's own edits are. */
-    const saveSchema = useCallback(
-        (name: string, schema: JsonSchema) => {
-            pendingSchemas.current.set(name, schema);
-            setSchemaList((list) => list.map((s) => (s.name === name ? {...s, schema, problem: undefined} : s)));
-            if (schemaTimer.current) clearTimeout(schemaTimer.current);
-            schemaTimer.current = setTimeout(flushSchemas, 400);
-        },
-        [flushSchemas],
     );
 
     /** Which slots reach each node, and what falls short — redrawn with every edit. */
@@ -391,27 +358,33 @@ export function App({initialFlowId}: Props): JSX.Element {
             if (fileName !== null) setFile((await window.api.flows.setFileName(flow.id, fileName)).file);
         });
 
-    /** Whether `act` went through. When it did not, the banner says why. */
-    const succeeded = async (act: () => Promise<unknown>): Promise<boolean> => {
-        let ok = false;
-        await attempt(async () => {
+    /** Null once `act` went through, or why it did not, for the schema window to say in its own banner. */
+    const failure = async (act: () => Promise<unknown>): Promise<string | null> => {
+        try {
             await act();
-            ok = true;
-        });
-        return ok;
+            return null;
+        } catch (e) {
+            return errorMessage(e);
+        }
     };
+
+    /** One just written, listed at once, so a node about to pick it never names one the canvas lacks. */
+    const listSchema = (made: SchemaSummary): void =>
+        setSchemaList((list) =>
+            [...list.filter((s) => s.name !== made.name), made].toSorted((a, b) => a.name.localeCompare(b.name)),
+        );
 
     /**
      * Renaming a named schema rewrites every flow that names it, this one perhaps
      * among them. This window's own edits go out first, and it reads the
      * flow and the schemas again after.
      */
-    const rewriteSchemas = async (act: () => Promise<void>): Promise<boolean> => {
-        if (!flow) return false;
+    const renameSchema = async (from: string, to: string): Promise<string | null> => {
+        if (!flow) return 'No flow is open.';
         flushSave();
-        const ok = await succeeded(act);
+        const failed = await failure(() => window.api.schemas.rename(from, to));
         await Promise.all([refreshSchemas(), readFlow(flow.id)]);
-        return ok;
+        return failed;
     };
 
     /** Brings a tab of the dock up, unfolding the dock if it was folded away. */
@@ -514,16 +487,9 @@ export function App({initialFlowId}: Props): JSX.Element {
             here: schemaUsers(flow, schemas, name).length,
             elsewhere: others.filter((other) => schemaUsers(other, schemas, name).length > 0).map((other) => other.name),
         }),
-        save: saveSchema,
-        create: (name, schema) =>
-            succeeded(async () => {
-                const made = await window.api.schemas.create(name, schema);
-                // Listed at once, so the node about to pick it never names one the canvas lacks.
-                setSchemaList((list) =>
-                    [...list.filter((s) => s.name !== made.name), made].toSorted((a, b) => a.name.localeCompare(b.name)),
-                );
-            }),
-        rename: (from, to) => rewriteSchemas(() => window.api.schemas.rename(from, to)),
+        create: (name, schema) => failure(async () => listSchema(await window.api.schemas.create(name, schema))),
+        save: (name, schema) => failure(async () => listSchema(await window.api.schemas.save(name, schema))),
+        rename: renameSchema,
     };
 
     return (

@@ -54,12 +54,12 @@ import {
     type McpVariable,
 } from '@shared/settings';
 import { FolderTree } from './FolderTree';
-import { NameDialog } from './NameDialog';
-import { SchemaEditor } from './SchemaEditor';
+import { SchemaDialog } from './SchemaDialog';
 import { SecretDialog } from './SecretDialog';
 import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
 import { type DataTokens, tint } from '../slotColors';
+import { fieldsOf } from '../schemaShape';
 
 /** Configures the selected node: one section per kind, each handed its narrowed config. */
 
@@ -658,13 +658,12 @@ export interface SchemaShelf {
     /** How many nodes in this flow use it, and which of the workspace's other flows do. */
     users(name: string): { here: number; elsewhere: string[] };
 
-    /** An edit to its JSON. Written to its file a moment later, so typing is not a write per key. */
-    save(name: string, schema: JsonSchema): void;
+    /** Each resolves to null once it went through, or to why it did not, for the schema window to say. */
+    create(name: string, schema: JsonSchema): Promise<string | null>;
 
-    /** Each resolves to whether it went through; one refused says why in the window's banner. */
-    create(name: string, schema: JsonSchema): Promise<boolean>;
+    save(name: string, schema: JsonSchema): Promise<string | null>;
 
-    rename(from: string, to: string): Promise<boolean>;
+    rename(from: string, to: string): Promise<string | null>;
 }
 
 interface SchemaProps {
@@ -701,27 +700,23 @@ function OutputFields({
     );
 }
 
-/** The schema of that name in another case, if any: two of the three filesystems we run on ignore case. */
-const sameName = (schemas: Schemas, name: string, own?: string): string | undefined =>
-    Object.keys(schemas).find((other) => other !== own && other.toLowerCase() === name.toLowerCase());
-
-/** Why a schema name will not do, or null when it will. `own` is the name being renamed, which may stay. */
-function schemaNameProblem(schemas: Schemas, name: string, own?: string): string | null {
-    if (!SLOT_NAME.test(name)) return 'Letters, digits and _ only, not starting with a digit.';
-    const taken = sameName(schemas, name, own);
-    if (taken) return `This workspace already has a schema called ${taken}.`;
-    return null;
-}
+/** Whether the workspace has a schema of that name in any case: two of the three filesystems we run on ignore case. */
+const hasName = (schemas: Schemas, name: string): boolean =>
+    Object.keys(schemas).some((other) => other.toLowerCase() === name.toLowerCase());
 
 /** A free name for a new schema, after the slot it describes: `shipment` suggests `Shipment`. */
 function suggestSchemaName(schemas: Schemas, output: string): string {
     const stem = SLOT_NAME.test(output) ? output[0]!.toUpperCase() + output.slice(1) : 'Schema';
     let name = stem;
-    for (let n = 2; sameName(schemas, name); n++) name = `${stem}${n}`;
+    for (let n = 2; hasName(schemas, name); n++) name = `${stem}${n}`;
     return name;
 }
 
-const BLANK_SCHEMA: JsonSchema = {type: 'object', properties: {}, required: []};
+/** How many fields a schema has, in a few words. */
+function fieldCount(schema: JsonSchema): string {
+    const n = Object.keys(fieldsOf(schema)).length;
+    return n === 0 ? 'No fields yet' : `${n} field${n === 1 ? '' : 's'}`;
+}
 
 /** Who else an edit to a named schema reaches. */
 function sharedWith({here, elsewhere}: { here: number; elsewhere: string[] }): string {
@@ -730,10 +725,17 @@ function sharedWith({here, elsewhere}: { here: number; elsewhere: string[] }): s
     return `Used by ${nodes}, and in ${elsewhere.length === 1 ? 'the flow' : 'the flows'} ${elsewhere.join(', ')}`;
 }
 
+/** The same, said in the schema window, where a change goes out to every one of them on Save. */
+function changeReaches(users: { here: number; elsewhere: string[] }): string {
+    const alone = users.here <= 1 && users.elsewhere.length === 0;
+    return `${sharedWith(users)}.${alone ? '' : ' A change here reaches every one of them.'}`;
+}
+
 /**
  * The workspace schema a node's result has to match. A node only ever names
- * one and never keeps one of its own, so the fields below are the shared ones:
- * an edit reaches every node, in any flow, that picks the same.
+ * one and never keeps one of its own, so its fields are the shared ones: they
+ * are looked at and changed in the schema window, where an edit reaches every
+ * node, in any flow, that picks the same.
  */
 function SchemaField({
                          schema,
@@ -750,32 +752,33 @@ function SchemaField({
     const {schemas} = shelf;
     const named = refName(schema);
     const shown = named === null ? undefined : schemas[named];
-    const [naming, setNaming] = useState<'new' | 'rename' | null>(null);
-    const [nameError, setNameError] = useState<string | null>(null);
-
-    const closeNaming = (): void => {
-        setNaming(null);
-        setNameError(null);
-    };
-
-    const confirmName = (name: string): void => {
-        const problem = schemaNameProblem(schemas, name, naming === 'rename' ? (named ?? undefined) : undefined);
-        if (problem) {
-            setNameError(problem);
-            return;
-        }
-        closeNaming();
-        if (naming === 'new') {
-            // From a copy of the one it names, or nothing yet.
-            void shelf.create(name, shown ?? BLANK_SCHEMA).then((made) => {
-                if (made) patch({schema: schemaRef(name)});
-            });
-        } else if (named !== null && name !== named) {
-            void shelf.rename(named, name);
-        }
-    };
+    /** The schema open in the window, by name, or null there for a new one, and whether it opened to look at. */
+    const [editing, setEditing] = useState<{ name: string | null; viewing: boolean } | null>(null);
 
     const names = Object.keys(schemas);
+
+    /** Written on the window's Save: the name first, should it have changed, then the fields. */
+    const save = async (from: string | null, to: string, next: JsonSchema | null): Promise<string | null> => {
+        if (from === null) {
+            // From a copy of the one it names, or nothing yet, and this node picks it at once.
+            const failed = await shelf.create(to, next ?? {type: 'object', properties: {}, required: []});
+            if (failed !== null) return failed;
+            patch({schema: schemaRef(to)});
+        } else {
+            if (to !== from) {
+                const failed = await shelf.rename(from, to);
+                if (failed !== null) return failed;
+                // Should the rest fail, the window edits it under the name it has now.
+                setEditing({name: to, viewing: false});
+            }
+            if (next) {
+                const failed = await shelf.save(to, next);
+                if (failed !== null) return failed;
+            }
+        }
+        setEditing(null);
+        return null;
+    };
 
     return (
         <>
@@ -799,7 +802,7 @@ function SchemaField({
                 </select>
                 <button
                     className="fixed"
-                    onClick={() => setNaming('new')}
+                    onClick={() => setEditing({name: null, viewing: false})}
                     title={
                         shown
                             ? `Make a new schema from a copy of ${named}, and pick it here`
@@ -808,48 +811,45 @@ function SchemaField({
                 >
                     New…
                 </button>
-                {named !== null && shown && (
-                    <button className="fixed" onClick={() => setNaming('rename')}>
-                        Rename…
-                    </button>
-                )}
             </div>
+            {named !== null && shown && (
+                <div className="row schema-pick">
+                    <button onClick={() => setEditing({name: named, viewing: true})} title={`See ${named}’s fields`}>
+                        View…
+                    </button>
+                    <button onClick={() => setEditing({name: named, viewing: false})}
+                            title={`Change ${named}’s fields, or rename it`}>
+                        Edit…
+                    </button>
+                </div>
+            )}
 
-            {named !== null && shown ? (
-                <SchemaEditor
-                    // Remounted with each schema picked, so one's drafts never land on another.
-                    key={named}
-                    value={shown}
-                    // Any of the workspace's but the one shown: a schema cannot hold itself.
-                    named={names.filter((name) => name !== named)}
-                    hint={`${sharedWith(shelf.users(named))}. It is the workspace’s, in schemas/${named}.json, so an edit here changes it for every node that picks it.`}
-                    onChange={(next) => shelf.save(named, next)}
-                />
-            ) : (
-                <div className="hint block">
-                    {named !== null
+            <div className="hint block">
+                {named !== null && shown
+                    ? `${fieldCount(shown)}. ${sharedWith(shelf.users(named))}.`
+                    : named !== null
                         ? `The workspace has no schema called ${named}. Pick another, or make one with New….`
                         : names.length > 0
                             ? 'Pick the schema its result fills, or make one with New….'
                             : 'The workspace has no schemas yet. New… makes one, and this node picks it.'}
-                </div>
-            )}
+            </div>
 
-            {naming && (
-                <NameDialog
-                    title={naming === 'new' ? 'New schema' : `Rename ${named}`}
-                    label="Schema name"
-                    initial={naming === 'new' ? suggestSchemaName(schemas, output) : (named ?? '')}
-                    confirmLabel={naming === 'new' ? 'Create' : 'Rename'}
-                    hint={
-                        nameError ??
-                        (naming === 'new'
-                            ? 'Letters, digits and _. Saved in the workspace’s schemas folder for any flow here to ' +
-                            `use, and this node picks it at once${shown ? `, starting from a copy of ${named}` : ''}.`
-                            : 'Its file is renamed, and every node and schema using it, in every flow here, follows.')
+            {editing && (
+                <SchemaDialog
+                    name={editing.name}
+                    suggested={suggestSchemaName(schemas, output)}
+                    // A new one starts from a copy of the one picked, if any.
+                    schema={editing.name === null ? shown : schemas[editing.name]}
+                    taken={names}
+                    named={names}
+                    usage={
+                        editing.name === null
+                            ? `This node picks it once it is made${shown ? `, and it starts from a copy of ${named}` : ''}.`
+                            : changeReaches(shelf.users(editing.name))
                     }
-                    onCancel={closeNaming}
-                    onConfirm={confirmName}
+                    viewing={editing.viewing}
+                    onCancel={() => setEditing(null)}
+                    onSave={(to, next) => save(editing.name, to, next)}
                 />
             )}
         </>

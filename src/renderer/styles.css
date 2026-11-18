@@ -634,16 +634,7 @@ button.wide {
     line-height: 1.45;
 }
 
-/* A schema's fields by name, to know it by without picking it. */
-.flow-row .meta.fields {
-    font-family: var(--mono);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* The picked schema's fields in full: a name, a type and a description each. */
+/* A schema's fields in full, as its window shows them: a name, a type and a description each. */
 .schema-fields {
     display: grid;
     grid-template-columns: max-content max-content 1fr;
@@ -1796,7 +1787,7 @@ button.wide {
     width: auto;
 }
 
-/* The schema picker, over the schema it shows. */
+/* The schema picker, and its View and Edit under it. */
 .schema-pick {
     margin-bottom: 6px;
 }

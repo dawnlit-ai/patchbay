@@ -32,7 +32,6 @@ import { OpenWhereDialog } from './components/OpenWhereDialog';
 import { fileStem, RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { SettingsButton } from './components/SettingsButton';
 import { SchemaDialog } from './components/SchemaDialog';
-import { SchemaFields } from './components/SchemaFields';
 import { SecretDialog } from './components/SecretDialog';
 import { skillTemplate } from './components/SkillLibrary';
 import { ThemeButton } from './components/ThemeButton';
@@ -63,7 +62,7 @@ type Dialog =
     | { kind: 'new-skill' }
     | { kind: 'delete-skill'; name: string }
     /** Making one (`name` null), perhaps under a name some node already uses, or changing one. */
-    | { kind: 'edit-schema'; name: string | null; suggested?: string }
+    | { kind: 'edit-schema'; name: string | null; suggested?: string; viewing?: boolean }
     | { kind: 'duplicate-schema'; name: string }
     | { kind: 'rename-schema'; name: string }
     | { kind: 'delete-schema'; name: string }
@@ -877,17 +876,22 @@ export function Welcome(): JSX.Element {
         );
 
     /**
-     * Edit it in the dialog — or, for a file the form cannot read, in the
-     * system's app for `.json` files, where it can be put right.
+     * Look at it, or edit it, in the dialog — or, for a file the form cannot
+     * read, open it in the system's app for `.json` files, where it can be put right.
      */
-    const editSchema = (entry: SchemaSummary): void => {
-        if (entry.schema) setDialog({kind: 'edit-schema', name: entry.name});
+    const editSchema = (entry: SchemaSummary, viewing = false): void => {
+        if (entry.schema) setDialog({kind: 'edit-schema', name: entry.name, viewing});
         else void handOffSchema('open', entry.name);
     };
 
     /** The actions for one schema, shown in its row's context menu. */
     const schemaActions = (entry: SchemaSummary): MenuItem[] => [
-        ...(entry.schema ? [{label: 'Edit…', onSelect: () => editSchema(entry)}] : []),
+        ...(entry.schema
+            ? [
+                {label: 'View…', onSelect: () => editSchema(entry, true)},
+                {label: 'Edit…', onSelect: () => editSchema(entry)},
+            ]
+            : []),
         {label: 'Rename…', onSelect: () => setDialog({kind: 'rename-schema', name: entry.name})},
         ...(entry.schema
             ? [{label: 'Duplicate…', onSelect: () => setDialog({kind: 'duplicate-schema', name: entry.name})}]
@@ -1375,7 +1379,7 @@ export function Welcome(): JSX.Element {
                                             key={entry.name}
                                             list={schemaPicking}
                                             item={entry}
-                                            onOpen={() => editSchema(entry)}
+                                            onOpen={() => editSchema(entry, true)}
                                             onMenu={(e) => menuAt(e, entry.name, schemaActions(entry))}
                                         >
                                             <div className="grow">
@@ -1397,17 +1401,17 @@ export function Welcome(): JSX.Element {
                                                 <div className="meta desc">
                                                     {entry.problem ?? (description || 'No description')}
                                                 </div>
-                                                {!active && fields && fields.length > 0 && (
-                                                    <div className="meta fields">{fields.join(' · ')}</div>
-                                                )}
                                                 <div className="meta">
                                                     {fields && `${fields.length} field${fields.length === 1 ? '' : 's'} · `}
                                                     {users.length > 0 ? `used in ${together(users)}` : 'used in no flow'} ·
                                                     edited {ago(entry.updatedAt)}
                                                 </div>
-                                                {active && entry.schema && <SchemaFields schema={entry.schema}/>}
                                                 {active && (
                                                     <RowActions>
+                                                        {entry.schema && (
+                                                            <button
+                                                                onClick={() => editSchema(entry, true)}>View…</button>
+                                                        )}
                                                         <button onClick={() => editSchema(entry)}>
                                                             {entry.schema ? 'Edit…' : 'Open JSON file'}
                                                         </button>
@@ -1831,6 +1835,7 @@ export function Welcome(): JSX.Element {
                     taken={schemaList?.map((s) => s.name) ?? []}
                     named={Object.keys(schemas)}
                     usage={dialog.name === null ? undefined : usage(dialog.name)}
+                    viewing={dialog.viewing}
                     onCancel={close}
                     onSave={(to, schema) => saveSchema(dialog.name, to, schema)}
                     onDelete={
