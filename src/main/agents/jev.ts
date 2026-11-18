@@ -2,8 +2,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { isJevModel } from '@shared/flow';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
+import { errorMessage } from '@shared/util';
 import { jevChoice } from './decision';
 import type { AgentBackend, AgentHost, ChoiceRequest, ChoiceResult } from './types';
+import { listCache } from './listCache';
 import { clock } from './usageGate';
 
 /**
@@ -31,9 +33,6 @@ const RETRY_DELAYS_MS = [5_000, 30_000];
 const RATE_LIMIT_MS = 30_000;
 const RATE_LIMIT_WAITS = 10;
 
-/** How long a model list is reused. */
-const MODELS_TTL_MS = 10 * 60_000;
-
 /** When the rate limit lifts. It belongs to the key, so it holds every Jev model alike. */
 let heldUntil = 0;
 
@@ -41,11 +40,12 @@ let heldUntil = 0;
 const answeredAs = new Map<string, string>();
 const versionsSeen = new Set<string>();
 
-let modelsAsked: { key: string; at: number; list: Promise<{ name: string; description: string }[]> } | null = null;
+/** The aliases the key may use, as TypeSafe last listed them. */
+const aliasesListed = listCache<{ name: string; description: string }[]>();
 
 const reasonOf = (e: unknown): string => {
     const cause = e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
-    return cause ?? (e instanceof Error ? e.message : String(e));
+    return cause ?? errorMessage(e);
 };
 
 /** What an error response says, from the `detail` TypeSafe puts it in. */
@@ -118,15 +118,7 @@ const shownAs = (name: string): string => `Jev ${name.slice('jev-'.length)} · j
 async function listJevModels(host: AgentHost): Promise<ModelOption[]> {
     const key = await host.jevKey().catch(() => null);
     if (!key) return [];
-    if (!modelsAsked || modelsAsked.key !== key.value || Date.now() - modelsAsked.at >= MODELS_TTL_MS) {
-        const asked = {key: key.value, at: Date.now(), list: fetchModels(key)};
-        modelsAsked = asked;
-        // A failure is not kept: the next ask, once the key or the network is back, should find out.
-        asked.list.catch(() => {
-            if (modelsAsked === asked) modelsAsked = null;
-        });
-    }
-    const aliases = await modelsAsked.list.catch(() => []);
+    const aliases = await aliasesListed.get(key.value, () => fetchModels(key)).catch(() => []);
     const names = new Set(aliases.map((a) => a.name));
     return [
         ...aliases.map((a): ModelOption => ({
@@ -157,9 +149,8 @@ async function jevStatus(host: AgentHost): Promise<AgentStatus> {
     }
     if (!key) return {...base, version, ready: false, detail: NO_KEY};
     try {
-        const asked = {key: key.value, at: Date.now(), list: fetchModels(key)};
-        const models = await asked.list;
-        modelsAsked = asked;
+        const models = await fetchModels(key);
+        aliasesListed.set(key.value, models);
         return {
             ...base,
             version,

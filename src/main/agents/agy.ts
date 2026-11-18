@@ -8,6 +8,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
+import { errorMessage } from '@shared/util';
+import { listCache } from './listCache';
 import { serveOnLoopback } from './loopback';
 import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
@@ -166,9 +168,7 @@ function runAgyCommand(
     });
 }
 
-const MODELS_TTL_MS = 10 * 60_000;
-
-let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | null = null;
+const modelList = listCache<ModelOption[]>();
 
 /** What agy said went wrong: its last line, without the "Error:" in front. */
 function complaint({code, stderr}: Exited): string {
@@ -209,10 +209,7 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
 
 /** The models agy offers. Empty when agy is not installed or not signed in, never a failure. */
 function listAgyModels(exe: string): Promise<ModelOption[]> {
-    if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) return modelsAsked.list;
-    const asked = {exe, at: Date.now(), list: askForModels(exe).catch(() => [])};
-    modelsAsked = asked;
-    return asked.list;
+    return modelList.get(exe, () => askForModels(exe).catch(() => []));
 }
 
 /** Long enough for `agy models` to ask Google over a slow connection. */
@@ -748,7 +745,7 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             return {ok: true, structured: result.structured_output};
         }
     } catch (e) {
-        return fail(e instanceof Error ? e.message : String(e));
+        return fail(errorMessage(e));
     } finally {
         await servers?.close();
         await rm(workspace, {recursive: true, force: true});

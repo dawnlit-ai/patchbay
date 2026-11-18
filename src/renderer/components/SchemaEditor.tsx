@@ -1,12 +1,12 @@
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { JsonSchema } from '@shared/flow';
+import { isObject } from '@shared/util';
 import {
     addField,
     describeField,
     fieldsOf,
     formable,
-    isObject,
     type Kind,
     kindOf,
     KINDS,

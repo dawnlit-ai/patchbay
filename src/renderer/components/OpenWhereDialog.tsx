@@ -1,5 +1,4 @@
 import type { JSX } from 'react';
-import { useEffect, useRef } from 'react';
 import type { OpenWhere } from '@shared/ipc';
 import { Modal } from './Modal';
 
@@ -16,13 +15,6 @@ interface Props {
 }
 
 export function OpenWhereDialog({name, current, onCancel, onChoose}: Props): JSX.Element {
-    const fresh = useRef<HTMLButtonElement>(null);
-
-    // The new window takes the focus, so a reflexive Enter never replaces a canvas.
-    useEffect(() => {
-        fresh.current?.focus();
-    }, []);
-
     return (
         <Modal
             title={`Open “${name}”`}
@@ -31,7 +23,8 @@ export function OpenWhereDialog({name, current, onCancel, onChoose}: Props): JSX
                 <>
                     <button onClick={onCancel}>Cancel</button>
                     <button onClick={() => onChoose('current')}>In that window</button>
-                    <button ref={fresh} className="primary" onClick={() => onChoose('new')}>
+                    {/* The new window takes the focus, so a reflexive Enter never replaces a canvas. */}
+                    <button autoFocus className="primary" onClick={() => onChoose('new')}>
                         In a new window
                     </button>
                 </>

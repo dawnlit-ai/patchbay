@@ -16,6 +16,7 @@ import {
 } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import * as outlook from '../outlook/bridge';
 import { executeRun } from './engine';
 import { log } from '../log';
@@ -93,6 +94,10 @@ interface QueueItem {
     email: EmailEnvelope;
     trigger: 'poll' | 'manual';
 }
+
+/** A queued email, as the console names one that leaves the queue without running. */
+const queuedDetail = (item: QueueItem): string =>
+    `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`;
 
 /** A run that has an id but no trace yet, and what it is waiting for. */
 export interface QueuedRun {
@@ -240,7 +245,7 @@ export class Watcher {
         this.queue.splice(index, 1);
         // A polled email was marked seen when queued, so it won't come back: a warning, as in `dropQueued`.
         const subject = `"${item.email.subject || '(no subject)'}"`;
-        const detail = `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`;
+        const detail = queuedDetail(item);
         if (item.trigger === 'poll') log.warn('watcher', `Cancelled before it started, not run: ${subject}`, {detail});
         else log.info('run', `Cancelled before it started: ${subject} (test)`, {detail});
         this.onStatus();
@@ -298,9 +303,7 @@ export class Watcher {
      */
     private dropQueued(which: (item: QueueItem) => boolean): void {
         for (const item of this.queue.filter(which)) {
-            log.warn('watcher', `Dropped from the queue, not run: "${item.email.subject}"`, {
-                detail: `${item.flow.name} · from ${item.email.senderEmail} · received ${item.email.receivedTime}`,
-            });
+            log.warn('watcher', `Dropped from the queue, not run: "${item.email.subject}"`, {detail: queuedDetail(item)});
         }
         this.queue = this.queue.filter((item) => !which(item));
     }
@@ -347,7 +350,7 @@ export class Watcher {
                     emails = await outlook.readScope(config, config.lookbackDays, config.maxPerPoll);
                     this.lastError = undefined;
                 } catch (e) {
-                    this.lastError = `${where(flow, node)}: ${e instanceof Error ? e.message : String(e)}`;
+                    this.lastError = `${where(flow, node)}: ${errorMessage(e)}`;
                     log.error('watcher', `Poll failed at ${this.lastError}`);
                     continue;
                 }
@@ -501,7 +504,7 @@ export class Watcher {
                 });
             }
         } catch (e) {
-            this.lastError = e instanceof Error ? e.message : String(e);
+            this.lastError = errorMessage(e);
             log.error('run', `${subject} could not run: ${this.lastError}`, {runId});
         } finally {
             this.active.delete(runId);

@@ -1,7 +1,8 @@
 import type { JSX } from 'react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { LOG_LEVELS, LOG_SOURCES, type LogEntry, type LogLevel, type LogSource } from '@shared/log';
 import { time } from '../format';
+import { Expandable } from './Expandable';
 
 /**
  * The console: what the app did outside any run. Newest at the bottom; it follows
@@ -32,34 +33,35 @@ export const DEFAULT_CONSOLE_VIEW: ConsoleView = {minLevel: 'info', source: '', 
 const STICK_PX = 24;
 
 function LogRow({entry, onOpenRun}: { entry: LogEntry; onOpenRun(runId: string): void }): JSX.Element {
-    const [open, setOpen] = useState(false);
-    const expandable = Boolean(entry.detail);
+    const {runId} = entry;
     return (
-        <div className={`log-row level-${entry.level}`}>
-            <div className={`head${expandable ? ' expandable' : ''}`}
-                 onClick={() => expandable && setOpen(!open)}>
-                <span className="at">{time(entry.at)}</span>
-                <span className="level">{entry.level}</span>
-                <span className="source">{entry.source}</span>
-                <span className="message">
-                    {expandable && <span className="dim">{open ? '▾ ' : '▸ '}</span>}
-                    {entry.message}
-                </span>
-                {entry.runId && (
-                    <button
-                        className="ghost"
-                        title="Show this run's trace"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenRun(entry.runId as string);
-                        }}
-                    >
-                        Trace →
-                    </button>
-                )}
-            </div>
-            {open && entry.detail && <pre>{entry.detail}</pre>}
-        </div>
+        <Expandable
+            className={`log-row level-${entry.level}`}
+            detail={entry.detail}
+            head={(marker) => (
+                <>
+                    <span className="at">{time(entry.at)}</span>
+                    <span className="level">{entry.level}</span>
+                    <span className="source">{entry.source}</span>
+                    <span className="message">
+                        {marker}
+                        {entry.message}
+                    </span>
+                    {runId && (
+                        <button
+                            className="ghost"
+                            title="Show this run's trace"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenRun(runId);
+                            }}
+                        >
+                            Trace →
+                        </button>
+                    )}
+                </>
+            )}
+        />
     );
 }
 

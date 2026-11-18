@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
-import { Modal } from './Modal';
+import { useState } from 'react';
+import { Modal, useSelectedOnOpen } from './Modal';
 
 /** Asks for one line of text — every name the app asks for comes through here. */
 
@@ -19,13 +19,7 @@ interface Props {
 
 export function NameDialog({title, label, initial, confirmLabel, hint, onCancel, onConfirm}: Props): JSX.Element {
     const [value, setValue] = useState(initial);
-    const input = useRef<HTMLInputElement>(null);
-
-    // Selected rather than merely focused: the common case is replacing the
-    // suggestion outright, and the less common one is a click away.
-    useEffect(() => {
-        input.current?.select();
-    }, []);
+    const input = useSelectedOnOpen();
 
     const trimmed = value.trim();
     const submit = (): void => {

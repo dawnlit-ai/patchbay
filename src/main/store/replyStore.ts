@@ -1,7 +1,7 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import type { EmailMode } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 import { repliesFile } from '../paths';
+import { appendJsonLine, readJsonLines } from './jsonFile';
 
 /**
  * Every email a Create email node drafted in the open workspace, a reply or a
@@ -21,8 +21,8 @@ export interface RepliedEmail {
 export interface ReplyRecord {
     /** When it was drafted. */
     at: string;
-    /** A reply to the email, or a new email of its own. Left out, as the nightly wrote them: a reply. */
-    mode?: EmailMode;
+    /** A reply to the email, or a new email of its own. */
+    mode: EmailMode;
     runId: string;
     flowId: string;
     nodeId: string;
@@ -48,24 +48,9 @@ const sameEmail = (a: RepliedEmail, b: RepliedEmail): boolean =>
     a.receivedTime === b.receivedTime &&
     a.subject === b.subject;
 
-/** A torn final line (power loss mid-append) costs that record, not the list. */
-function parseRecord(line: string): ReplyRecord | null {
-    try {
-        return JSON.parse(line) as ReplyRecord;
-    } catch {
-        return null;
-    }
-}
-
-export function listReplies(): ReplyRecord[] {
-    const file = repliesFile();
-    if (!existsSync(file)) return [];
-    return readFileSync(file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map(parseRecord)
-        .filter((record) => record !== null);
-}
+/** The newest record that `matches`, if any. */
+const findLast = (matches: (record: ReplyRecord) => boolean): ReplyRecord | undefined =>
+    readJsonLines<ReplyRecord>(repliesFile()).findLast(matches);
 
 /**
  * The reply this flow already drafted to `email`, the newest if several, by
@@ -73,9 +58,7 @@ export function listReplies(): ReplyRecord[] {
  * its routes lead to one.
  */
 export function findReply(flowId: string, email: RepliedEmail): ReplyRecord | undefined {
-    return listReplies().findLast(
-        (record) => record.flowId === flowId && record.mode !== 'new' && sameEmail(record.email, email),
-    );
+    return findLast((record) => record.flowId === flowId && record.mode === 'reply' && sameEmail(record.email, email));
 }
 
 /**
@@ -83,12 +66,12 @@ export function findReply(flowId: string, email: RepliedEmail): ReplyRecord | un
  * one per node, not per flow: a flow may tell the office and the trucker each.
  */
 export function findNewEmail(flowId: string, nodeId: string, email: RepliedEmail): ReplyRecord | undefined {
-    return listReplies().findLast(
+    return findLast(
         (record) =>
             record.flowId === flowId && record.nodeId === nodeId && record.mode === 'new' && sameEmail(record.email, email),
     );
 }
 
 export function recordReply(record: ReplyRecord): void {
-    appendFileSync(repliesFile(), JSON.stringify(record) + '\n', 'utf8');
+    appendJsonLine(repliesFile(), record);
 }

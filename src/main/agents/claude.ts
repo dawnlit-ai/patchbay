@@ -12,6 +12,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { type LiveText, now, truncate } from '@shared/trace';
+import { errorMessage } from '@shared/util';
+import { listCache } from './listCache';
 import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 import { clock, holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
@@ -43,10 +45,7 @@ function resolveClaudePath(configured: string | undefined): string | null {
     return [...installed, ...onPath].find((p) => existsSync(p)) ?? null;
 }
 
-/** How long a model list is reused; Claude Code can update itself while the app runs. */
-const MODELS_TTL_MS = 10 * 60_000;
-
-let modelsAsked: { exe: string; at: number; list: Promise<ModelOption[]> } | null = null;
+const modelList = listCache<ModelOption[]>();
 
 /** Asks the CLI something about itself, in a session that never runs a turn. */
 async function askIdle<T>(exe: string, ask: (q: Query) => Promise<T>): Promise<T> {
@@ -100,17 +99,7 @@ async function askForModels(exe: string): Promise<ModelOption[]> {
  */
 function listModels(exe: string | null): Promise<ModelOption[]> {
     if (!exe) return Promise.resolve([]);
-    if (modelsAsked && modelsAsked.exe === exe && Date.now() - modelsAsked.at < MODELS_TTL_MS) {
-        return modelsAsked.list;
-    }
-    const asked = {exe, at: Date.now(), list: askForModels(exe)};
-    modelsAsked = asked;
-    // A failure is not kept: once Claude Code is installed or logged in, the next
-    // ask should find out.
-    asked.list.catch(() => {
-        if (modelsAsked === asked) modelsAsked = null;
-    });
-    return asked.list;
+    return modelList.get(exe, () => askForModels(exe));
 }
 
 /** Long enough for Claude Code's first start after it has updated itself. */
@@ -313,7 +302,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     try {
         mcpServers = claudeServers(request.mcpServers ?? {}, request.cwd);
     } catch (e) {
-        return settle(request, {error: e instanceof Error ? e.message : String(e), acted: false});
+        return settle(request, {error: errorMessage(e), acted: false});
     }
 
     const options: Options = {
@@ -462,7 +451,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         } catch (e) {
             // query() throws after yielding a non-success result, so the events captured
             // above stay — this only fills in the message.
-            error = e instanceof Error ? e.message : String(e);
+            error = errorMessage(e);
         }
         // A block cut off mid-way never arrives whole.
         if (live) request.onLive?.(null);

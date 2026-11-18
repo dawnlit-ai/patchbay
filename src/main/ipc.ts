@@ -12,6 +12,7 @@ import {
 import { type Flow, type JsonSchema, type MailScope, triggerConfig } from '@shared/flow';
 import type { EmailEnvelope, Run } from '@shared/trace';
 import type { AboutInfo, AgentId, Settings, WorkspaceMcpFile } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import * as flowStore from './store/flowStore';
 import * as mcpStore from './store/mcpStore';
 import * as schemaStore from './store/schemaStore';
@@ -89,7 +90,7 @@ function readable<T extends unknown[], R>(fn: (...args: T) => R | Promise<R>) {
         try {
             return await fn(...args);
         } catch (e) {
-            throw new Error(e instanceof Error ? e.message : String(e));
+            throw new Error(errorMessage(e));
         }
     };
 }
@@ -115,7 +116,7 @@ function handleWrite<T extends unknown[], R>(
 
 /** A write that changes which flows exist or where one lives. */
 function handleFlowWrite<T extends unknown[], R>(channel: string, fn: (...args: T) => R | Promise<R>): void {
-    handleWrite({flows: true, skills: false, schemas: false}, channel, fn);
+    handleWrite({flows: true}, channel, fn);
 }
 
 /**
@@ -305,21 +306,17 @@ export function registerIpc(): void {
         rewatch();
         return mcpStore.listMcpServers();
     });
-    handle(IPC.mcpServerTools, async (server: string) => {
-        try {
-            return {tools: await listServerTools(server)};
-        } catch (e) {
-            return {error: e instanceof Error ? e.message : String(e)};
-        }
-    });
+    handle(IPC.mcpServerTools, (server: string) => listServerTools(server));
+    // Every window hears of these, this one included: the inspector re-reads its listing on the broadcast.
+    const mcpChanged = (): void => broadcast(IPC.evtWorkspaceChanged, {mcp: true});
     handle(IPC.mcpTrustServer, (server: string, allowed: boolean) => {
         const listed = mcpStore.setServerTrust(server, allowed);
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        mcpChanged();
         return listed;
     });
     handle(IPC.mcpSetServerSecret, async (server: string, variable: string, value: string | null) => {
         const listed = await mcpStore.setServerSecret(server, variable, value);
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        mcpChanged();
         return listed;
     });
     handle(IPC.mcpOpenFile, (source: WorkspaceMcpFile) => openInEditor(mcpStore.mcpFilePath(source)));
@@ -327,7 +324,7 @@ export function registerIpc(): void {
     handle(IPC.mcpCreateFile, () => {
         const path = mcpStore.createMcpFile();
         rewatch();
-        broadcast(IPC.evtWorkspaceChanged, {flows: false, skills: false, schemas: false, mcp: true});
+        mcpChanged();
         return openInEditor(path);
     });
 
@@ -405,10 +402,10 @@ export function registerIpc(): void {
         return saved;
     });
     // Renaming rewrites the flows that name the schema, so every window re-reads its flows too.
-    handleWrite({flows: true, skills: false, schemas: true}, IPC.schemasRename, (from: string, to: string) =>
+    handleWrite({flows: true, schemas: true}, IPC.schemasRename, (from: string, to: string) =>
         flowStore.renameSchema(from, to),
     );
-    handleWrite({flows: false, skills: false, schemas: true}, IPC.schemasRemove, (name: string) =>
+    handleWrite({schemas: true}, IPC.schemasRemove, (name: string) =>
         flowStore.removeSchema(name),
     );
     handle(IPC.schemasOpen, (name: string) => openInEditor(schemaStore.locateSchema(name)));

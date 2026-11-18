@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import type { JsonSchema } from '@shared/flow';
-import { fieldsOf, isObject, kindLabel, requiredOf } from '../schemaShape';
+import { isObject } from '@shared/util';
+import { fieldsOf, kindLabel, requiredOf } from '../schemaShape';
 
 /** A named schema read as a list of the fields a step fills, for looking at rather than editing. */
 

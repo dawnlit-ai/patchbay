@@ -117,10 +117,6 @@ whichever of the flow's Create email nodes, and leaves by *Already drafted* with
 time its route led to a different one. A new email is the node's own: each Create email drafts one about an email, so
 a flow can tell the office and the trucker each, once.
 
-A Reply node, as the 1.1.1 nightly had, is read as a Create email. One that replied the same way to every email that
-reached it becomes one exactly. One whose rules could hold the reply back comes in with no template, so that it drafts
-nothing, and is flagged until its choice is moved into a Switch before it.
-
 ## Sending
 
 While you are setting a flow up, a Create email's drafts wait in Outlook for you to read and send by hand. Once you

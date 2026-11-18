@@ -106,6 +106,32 @@ export function PickGroup<T>({
     );
 }
 
+/** Ticks naming something no longer on offer, listed so each can be taken off. */
+export function StrandedGroup({title, names, onUntick}: {
+    title: string;
+    names: string[];
+    onUntick(name: string): void;
+}): JSX.Element | null {
+    if (names.length === 0) return null;
+    return (
+        <PickGroup
+            title={title}
+            items={names}
+            isTicked={() => true}
+            query=""
+            text={(name) => name}
+            row={(name) => (
+                <div key={name} className="pick-row">
+                    <label className="check">
+                        <input type="checkbox" checked onChange={() => onUntick(name)}/>
+                        {name}
+                    </label>
+                </div>
+            )}
+        />
+    );
+}
+
 /** The one filter over a list's groups, shown once the list is long enough to need it. */
 export function PickFilter({
                                value,

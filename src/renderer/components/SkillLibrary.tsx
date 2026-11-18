@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { NameDialog } from './NameDialog';
-import { PickFilter, PickGroup } from './PickGroup';
+import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
 import type { SkillSummary } from '@shared/settings';
 
 /** A new skill's SKILL.md, to be filled in. */
@@ -209,23 +209,7 @@ export function SkillShelf({library, picked, onPick}: ShelfProps): JSX.Element {
                 )}
             />
 
-            {missing.length > 0 && (
-                <PickGroup
-                    title="Not in this workspace"
-                    items={missing}
-                    isTicked={() => true}
-                    query=""
-                    text={(name) => name}
-                    row={(name) => (
-                        <div key={name} className="pick-row">
-                            <label className="check">
-                                <input type="checkbox" checked onChange={() => toggle(name, false)}/>
-                                {name}
-                            </label>
-                        </div>
-                    )}
-                />
-            )}
+            <StrandedGroup title="Not in this workspace" names={missing} onUntick={(name) => toggle(name, false)}/>
 
             {naming && (
                 <NameDialog

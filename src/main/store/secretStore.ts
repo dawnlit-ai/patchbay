@@ -1,6 +1,7 @@
 import { mcpSecretsFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { seal as sealWith, unseal } from './sealed';
+import { isObject } from '@shared/util';
 
 /**
  * The values a workspace's MCP servers look up — a token, usually — set in the
@@ -13,9 +14,6 @@ import { seal as sealWith, unseal } from './sealed';
 
 /** Sealed values, base64, by workspace key, then server, then variable name. */
 type SecretFile = Record<string, Record<string, Record<string, string>>>;
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function readAll(): SecretFile {
     const raw = readJson<unknown>(mcpSecretsFile(), {});

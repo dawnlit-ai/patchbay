@@ -1,4 +1,5 @@
 import { type JsonSchema, refName, schemaRef } from '@shared/flow';
+import { isObject, type Json } from '@shared/util';
 
 /**
  * A JSON Schema as the schema editor and the Schemas tab see it: an object's
@@ -6,11 +7,6 @@ import { type JsonSchema, refName, schemaRef } from '@shared/flow';
  * Every edit keeps what it does not touch, so a key the form has no control for
  * — a list's `minItems`, say — survives it.
  */
-
-type Json = Record<string, unknown>;
-
-export const isObject = (value: unknown): value is Json =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** What a field holds, as the form picks it. One of the workspace's named schemas is `ref:<name>`. */
 export type Kind =

@@ -14,6 +14,7 @@ import type {
 import { folderLabel, type MailScope, readsFolder, soleFolder } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
 import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
+import { errorMessage } from '@shared/util';
 import { log } from '../log';
 
 /**
@@ -53,7 +54,7 @@ function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
             log.debug('outlook', `${label} (${took()})`);
             return result;
         } catch (e) {
-            log.warn('outlook', `${label} failed (${took()}): ${e instanceof Error ? e.message : String(e)}`);
+            log.warn('outlook', `${label} failed (${took()}): ${errorMessage(e)}`);
             throw e;
         }
     };
@@ -64,8 +65,14 @@ function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
     return next;
 }
 
-export async function getAccounts(): Promise<string[]> {
-    return serialize('List accounts', async () => (await bridge()).getOutlookAccounts());
+/** One call to the bridge, queued behind the others. */
+async function call<T>(label: string, work: (b: BridgeModule) => Promise<T>): Promise<T> {
+    const b = await bridge();
+    return serialize(label, () => work(b));
+}
+
+export function getAccounts(): Promise<string[]> {
+    return call('List accounts', (b) => b.getOutlookAccounts());
 }
 
 /**
@@ -73,8 +80,7 @@ export async function getAccounts(): Promise<string[]> {
  * since a trigger can watch a folder at any depth.
  */
 export async function listFolders(account: string): Promise<InboxFolderOption[]> {
-    const b = await bridge();
-    const folders: InboxFolderInfo[] = await serialize(`List folders in ${account}`, () =>
+    const folders: InboxFolderInfo[] = await call(`List folders in ${account}`, (b) =>
         b.listInboxFolders(account, {maxDepth: 10}),
     );
     const options: InboxFolderOption[] = [{folderPath: '', relativePath: '', name: 'Inbox', depth: 0, itemCount: 0}];
@@ -139,8 +145,7 @@ export async function readInbox(
     lookbackDays: number,
     limit: number,
 ): Promise<EmailEnvelope[]> {
-    const b = await bridge();
-    const emails = await serialize(`Read ${account}${folder ? `\\${folder}` : ' Inbox'}`, () =>
+    const emails = await call(`Read ${account}${folder ? `\\${folder}` : ' Inbox'}`, (b) =>
         b.readInboxEmails(account, {folder: folder || undefined, daysBack: lookbackDays, limit}),
     );
     return emails.map((e) => toEnvelope(account, e));
@@ -160,8 +165,7 @@ export async function readScope(scope: MailScope, lookbackDays: number, limit: n
     // The bridge knows a folder by its name or its full path, not its path under
     // the Inbox, so the search is narrowed by name and made exact below.
     const names = [...new Set(scope.folders.map((f) => f.slice(f.lastIndexOf('\\') + 1) || 'Inbox'))];
-    const b = await bridge();
-    const matches = await serialize(`Read ${account} ${folderLabel(scope)}`, () =>
+    const matches = await call(`Read ${account} ${folderLabel(scope)}`, (b) =>
         b.searchInboxByFilter(account, {daysBack: lookbackDays, includeBody: false, includeFolders: names}),
     );
     return matches
@@ -232,8 +236,7 @@ export async function readSelected(account: string): Promise<EmailEnvelope> {
 }
 
 async function readSelection(): Promise<SelectedEmail> {
-    const b = await bridge();
-    return serialize('Read the email selected in Outlook', () => b.readSelectedEmail());
+    return call('Read the email selected in Outlook', (b) => b.readSelectedEmail());
 }
 
 /**
@@ -248,8 +251,7 @@ async function inMailbox(account: string, selected: SelectedEmail): Promise<Emai
 
     // A profile can open a mailbox under a display name rather than its address,
     // so a path naming another mailbox is checked by a search before it is refused.
-    const b = await bridge();
-    const found = await serialize(`Find the selected email in ${account}`, () =>
+    const found = await call(`Find the selected email in ${account}`, (b) =>
         b.locateEmail({
             subject: selected.subject,
             sender: selected.senderEmail,
@@ -282,8 +284,7 @@ export async function refind(email: EmailEnvelope): Promise<EmailEnvelope> {
         // Moved, deleted, or Outlook not answering: the search below says which.
     }
 
-    const b = await bridge();
-    const found = await serialize(`Find "${email.subject}" again in ${ref.account}`, () =>
+    const found = await call(`Find "${email.subject}" again in ${ref.account}`, (b) =>
         b.locateEmail({
             subject: email.subject,
             sender: email.senderEmail,
@@ -302,8 +303,7 @@ export async function refind(email: EmailEnvelope): Promise<EmailEnvelope> {
 
 /** The sender's own text, plus the quoted thread below it with `includeQuoted`, each held to `maxChars`. */
 export async function readBody(ref: EmailRef, maxChars: number, includeQuoted = false): Promise<EmailBodyResult> {
-    const b = await bridge();
-    return serialize(`Read a body in ${ref.account}`, () =>
+    return call(`Read a body in ${ref.account}`, (b) =>
         b.readEmailBody(ref, {maxChars, includeQuoted, maxQuotedChars: maxChars}),
     );
 }
@@ -313,15 +313,13 @@ export async function saveAttachments(
     names: string[],
     destDir: string,
 ): Promise<SavedAttachment[]> {
-    const b = await bridge();
-    return serialize(`Save ${names.length} attachment(s)`, () =>
+    return call(`Save ${names.length} attachment(s)`, (b) =>
         b.saveEmailAttachments(ref, names, {destDir}),
     );
 }
 
 export async function moveEmail(ref: EmailRef, folder: string): Promise<MoveEmailsResult> {
-    const b = await bridge();
-    return serialize(`Move an email to ${folder}`, () =>
+    return call(`Move an email to ${folder}`, (b) =>
         b.moveOutlookEmails(ref.account, [ref.entryId], folder, {createIfMissing: true}),
     );
 }
@@ -341,8 +339,7 @@ export type DraftContent = Omit<
  * in the same run, through `sendDrafts` below, by the id this gives back.
  */
 export async function draftReply(ref: EmailRef, content: DraftContent): Promise<ReplyEmailResult> {
-    const b = await bridge();
-    return serialize(`Draft a reply in ${ref.account}`, () =>
+    return call(`Draft a reply in ${ref.account}`, (b) =>
         b.replyOutlookEmail({
             ...content,
             emailAccount: ref.account,
@@ -365,8 +362,7 @@ export type NewEmailContent = Omit<SendEmailParams, 'emailAccount' | 'sendImmedi
  * false here too. It is filed silently in `account`'s Drafts, which gives back its id.
  */
 export async function draftEmail(account: string, content: NewEmailContent): Promise<SendEmailResult> {
-    const b = await bridge();
-    return serialize(`Draft a new email in ${account}`, () =>
+    return call(`Draft a new email in ${account}`, (b) =>
         b.sendOutlookEmail({
             ...content,
             emailAccount: account,
@@ -385,6 +381,5 @@ export async function draftEmail(account: string, content: NewEmailContent): Pro
  */
 export async function sendDrafts(account: string, entryIds: readonly string[]): Promise<SendDraftsResult> {
     if (entryIds.length === 0) return {sent: 0, failed: []};
-    const b = await bridge();
-    return serialize(`Send ${entryIds.length} draft(s) from ${account}`, () => b.sendDrafts(account, entryIds));
+    return call(`Send ${entryIds.length} draft(s) from ${account}`, (b) => b.sendDrafts(account, entryIds));
 }

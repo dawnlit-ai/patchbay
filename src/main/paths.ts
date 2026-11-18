@@ -39,15 +39,11 @@ function safeSegment(name: string): string {
     return name;
 }
 
-/** Two of the three filesystems we run on ignore case. */
-const folded = (path: string): string => (process.platform === 'linux' ? resolve(path) : resolve(path).toLowerCase());
+/** A path as a key, the same however its case or a trailing separator is written: two of the three filesystems we run on ignore case. */
+export const pathKey = (path: string): string =>
+    process.platform === 'linux' ? resolve(path) : resolve(path).toLowerCase();
 
-/** A folder as a key, the same however its case or a trailing separator is written. */
-export const pathKey = folded;
-
-export function samePath(a: string, b: string): boolean {
-    return folded(a) === folded(b);
-}
+export const samePath = (a: string, b: string): boolean => pathKey(a) === pathKey(b);
 
 // ── Which workspace is open ──────────────────────────────────────────────
 
@@ -179,7 +175,7 @@ export const flowFileNamed = (name: string): string => join(flowsDirAt(), `${saf
 /** The open workspace as a file name: its folder's name and a hash of its path, so two of one name stay apart. */
 function workspaceKey(): string {
     const root = workspaceRoot();
-    const tag = createHash('sha256').update(folded(root)).digest('hex').slice(0, 8);
+    const tag = createHash('sha256').update(pathKey(root)).digest('hex').slice(0, 8);
     return `${toFolderName(basename(root), 'workspace')}-${tag}`;
 }
 

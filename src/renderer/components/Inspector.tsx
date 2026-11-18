@@ -57,7 +57,7 @@ import { FolderTree } from './FolderTree';
 import { NameDialog } from './NameDialog';
 import { SchemaEditor } from './SchemaEditor';
 import { SecretDialog } from './SecretDialog';
-import { PickFilter, PickGroup } from './PickGroup';
+import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
 import { type Library, SkillShelf } from './SkillLibrary';
 import { type DataTokens, tint } from '../slotColors';
 
@@ -685,23 +685,9 @@ function OutputFields({
     hint: string;
     optional?: boolean
 }): JSX.Element {
-    // A draft, so a half-typed name is never saved in place of the last good one.
-    const [output, setOutput] = useState(config.output);
-    const problem = (name: string): string | null => (optional && name === '' ? null : slotNameProblem(name));
-    const outputProblem = problem(output);
-
     return (
         <>
-            <Field label="Output slot" hint={outputProblem ?? hint}>
-                <input
-                    value={output}
-                    placeholder={optional ? '(hands nothing on)' : undefined}
-                    onChange={(e) => {
-                        setOutput(e.target.value);
-                        if (!problem(e.target.value)) patch({output: e.target.value});
-                    }}
-                />
-            </Field>
+            <SlotField value={config.output} optional={optional} hint={hint} onChange={(output) => patch({output})}/>
 
             {config.output !== '' && (
                 <SchemaField
@@ -1254,23 +1240,7 @@ function McpToolsField({
                     }}
                 />
             )}
-            {stranded.length > 0 && (
-                <PickGroup
-                    title="No server here offers"
-                    items={stranded}
-                    isTicked={() => true}
-                    query=""
-                    text={(ref) => ref}
-                    row={(ref) => (
-                        <div key={ref} className="pick-row">
-                            <label className="check">
-                                <input type="checkbox" checked onChange={() => set(ref, false)}/>
-                                {ref}
-                            </label>
-                        </div>
-                    )}
-                />
-            )}
+            <StrandedGroup title="No server here offers" names={stranded} onUntick={(ref) => set(ref, false)}/>
         </>
     );
 }
@@ -1287,10 +1257,6 @@ function InputsField({
     available: Available | undefined
 }): JSX.Element {
     const offered = [...(available?.keys() ?? [])].filter((name) => name !== EMAIL_SLOT.name);
-    // Ticked but not sure to arrive: shown, so the tick can be taken off.
-    const stranded = config.inputs.filter((name) => !offered.includes(name));
-    const toggle = (name: string, on: boolean): void =>
-        patch({inputs: on ? [...config.inputs, name] : config.inputs.filter((n) => n !== name)});
 
     let hint: string;
     if (!available) hint = 'Connect this node to a trigger to see which data reaches it.';
@@ -1310,14 +1276,40 @@ function InputsField({
                 />
                 The email — its body, and its attachments if allowed below
             </label>
+            <SlotTicks
+                offered={offered}
+                ticked={config.inputs}
+                available={available}
+                onChange={(inputs) => patch({inputs})}
+            />
+            <div className="gap"/>
+        </>
+    );
+}
+
+/**
+ * Slots to tick, each with its type. One ticked but not sure to arrive is shown
+ * too, so the tick can be taken off.
+ */
+function SlotTicks({offered, ticked, available, onChange}: {
+    offered: string[];
+    ticked: string[];
+    available: Available | undefined;
+    onChange(ticked: string[]): void;
+}): JSX.Element {
+    const stranded = ticked.filter((name) => !offered.includes(name));
+    return (
+        <>
             {[...offered, ...stranded].map((name) => {
                 const type = available?.get(name);
                 return (
                     <label className="check" key={name}>
                         <input
                             type="checkbox"
-                            checked={config.inputs.includes(name)}
-                            onChange={(e) => toggle(name, e.target.checked)}
+                            checked={ticked.includes(name)}
+                            onChange={(e) =>
+                                onChange(e.target.checked ? [...ticked, name] : ticked.filter((n) => n !== name))
+                            }
                         />
                         {name}
                         {type ? (
@@ -1328,10 +1320,27 @@ function InputsField({
                     </label>
                 );
             })}
-            <div className="gap"/>
         </>
     );
 }
+
+/** The fields that reach a node, as a datalist a field box offers by its `id`. */
+function FieldOptions({id, available, schemas}: {
+    id: string;
+    available: Available | undefined;
+    schemas: Schemas;
+}): JSX.Element {
+    return (
+        <datalist id={id}>
+            {(available ? ruleFields(schemas, available) : []).map((f) => (
+                <option key={f.field} value={f.field}/>
+            ))}
+        </datalist>
+    );
+}
+
+/** What a field's legend says while no trigger reaches the node. */
+const NO_FIELDS_YET = 'Connect this node to a trigger to see which fields reach it.';
 
 /**
  * The slot a node fills with a shape of the app's own, by its name. `optional`
@@ -1396,11 +1405,7 @@ function RuleTable({
 
     return (
         <>
-            <datalist id={fieldList}>
-                {fields.map((f) => (
-                    <option key={f.field} value={f.field}/>
-                ))}
-            </datalist>
+            <FieldOptions id={fieldList} available={available} schemas={schemas}/>
             {rules.map((rule, i) => {
                 const values = valuesOf(rule.field);
                 const valueList = `${fieldList}-${i}`;
@@ -1540,7 +1545,7 @@ function SwitchFields({
                 hint={
                     available
                         ? 'Read top to bottom: the first rule whose field holds its value decides. A field is a slot an earlier node filled and the path into it, such as quote.reply.'
-                        : 'Connect this node to a trigger to see which fields reach it.'
+                        : NO_FIELDS_YET
                 }
             />
             <RuleTable
@@ -1561,9 +1566,8 @@ function SwitchFields({
             />
 
             <div className="hint">
-                It runs no model and does nothing to the email: it only picks the way on. When no rule matches, the
-                email
-                leaves by Otherwise.
+                It runs no model and does nothing to the email: it only picks the way on. When no rule matches,
+                the email leaves by Otherwise.
             </div>
             <div className="gap"/>
         </>
@@ -1578,17 +1582,12 @@ function PlaceholderTable({nodeId, placeholders, onChange, available, schemas}: 
     available: Available | undefined;
     schemas: Schemas;
 }): JSX.Element {
-    const fields = available ? ruleFields(schemas, available) : [];
     const fieldList = `placeholder-fields-${nodeId}`;
     const replace = (index: number, change: Partial<Placeholder>): void =>
         onChange(placeholders.map((p, j) => (j === index ? {...p, ...change} : p)));
     return (
         <>
-            <datalist id={fieldList}>
-                {fields.map((f) => (
-                    <option key={f.field} value={f.field}/>
-                ))}
-            </datalist>
+            <FieldOptions id={fieldList} available={available} schemas={schemas}/>
             {placeholders.map((placeholder, i) => (
                 <div key={i} className="row">
                     <input
@@ -1700,7 +1699,7 @@ function CreateEmailFields({
                 hint={
                     available
                         ? 'Each {{NAME}} in the template, filled from a field an earlier node filled, such as quote.total.'
-                        : 'Connect this node to a trigger to see which fields reach it.'
+                        : NO_FIELDS_YET
                 }
             />
             <PlaceholderTable
@@ -1757,10 +1756,6 @@ function SendFields({
     available: Available | undefined;
 }): JSX.Element {
     const offered = draftSlots(available);
-    // Ticked, but not a Draft slot that every path into the node fills: shown so the tick can be taken off.
-    const stranded = config.drafts.filter((name) => !offered.includes(name));
-    const toggle = (name: string, on: boolean): void =>
-        patch({drafts: on ? [...config.drafts, name] : config.drafts.filter((n) => n !== name)});
 
     let hint: string;
     if (!available) hint = 'Connect this node to a trigger to see which drafts reach it.';
@@ -1771,24 +1766,12 @@ function SendFields({
     return (
         <>
             <Legend label="Sends" hint={hint}/>
-            {[...offered, ...stranded].map((name) => {
-                const type = available?.get(name);
-                return (
-                    <label className="check" key={name}>
-                        <input
-                            type="checkbox"
-                            checked={config.drafts.includes(name)}
-                            onChange={(e) => toggle(name, e.target.checked)}
-                        />
-                        {name}
-                        {type ? (
-                            <span className="slot-type">{slotTypeLabel(type)}</span>
-                        ) : (
-                            <span className="hint"> — not filled on every path here</span>
-                        )}
-                    </label>
-                );
-            })}
+            <SlotTicks
+                offered={offered}
+                ticked={config.drafts}
+                available={available}
+                onChange={(drafts) => patch({drafts})}
+            />
             <div className="gap"/>
 
             <label className="check">

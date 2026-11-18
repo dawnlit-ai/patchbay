@@ -22,9 +22,9 @@ import type {
  * changed in the workspace, so the window re-reads that and not the rest.
  */
 export interface WorkspaceChange {
-    flows: boolean;
-    skills: boolean;
-    schemas: boolean;
+    flows?: boolean;
+    skills?: boolean;
+    schemas?: boolean;
     mcp?: boolean;
 }
 

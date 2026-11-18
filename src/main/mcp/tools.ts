@@ -24,6 +24,7 @@ import {
 import { LOG_LEVELS, LOG_SOURCES } from '@shared/log';
 import type { WorkspaceChange } from '@shared/ipc';
 import { type EmailEnvelope, type Pass, type Run, toSummary, truncate } from '@shared/trace';
+import { isObject } from '@shared/util';
 import type { QueuedRun, Watcher } from '../engine/watcher';
 import { logEntries, logEntriesOn } from '../log';
 import * as outlook from '../outlook/bridge';
@@ -307,16 +308,13 @@ function editFlow(host: AgentHost, flowId: string, edit: (flow: Flow) => Flow) {
     const before = requireFlow(flowId);
     const edited = edit(before);
     const flow = flowStore.saveFlow(parseFlow(edited, before.id, before.name));
-    host.changed({flows: true, skills: false, schemas: false});
+    host.changed({flows: true});
     return {flow, droppedEdges: edited.edges.length - flow.edges.length};
 }
 
 /** What a node's `schema` may hold: a reference to one of the workspace's, or nothing yet. */
 const isNamedOrNone = (schema: unknown): boolean =>
-    typeof schema === 'object' &&
-    schema !== null &&
-    !Array.isArray(schema) &&
-    (Object.keys(schema).length === 0 || refName(schema) !== null);
+    isObject(schema) && (Object.keys(schema).length === 0 || refName(schema) !== null);
 
 /** A folder an agent named, with `~` expanded. Relative paths are refused: the agent can't know the app's cwd. */
 function absoluteDir(dir: string): string {
@@ -404,7 +402,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({name}) => {
             const flow = flowStore.createFlow(name);
-            host.changed({flows: true, skills: false, schemas: false});
+            host.changed({flows: true});
             return json(describeFlow(flow));
         },
     );
@@ -433,7 +431,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const {file} = flowStore.entryFor(flow);
             const cancelled = host.watcher().clearForRemoval(flow.id);
             flowStore.removeFlow(flow.id);
-            host.changed({flows: true, skills: false, schemas: false});
+            host.changed({flows: true});
             return text(
                 `Deleted "${flow.name}", ${file}.` +
                 (cancelled > 0 ? ` ${cancelled} queued run(s) of it were cancelled first.` : ''),
@@ -593,7 +591,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         .regex(SLOT_NAME, 'Letters, digits and _ only, not starting with a digit.')
         .describe('Its file is schemas/<name>.json, and nodes refer to it as {"$ref": "#/schemas/<name>"}.');
 
-    const schemasChanged = (flows: boolean): void => host.changed({flows, skills: false, schemas: true});
+    const schemasChanged = (flows: boolean): void => host.changed({flows, schemas: true});
 
     server.registerTool(
         'list_schemas',
@@ -703,7 +701,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         ({name, content}) => {
             const summary = skillStore.saveSkill(name, content);
             rewatch();
-            host.changed({flows: false, skills: true, schemas: false});
+            host.changed({skills: true});
             const front = skillStore.parseFrontmatter(content);
             return json({
                 ...summary,
@@ -726,7 +724,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         },
         ({name}) => {
             skillStore.removeSkill(name);
-            host.changed({flows: false, skills: true, schemas: false});
+            host.changed({skills: true});
             const tickedBy = flowStore
                 .listFlows()
                 .filter((flow) =>
@@ -771,7 +769,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             const before = new Set(skillStore.listSkills().map((s) => s.name));
             const imported = skillStore.importSkillsFrom(from, names);
             rewatch();
-            host.changed({flows: false, skills: true, schemas: false});
+            host.changed({skills: true});
             const missing = names?.filter((name) => !imported.includes(name)) ?? [];
             return json({
                 imported,

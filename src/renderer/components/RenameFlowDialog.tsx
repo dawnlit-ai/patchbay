@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { toFolderName } from '@shared/naming';
-import { Modal } from './Modal';
+import { Modal, useSelectedOnOpen } from './Modal';
 
 /**
  * Rename a flow, and optionally its file. Renaming the file is offered ticked
@@ -36,11 +36,7 @@ export function RenameFlowDialog({name, file, onCancel, onConfirm}: Props): JSX.
     const [fileValue, setFileValue] = useState(current);
     /** Until it is, the file field follows what is typed into the name. */
     const fileEdited = useRef(false);
-    const input = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        input.current?.select();
-    }, []);
+    const input = useSelectedOnOpen();
 
     const trimmed = value.trim();
     // What the store will actually call it, shown rather than sprung afterwards.

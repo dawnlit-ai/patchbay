@@ -36,6 +36,7 @@ import {
     UNMATCHED_PORT,
 } from '@shared/flow';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
+import { errorMessage, isObject } from '@shared/util';
 import type { AgentMcpServer, AgentRunRequest } from '../agents';
 import type { ChoiceQuestion } from '../agents/decision';
 import { agents } from '../agentHost';
@@ -122,7 +123,7 @@ async function nodeServers(mcpTools: string[]): Promise<NodeServers> {
     const servers: Record<string, AgentMcpServer> = {};
     const allowed: string[] = [];
     const refused = (e: unknown): NodeServers => {
-        const message = e instanceof Error ? e.message : String(e);
+        const message = errorMessage(e);
         return {servers, allowed, problem: {outPort: 'error', summary: message, error: message}};
     };
     for (const name of usableServers()) {
@@ -184,6 +185,18 @@ function lostSkills(skills: string[]): NodeOutcome | null {
     return {outPort: 'error', summary: message, error: message};
 }
 
+/**
+ * The email's body, read from Outlook up to `maxChars` and traced. Kept on the
+ * envelope only when whole: a body cut at one node's limit would pass for all
+ * there is with the nodes after it.
+ */
+async function readBody(ctx: NodeContext, maxChars: number): Promise<string> {
+    const result = await outlook.readBody(ctx.email.ref, maxChars);
+    if (!result.truncated) ctx.email.body = result.body;
+    ctx.onEvent({at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)`});
+    return result.body;
+}
+
 // ── Trigger ──────────────────────────────────────────────────────────────
 // The email is already in hand; this pass just starts the trace at the trigger.
 
@@ -201,23 +214,14 @@ async function runCategorizer(ctx: NodeContext, config: CategorizerConfig): Prom
     let body: string | undefined;
     if (config.includeBody) {
         try {
-            const result = await outlook.readBody(ctx.email.ref, config.bodyMaxChars);
-            body = result.body;
-            // Kept only when whole: a body cut at this node's limit would pass
-            // for all there is with the nodes after it.
-            if (!result.truncated) ctx.email.body = result.body;
-            ctx.onEvent({
-                at: now(),
-                type: 'outlook',
-                label: `Read body (${result.bodyLength} characters)`,
-            });
+            body = await readBody(ctx, config.bodyMaxChars);
         } catch (e) {
             // An unreadable body means classifying on the preview, not failing.
             ctx.onEvent({
                 at: now(),
                 type: 'error',
                 label: 'Could not read the body; classifying on the preview',
-                detail: e instanceof Error ? e.message : String(e),
+                detail: errorMessage(e),
             });
         }
     }
@@ -304,8 +308,7 @@ function runSwitch(ctx: NodeContext, config: SwitchConfig): NodeOutcome {
  * schema cannot be followed down, which would count every field listed as required.
  */
 function fromData(schema: JsonSchema, path: string): string {
-    const properties = schema.properties;
-    const ownData = typeof properties === 'object' && properties !== null && Object.hasOwn(properties, 'data');
+    const ownData = isObject(schema.properties) && Object.hasOwn(schema.properties, 'data');
     return !ownData && path.startsWith('data.') ? path.slice('data.'.length) : path;
 }
 
@@ -320,16 +323,9 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
     let body = ctx.email.body;
     if (body === undefined) {
         try {
-            const result = await outlook.readBody(ctx.email.ref, EXTRACT_BODY_CHARS);
-            body = result.body;
-            if (!result.truncated) ctx.email.body = result.body;
-            ctx.onEvent({at: now(), type: 'outlook', label: `Read body (${result.bodyLength} characters)`});
+            body = await readBody(ctx, EXTRACT_BODY_CHARS);
         } catch (e) {
-            return {
-                outPort: 'error',
-                summary: 'Could not read the body',
-                error: e instanceof Error ? e.message : String(e)
-            };
+            return {outPort: 'error', summary: 'Could not read the body', error: errorMessage(e)};
         }
     }
 
@@ -338,7 +334,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
     try {
         validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
     } catch (e) {
-        const message = `The schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+        const message = `The schema cannot be used: ${errorMessage(e)}`;
         return {outPort: 'error', summary: message, error: message};
     }
 
@@ -478,7 +474,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         try {
             validator = z.fromJSONSchema(config.schema as Parameters<typeof z.fromJSONSchema>[0]);
         } catch (e) {
-            const message = `The schema of ${config.output} cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+            const message = `The schema of ${config.output} cannot be used: ${errorMessage(e)}`;
             return {outPort: 'error', summary: message, error: message};
         }
     }
@@ -636,8 +632,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 // No model: Outlook fills the template, and the draft waits in Drafts for a
 // person, or for a Send later in the run. Nothing here sends.
 
-const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 /** Text made safe to stand in a template's HTML, its line breaks kept. */
 const asHtml = (text: string): string =>
     text
@@ -669,7 +663,7 @@ function filled(config: CreateEmailConfig, data: Readonly<Record<string, unknown
         try {
             return fillFields(text, data).trim();
         } catch (e) {
-            throw new Error(`${label}: ${errorText(e)}`);
+            throw new Error(`${label}: ${errorMessage(e)}`);
         }
     };
     const to = written(config.to, 'To');
@@ -707,7 +701,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     try {
         drafting = filled(config, ctx.data);
     } catch (e) {
-        const message = `${ctx.node.name} drafted nothing: ${errorText(e)}.`;
+        const message = `${ctx.node.name} drafted nothing: ${errorMessage(e)}.`;
         return {outPort: 'error', summary: message, error: message};
     }
 
@@ -743,7 +737,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     } catch (e) {
         // A missing template, section, placeholder or signature fails every
         // email the same way until it is fixed in Outlook; the bridge says which.
-        const message = errorText(e);
+        const message = errorMessage(e);
         return {outPort: 'error', summary: `Could not draft the ${what}: ${message}`, error: message};
     }
 
@@ -783,7 +777,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
             at: now(),
             type: 'error',
             label: 'Drafted, but could not record the draft: a re-run would draft a second one',
-            detail: errorText(e),
+            detail: errorMessage(e),
         });
     }
 
@@ -818,10 +812,10 @@ interface ReadyDraft {
 
 /** Whether a slot holds what a Create email fills one with. */
 const isDraftOutcome = (value: unknown): value is DraftOutcome =>
-    typeof value === 'object' && value !== null &&
-    typeof (value as DraftOutcome).drafted === 'boolean' &&
-    typeof (value as DraftOutcome).draftEntryId === 'string' &&
-    typeof (value as DraftOutcome).to === 'string';
+    isObject(value) &&
+    typeof value.drafted === 'boolean' &&
+    typeof value.draftEntryId === 'string' &&
+    typeof value.to === 'string';
 
 /** Who drafts are to, in a few words. */
 const whoTo = (drafts: { to: string }[]): string => drafts.map((d) => d.to || '(no one named)').join('; ');
@@ -895,7 +889,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
         result = await outlook.sendDrafts(account, ready.map((r) => r.id));
     } catch (e) {
         // Outlook may have sent some before it stopped: the Sent Items folder says which.
-        const message = `Outlook stopped while sending: ${errorText(e)}. Check Sent Items before sending the rest by hand.`;
+        const message = `Outlook stopped while sending: ${errorMessage(e)}. Check Sent Items before sending the rest by hand.`;
         const all = [...failed, ...ready.map((r) => ({to: r.to, why: message}))];
         return {outPort: 'error', summary: message, error: message, provided: handOn({failed: all, why: message})};
     }
@@ -937,7 +931,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
                 at: now(),
                 type: 'error',
                 label: `Sent to ${r.to}, but could not record it`,
-                detail: errorText(e)
+                detail: errorMessage(e)
             });
         }
     }
@@ -964,12 +958,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
 // `Processed` when `order.client` is blank.
 
 function filledFolder(folder: string, data: Readonly<Record<string, unknown>>): string {
-    const written = folder.replace(/\{\{([^{}]*)\}\}/g, (_, raw: string) => {
-        const field = raw.trim();
-        const value = fieldText(data, field)?.trim() ?? '';
-        if (!value) throw new Error(`${field} holds no value to write in`);
-        return value;
-    }).trim();
+    const written = fillFields(folder, data, true).trim();
     if (!/[^\\/\s]/.test(written)) {
         throw new Error(`folder came to nothing once ${folder.trim()} was filled in`);
     }
@@ -989,7 +978,7 @@ async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<
     try {
         folder = filledFolder(config.folder, ctx.data);
     } catch (e) {
-        const message = `${ctx.node.name} moved nothing: ${errorText(e)}.`;
+        const message = `${ctx.node.name} moved nothing: ${errorMessage(e)}.`;
         return {outPort: 'error', summary: message, error: message, provided: handOn({why: message})};
     }
 
@@ -997,7 +986,7 @@ async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<
     try {
         result = await outlook.moveEmail(ctx.email.ref, folder);
     } catch (e) {
-        const message = `Could not move the email to ${folder}: ${errorText(e)}`;
+        const message = `Could not move the email to ${folder}: ${errorMessage(e)}`;
         return {outPort: 'error', summary: message, error: message, provided: handOn({folder, why: message})};
     }
     if (result.moved === 0) {

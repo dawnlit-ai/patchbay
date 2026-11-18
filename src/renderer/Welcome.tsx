@@ -16,11 +16,12 @@ import type {
     EngineStatus,
     McpListing,
     McpServerEntry,
+    McpServerState,
     McpServerTool,
     McpVariable,
     SkillSummary,
-    WorkspaceMcpFile,
 } from '@shared/settings';
+import { errorMessage, isObject, together } from '@shared/util';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { Markdown } from './components/Markdown';
@@ -34,11 +35,10 @@ import { SchemaDialog } from './components/SchemaDialog';
 import { SchemaFields } from './components/SchemaFields';
 import { SecretDialog } from './components/SecretDialog';
 import { skillTemplate } from './components/SkillLibrary';
+import { ThemeButton } from './components/ThemeButton';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { ago } from './format';
-import { isObject } from './schemaShape';
-import { useTheme } from './theme';
 
 /**
  * The start window: the open workspace's flows, the skills and schemas they
@@ -71,6 +71,14 @@ type Dialog =
     | { kind: 'switch'; question: Question; go(): void }
     | { kind: 'set-secret'; server: McpServerEntry; variable: McpVariable };
 
+/** A context menu, and where it opened. */
+interface Menu {
+    items: MenuItem[];
+    label: string;
+    x: number;
+    y: number;
+}
+
 /** What the graph amounts to, for someone deciding which flow this is. */
 function shape(flow: Flow): string {
     if (flow.nodes.length === 0) return 'empty';
@@ -86,27 +94,31 @@ function notWatchedWhy(flow: Flow, status: EngineStatus | null): string {
     return 'No trigger in this flow names a mailbox';
 }
 
-/** The skills a flow's nodes tick, each once. */
-function ticksOf(flow: Flow): Set<string> {
-    return new Set(
-        flow.nodes.flatMap((node) =>
-            node.config.kind === 'extractor' || node.config.kind === 'processor' ? node.config.skills : [],
-        ),
+/** The skills a flow's nodes tick. */
+function ticksOf(flow: Flow): string[] {
+    return flow.nodes.flatMap((node) =>
+        node.config.kind === 'extractor' || node.config.kind === 'processor' ? node.config.skills : [],
     );
 }
 
-/** The MCP servers a flow's nodes tick, each once. */
-function mcpServersOf(flow: Flow): Set<string> {
-    const names = new Set<string>();
-    for (const node of flow.nodes) {
-        if (node.config.kind !== 'extractor' && node.config.kind !== 'processor') continue;
-        for (const entry of node.config.mcpTools) {
-            if (!entry.startsWith('mcp__')) continue;
-            const server = entry.slice('mcp__'.length).split('__')[0];
-            if (server) names.add(server);
-        }
+/** The MCP servers a flow's nodes tick tools of. */
+function mcpServersOf(flow: Flow): string[] {
+    return flow.nodes.flatMap((node) =>
+        node.config.kind === 'extractor' || node.config.kind === 'processor'
+            ? node.config.mcpTools.flatMap((entry) =>
+                entry.startsWith('mcp__') ? (entry.slice('mcp__'.length).split('__')[0] || []) : [],
+            )
+            : [],
+    );
+}
+
+/** Each name `of` finds in the flows, and the flows it is found in, each once. */
+function usersOf(entries: FlowEntry[] | null, of: (flow: Flow) => string[]): Map<string, string[]> {
+    const users = new Map<string, string[]>();
+    for (const {flow} of entries ?? []) {
+        for (const name of new Set(of(flow))) users.set(name, [...(users.get(name) ?? []), flow.name]);
     }
-    return names;
+    return users;
 }
 
 const serverKey = (server: McpServerEntry): string => `${server.source}:${server.name}`;
@@ -123,6 +135,22 @@ const missingValues = (server: McpServerEntry): McpVariable[] => server.variable
 
 /** Allowed, and with every value it looks up to be had: it can be started. */
 const startable = (server: McpServerEntry): boolean => server.state === 'allowed' && missingValues(server).length === 0;
+
+const canAllow = (server: McpServerEntry): boolean =>
+    server.state === 'new' || server.state === 'changed' || server.state === 'blocked';
+
+const canBlock = (server: McpServerEntry): boolean =>
+    server.state === 'new' || server.state === 'changed' || server.state === 'allowed';
+
+/** The badge each state wears in the MCP tab. Shadowed and invalid say why on hover. */
+const SERVER_BADGES: Record<McpServerState, { label: string; tone: string; title?: string }> = {
+    allowed: {label: 'allowed', tone: 'ok', title: 'Allowed to run in this workspace'},
+    new: {label: 'needs approval', tone: 'warn', title: 'Defined in the workspace, and not allowed to run yet'},
+    changed: {label: 'changed', tone: 'warn', title: 'Its definition changed since it was allowed'},
+    blocked: {label: 'blocked', tone: '', title: 'Blocked in this workspace'},
+    shadowed: {label: 'shadowed', tone: ''},
+    invalid: {label: 'cannot be used', tone: 'err'},
+};
 
 /** Where a value a server looks up would come from, as the MCP tab says it. */
 const VALUE_SOURCES: Record<McpVariable['source'], string> = {
@@ -145,13 +173,14 @@ function usedIn(entries: FlowEntry[], schemas: Schemas, name: string): string[] 
 }
 
 /** Names as a sentence lists them: “A”, “A and B”, “A, B and C”. */
-function listed(names: string[]): string {
-    return together(names.map((name) => `“${name}”`));
-}
+const listed = (names: string[]): string => together(names.map((name) => `“${name}”`));
 
-/** Phrases as a sentence joins them: A, A and B, A, B and C. */
-function together(phrases: string[]): string {
-    return phrases.length < 2 ? (phrases[0] ?? '') : `${phrases.slice(0, -1).join(', ')} and ${phrases.at(-1)}`;
+/**
+ * The row picked in a list: the one asked for, or before anything is, the top
+ * of the list. Null once the user has unpicked it.
+ */
+function pickedIn<T>(shown: T[], wanted: string | null | undefined, keyOf: (item: T) => string): T | null {
+    return wanted === null ? null : (shown.find((item) => keyOf(item) === wanted) ?? shown[0] ?? null);
 }
 
 /**
@@ -180,18 +209,121 @@ const unpicks = (e: MouseEvent, picked: boolean): boolean =>
     picked && e.detail < 2 && (window.getSelection()?.isCollapsed ?? true);
 
 /**
- * Buttons under the picked row. A click, double-click or key pressed on one is
- * the button's alone: the row's own would unpick or open the item as well.
+ * Controls inside the picked row. A click, double-click or key pressed on one is
+ * the control's alone: the row's own would unpick or open the item as well.
  */
-function RowActions({children}: { children: ReactNode }): JSX.Element {
+function RowActions({className = 'row-actions', children}: { className?: string; children: ReactNode }): JSX.Element {
     return (
         <div
-            className="row-actions"
+            className={className}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
         >
             {children}
+        </div>
+    );
+}
+
+/** One of the main pane's lists, as its rows see it. */
+interface Picking<T> {
+    shown: T[];
+    picked: T | null;
+    /** Each row by key, for the arrow keys to move the focus. */
+    rows: Map<string, HTMLDivElement>;
+
+    keyOf(item: T): string;
+
+    /** A key to pick, or null to unpick. */
+    pick(key: string | null): void;
+}
+
+/**
+ * A row of a list: picked by a click and unpicked by another, opened by a
+ * double-click or Enter, moved through with the arrows, and right-clicked for
+ * its menu.
+ */
+function ListRow<T>({list, item, title, onOpen, onMenu, children}: {
+    list: Picking<T>;
+    item: T;
+    title?: string;
+    onOpen(): void;
+    onMenu(e: MouseEvent<HTMLDivElement>): void;
+    children: ReactNode;
+}): JSX.Element {
+    const key = list.keyOf(item);
+    const picked = item === list.picked;
+    const move = (delta: number): void => {
+        const at = list.shown.indexOf(item);
+        const next = list.shown[Math.min(list.shown.length - 1, Math.max(0, at + delta))];
+        if (!next || next === item) return;
+        list.pick(list.keyOf(next));
+        list.rows.get(list.keyOf(next))?.focus();
+    };
+    return (
+        <div
+            ref={(el) => {
+                if (el) list.rows.set(key, el);
+                else list.rows.delete(key);
+            }}
+            role="option"
+            aria-selected={picked}
+            tabIndex={0}
+            className={`flow-row${picked ? ' active' : ''}`}
+            title={title}
+            onClick={(e) => list.pick(unpicks(e, picked) ? null : key)}
+            onDoubleClick={onOpen}
+            onContextMenu={(e) => {
+                list.pick(key);
+                onMenu(e);
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') onOpen();
+                else if (e.key === 'ArrowDown') move(1);
+                else if (e.key === 'ArrowUp') move(-1);
+                else if (e.key === 'Escape') list.pick(null);
+                else return;
+                e.preventDefault();
+            }}
+        >
+            {children}
+        </div>
+    );
+}
+
+/** A list of the main pane, which a click on its empty space unpicks. */
+function PickList({label, onUnpick, children}: { label: string; onUnpick(): void; children: ReactNode }): JSX.Element {
+    return (
+        <div
+            className="flow-list"
+            role="listbox"
+            aria-label={label}
+            onClick={(e) => {
+                if (e.target === e.currentTarget) onUnpick();
+            }}
+        >
+            {children}
+        </div>
+    );
+}
+
+/** Something a flow or a schema names that the workspace does not have, or a file it cannot read. */
+function MissingRow({name, badge = 'not in this workspace', action, children}: {
+    name: string;
+    badge?: string;
+    action?: ReactNode;
+    children: ReactNode;
+}): JSX.Element {
+    return (
+        <div className="flow-row missing">
+            <div className="grow">
+                <div className="title">
+                    {name}
+                    <span className="badge err">{badge}</span>
+                </div>
+                <div className="meta">{children}</div>
+            </div>
+            {action}
         </div>
     );
 }
@@ -218,30 +350,15 @@ export function Welcome(): JSX.Element {
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>('recent');
     const [dialog, setDialog] = useState<Dialog | null>(null);
-    /** The flow a right-click landed on, and where it landed. */
-    const [menu, setMenu] = useState<{ entry: FlowEntry; x: number; y: number } | null>(null);
-    /** The same for a skill, a schema, and an MCP server. */
-    const [skillMenu, setSkillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
-    const [schemaMenu, setSchemaMenu] = useState<{ name: string; x: number; y: number } | null>(null);
-    const [serverMenu, setServerMenu] = useState<{ server: McpServerEntry; x: number; y: number } | null>(null);
-    /** The workspaces menu, or one recent workspace's, and where it opened. */
-    const [workspaceMenu, setWorkspaceMenu] = useState<{
-        items: MenuItem[];
-        label: string;
-        x: number;
-        y: number
-    } | null>(
-        null,
-    );
+    const [menu, setMenu] = useState<Menu | null>(null);
     const [about, setAbout] = useState<AboutInfo | null>(null);
     const [status, setStatus] = useState<EngineStatus | null>(null);
     const {error, attempt, report} = useErrorBanner();
-    const [theme, setTheme] = useTheme();
-    const rows = useRef(new Map<string, HTMLDivElement>());
-    const skillRows = useRef(new Map<string, HTMLDivElement>());
-    const schemaRows = useRef(new Map<string, HTMLDivElement>());
-    const serverRows = useRef(new Map<string, HTMLDivElement>());
+    /** The rows of whichever list is shown, by key. */
+    const rows = useRef(new Map<string, HTMLDivElement>()).current;
     const fetchingTools = useRef(new Set<string>());
+
+    const close = (): void => setDialog(null);
 
     const refreshSkills = useCallback(() => {
         void window.api.skills.list().then(setSkills);
@@ -305,51 +422,74 @@ export function Welcome(): JSX.Element {
     const matches = (...texts: string[]): boolean =>
         needle === '' || texts.some((text) => text.toLowerCase().includes(needle));
 
-    const shown = (entries ?? [])
-        .filter((e) => matches(e.flow.name, fileStem(e.file)))
-        .toSorted((a, b) =>
-            sort === 'name'
-                ? a.flow.name.localeCompare(b.flow.name)
-                : b.flow.updatedAt.localeCompare(a.flow.updatedAt),
+    /** By name, or the last edited first; a list with no edit times keeps its own order. */
+    const ordered = <T, >(items: T[], name: (item: T) => string, edited?: (item: T) => string): T[] =>
+        items.toSorted((a, b) =>
+            sort === 'name' ? name(a).localeCompare(name(b)) : edited ? edited(b).localeCompare(edited(a)) : 0,
         );
 
+    /** The names `named` holds that `present` lacks and the filter matches, once `present` has been read. */
+    const absent = (named: Map<string, string[]>, present: string[] | undefined): string[] => {
+        if (!present) return [];
+        const there = new Set(present);
+        return [...named.keys()].filter((name) => !there.has(name) && matches(name)).toSorted();
+    };
+
+    const shown = ordered(
+        (entries ?? []).filter((e) => matches(e.flow.name, fileStem(e.file))),
+        (e) => e.flow.name,
+        (e) => e.flow.updatedAt,
+    );
     // Nothing chosen yet means the top of the list — under the default sort, the
     // flow last worked on, which is the one the window was most likely opened for.
-    // Null means the user explicitly deselected.
-    const selected =
-        selectedId === null ? null : (shown.find((e) => e.flow.id === selectedId) ?? shown[0] ?? null);
+    const flows: Picking<FlowEntry> = {
+        shown,
+        picked: pickedIn(shown, selectedId, (e) => e.flow.id),
+        keyOf: (e) => e.flow.id,
+        pick: setSelectedId,
+        rows,
+    };
 
     /** Each skill ticked anywhere, and the flows that tick it, by name. */
-    const tickedIn = new Map<string, string[]>();
-    for (const {flow} of entries ?? []) {
-        for (const name of ticksOf(flow)) tickedIn.set(name, [...(tickedIn.get(name) ?? []), flow.name]);
-    }
-
-    const shownSkills = (skills ?? [])
-        .filter((s) => matches(s.name, s.description))
-        .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
-    const skillSelected =
-        selectedSkill === null ? null : (shownSkills.find((s) => s.name === selectedSkill) ?? shownSkills[0] ?? null);
-
+    const tickedIn = usersOf(entries, ticksOf);
+    const shownSkills = ordered(
+        (skills ?? []).filter((s) => matches(s.name, s.description)),
+        (s) => s.name,
+        (s) => s.updatedAt,
+    );
+    const skillList: Picking<SkillSummary> = {
+        shown: shownSkills,
+        picked: pickedIn(shownSkills, selectedSkill, (s) => s.name),
+        keyOf: (s) => s.name,
+        pick: setSelectedSkill,
+        rows,
+    };
     // Ticked but not in the library: deleted or renamed outside the app since, or
     // named by a flow imported from elsewhere. Those nodes stop at their error port.
-    const inLibrary = new Set(skills?.map((s) => s.name));
-    const missing =
-        skills === null ? [] : [...tickedIn.keys()].filter((name) => !inLibrary.has(name) && matches(name)).toSorted();
+    const missing = absent(tickedIn, skills?.map((s) => s.name));
 
     /** The named schemas a node can use, by name. */
     const schemas: Schemas = Object.fromEntries(
         (schemaList ?? []).flatMap((s) => (s.schema ? [[s.name, s.schema]] : [])),
     );
-    const shownSchemas = (schemaList ?? [])
-        .filter((s) =>
-            matches(s.name, typeof s.schema?.description === 'string' ? s.schema.description : '', ...(s.schema ? (fieldNames(s.schema) ?? []) : [])),
-        )
-        .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : b.updatedAt.localeCompare(a.updatedAt)));
-    const schemaSelected =
-        selectedSchema === null
-            ? null
-            : (shownSchemas.find((s) => s.name === selectedSchema) ?? shownSchemas[0] ?? null);
+    const shownSchemas = ordered(
+        (schemaList ?? []).filter((s) =>
+            matches(
+                s.name,
+                typeof s.schema?.description === 'string' ? s.schema.description : '',
+                ...(s.schema ? (fieldNames(s.schema) ?? []) : []),
+            ),
+        ),
+        (s) => s.name,
+        (s) => s.updatedAt,
+    );
+    const schemaPicking: Picking<SchemaSummary> = {
+        shown: shownSchemas,
+        picked: pickedIn(shownSchemas, selectedSchema, (s) => s.name),
+        keyOf: (s) => s.name,
+        pick: setSelectedSchema,
+        rows,
+    };
 
     // Named by a node or by another schema, but not in the folder: deleted or
     // renamed outside the app since, or named by a flow imported from elsewhere.
@@ -367,20 +507,12 @@ export function Welcome(): JSX.Element {
     for (const {name: holder, schema} of schemaList ?? []) {
         for (const name of schema ? schemaRefs(schema) : []) nameIt(name, `the schema ${holder}`);
     }
-    const inFolder = new Set(schemaList?.map((s) => s.name));
-    const missingSchemas =
-        schemaList === null ? [] : [...namedBy.keys()].filter((name) => !inFolder.has(name) && matches(name)).toSorted();
+    const missingSchemas = absent(namedBy, schemaList?.map((s) => s.name));
 
     /** Each MCP server ticked anywhere, and the flows that tick it, by name. */
-    const serverTickedIn = new Map<string, string[]>();
-    for (const {flow} of entries ?? []) {
-        for (const name of mcpServersOf(flow)) {
-            serverTickedIn.set(name, [...(serverTickedIn.get(name) ?? []), flow.name]);
-        }
-    }
-
-    const shownServers = (mcpListing?.servers ?? [])
-        .filter((s) =>
+    const serverTickedIn = usersOf(entries, mcpServersOf);
+    const shownServers = ordered(
+        (mcpListing?.servers ?? []).filter((s) =>
             matches(
                 s.name,
                 s.source,
@@ -391,40 +523,63 @@ export function Welcome(): JSX.Element {
                 ...s.variables.map((v) => v.name),
                 s.problem ?? '',
             ),
-        )
-        .toSorted((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : 0));
-    const serverSelected =
-        selectedServer === null
-            ? null
-            : (shownServers.find((s) => serverKey(s) === selectedServer) ?? shownServers[0] ?? null);
+        ),
+        (s) => s.name,
+    );
+    const serverList: Picking<McpServerEntry> = {
+        shown: shownServers,
+        picked: pickedIn(shownServers, selectedServer, serverKey),
+        keyOf: serverKey,
+        pick: setSelectedServer,
+        rows,
+    };
+    const missingServers = absent(serverTickedIn, mcpListing?.servers.map((s) => s.name));
 
-    const knownServers = new Set(mcpListing?.servers.map((s) => s.name));
-    const missingServers =
-        mcpListing === null
-            ? []
-            : [...serverTickedIn.keys()].filter((name) => !knownServers.has(name) && matches(name)).toSorted();
-
-    const selectedToolKey = tab === 'mcp' && serverSelected && startable(serverSelected) ? toolsKey(serverSelected) : null;
-    const selectedServerName = tab === 'mcp' && serverSelected && startable(serverSelected) ? serverSelected.name : null;
+    const toolsOf = tab === 'mcp' && serverList.picked && startable(serverList.picked) ? serverList.picked : null;
+    const selectedToolKey = toolsOf && toolsKey(toolsOf);
+    const selectedServerName = toolsOf?.name ?? null;
 
     useEffect(() => {
         if (!selectedToolKey || !selectedServerName) return;
         if (serverTools[selectedToolKey] !== undefined || fetchingTools.current.has(selectedToolKey)) return;
         fetchingTools.current.add(selectedToolKey);
+        const settle = (tools: McpServerTool[] | null, error: string | null): void => {
+            fetchingTools.current.delete(selectedToolKey);
+            setServerTools((current) => ({...current, [selectedToolKey]: {tools, error}}));
+        };
         void window.api.mcp.serverTools(selectedServerName).then(
-            (tools) => {
-                fetchingTools.current.delete(selectedToolKey);
-                setServerTools((current) => ({...current, [selectedToolKey]: {tools, error: null}}));
-            },
-            (e: unknown) => {
-                fetchingTools.current.delete(selectedToolKey);
-                setServerTools((current) => ({
-                    ...current,
-                    [selectedToolKey]: {tools: null, error: e instanceof Error ? e.message : String(e)},
-                }));
-            },
+            (tools) => settle(tools, null),
+            (e: unknown) => settle(null, errorMessage(e)),
         );
     }, [selectedToolKey, selectedServerName, serverTools]);
+
+    /** A row's menu, at the pointer — or under its left edge for the menu key and Shift+F10, which have none. */
+    const menuAt = (e: MouseEvent<HTMLElement>, label: string, items: MenuItem[]): void => {
+        e.preventDefault();
+        const box = e.currentTarget.getBoundingClientRect();
+        setMenu({items, label, x: e.clientX || box.left + 16, y: e.clientY || box.bottom - 6});
+    };
+
+    /** Opens a menu under a button, as a right-click would at the pointer. */
+    const menuUnder = (e: { currentTarget: HTMLElement }, label: string, items: MenuItem[]): void => {
+        const box = e.currentTarget.getBoundingClientRect();
+        setMenu({items, label, x: box.left, y: box.bottom + 2});
+    };
+
+    /**
+     * Hand something to another app: a file to open, or a folder to show. One gone
+     * since its list was read is refused, and `reread` catches the list up as the
+     * banner says why.
+     */
+    const handOff = (act: () => Promise<unknown>, reread: () => void): Promise<void> =>
+        attempt(async () => {
+            try {
+                await act();
+            } catch (e) {
+                reread();
+                throw e;
+            }
+        });
 
     // ── Workspaces ─────────────────────────────────────────────────────────
 
@@ -563,22 +718,25 @@ export function Welcome(): JSX.Element {
             await open(imported);
         });
 
+    /** The actions for one flow, shown in its row's context menu. */
+    const flowActions = (entry: FlowEntry): MenuItem[] => [
+        {label: 'Open', onSelect: () => void open(entry.flow)},
+        {label: 'Show file in folder', onSelect: () => void window.api.flows.reveal(entry.flow.id)},
+        status?.flowIds.includes(entry.flow.id) === true
+            ? {label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false)}
+            : {label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true)},
+        {label: 'Rename…', separator: true, onSelect: () => setDialog({kind: 'rename', entry})},
+        {label: 'Duplicate…', onSelect: () => setDialog({kind: 'duplicate', entry})},
+        {label: 'Delete…', separator: true, danger: true, onSelect: () => setDialog({kind: 'delete', entry})},
+    ];
+
     // ── Skills ─────────────────────────────────────────────────────────────
 
     /**
-     * Open its SKILL.md in the system's app for `.md` files, or show its folder.
-     * The list follows the folder, so a save there shows here unasked.
+     * Open its SKILL.md in the system's app for `.md` files. The list follows the
+     * folder, so a save there shows here unasked.
      */
-    const handOff = (how: 'open' | 'reveal', name: string): Promise<void> =>
-        attempt(async () => {
-            try {
-                await window.api.skills[how](name);
-            } catch (e) {
-                // Gone since the list was read: the list catches up as the banner says so.
-                refreshSkills();
-                throw e;
-            }
-        });
+    const editSkill = (name: string): Promise<void> => handOff(() => window.api.skills.open(name), refreshSkills);
 
     /** Written from the template, then opened to be filled in. */
     const createSkill = (name: string): Promise<void> =>
@@ -620,8 +778,8 @@ export function Welcome(): JSX.Element {
 
     /** The actions for one skill, shown in its row's context menu. */
     const skillActions = (name: string): MenuItem[] => [
-        {label: 'Edit SKILL.md', onSelect: () => void handOff('open', name)},
-        {label: 'Show in folder', onSelect: () => void handOff('reveal', name)},
+        {label: 'Edit SKILL.md', onSelect: () => void editSkill(name)},
+        {label: 'Show in folder', onSelect: () => void handOff(() => window.api.skills.reveal(name), refreshSkills)},
         {label: 'Delete…', separator: true, danger: true, onSelect: () => setDialog({kind: 'delete-skill', name})},
     ];
 
@@ -632,15 +790,7 @@ export function Welcome(): JSX.Element {
      * folder. The list follows the folder, so a save there shows here unasked.
      */
     const handOffSchema = (how: 'open' | 'reveal', name: string): Promise<void> =>
-        attempt(async () => {
-            try {
-                await window.api.schemas[how](name);
-            } catch (e) {
-                // Gone since the list was read: the list catches up as the banner says so.
-                refreshSchemas();
-                throw e;
-            }
-        });
+        handOff(() => window.api.schemas[how](name), refreshSchemas);
 
     /**
      * What the edit dialog saves: a new schema written, or one renamed, rewritten,
@@ -660,10 +810,10 @@ export function Welcome(): JSX.Element {
                 if (schema) await window.api.schemas.save(to, schema);
             }
             setSelectedSchema(to);
-            setDialog(null);
+            close();
             return null;
         } catch (e) {
-            return (e as Error).message;
+            return errorMessage(e);
         } finally {
             refresh();
         }
@@ -739,10 +889,9 @@ export function Welcome(): JSX.Element {
     const schemaActions = (entry: SchemaSummary): MenuItem[] => [
         ...(entry.schema ? [{label: 'Edit…', onSelect: () => editSchema(entry)}] : []),
         {label: 'Rename…', onSelect: () => setDialog({kind: 'rename-schema', name: entry.name})},
-        ...(entry.schema ? [{
-            label: 'Duplicate…',
-            onSelect: () => setDialog({kind: 'duplicate-schema', name: entry.name})
-        }] : []),
+        ...(entry.schema
+            ? [{label: 'Duplicate…', onSelect: () => setDialog({kind: 'duplicate-schema', name: entry.name})}]
+            : []),
         {label: 'Open JSON file', separator: true, onSelect: () => void handOffSchema('open', entry.name)},
         {label: 'Show in folder', onSelect: () => void handOffSchema('reveal', entry.name)},
         {
@@ -776,15 +925,11 @@ export function Welcome(): JSX.Element {
             forgetTools(server);
         });
 
-    const handOffMcpFile = (how: 'openFile' | 'revealFile', source: WorkspaceMcpFile): Promise<void> =>
-        attempt(async () => {
-            try {
-                await window.api.mcp[how](source);
-            } catch (e) {
-                refreshMcp();
-                throw e;
-            }
-        });
+    const openMcpFile = (source: McpServerEntry['source']): Promise<void> =>
+        handOff(() => window.api.mcp.openFile(source), refreshMcp);
+
+    const revealMcpFile = (source: McpServerEntry['source']): Promise<void> =>
+        handOff(() => window.api.mcp.revealFile(source), refreshMcp);
 
     const createMcpFile = (): Promise<void> =>
         attempt(async () => {
@@ -792,26 +937,21 @@ export function Welcome(): JSX.Element {
             refreshMcp();
         });
 
-    const openServer = (server: McpServerEntry): void => {
-        void handOffMcpFile('openFile', server.source);
-    };
-
     const serverActions = (server: McpServerEntry): MenuItem[] => {
-        const source = server.source;
         const items: MenuItem[] = [];
-        if (server.state === 'new' || server.state === 'changed' || server.state === 'blocked') {
+        if (canAllow(server)) {
             items.push({label: 'Allow in this workspace', onSelect: () => void trustServer(server, true)});
         }
-        if (server.state === 'new' || server.state === 'changed' || server.state === 'allowed') {
+        if (canBlock(server)) {
             items.push({label: 'Block in this workspace', onSelect: () => void trustServer(server, false)});
         }
         items.push(
             {
-                label: `Edit ${source}`,
+                label: `Edit ${server.source}`,
                 separator: items.length > 0,
-                onSelect: () => void handOffMcpFile('openFile', source),
+                onSelect: () => void openMcpFile(server.source),
             },
-            {label: 'Show in folder', onSelect: () => void handOffMcpFile('revealFile', source)},
+            {label: 'Show in folder', onSelect: () => void revealMcpFile(server.source)},
         );
         return items;
     };
@@ -825,85 +965,17 @@ export function Welcome(): JSX.Element {
             refresh();
         });
 
-    const editReadme = (): Promise<void> =>
-        attempt(async () => {
-            try {
-                await window.api.workspace.editReadme();
-            } catch (e) {
-                // Gone since it was read: show that, as the banner says why.
-                refresh();
-                throw e;
-            }
-        });
-
-    // ── Keyboard ───────────────────────────────────────────────────────────
-
-    const move = (from: FlowEntry, delta: number): void => {
-        const at = shown.indexOf(from);
-        const next = shown[Math.min(shown.length - 1, Math.max(0, at + delta))];
-        if (!next || next === from) return;
-        setSelectedId(next.flow.id);
-        rows.current.get(next.flow.id)?.focus();
-    };
-
-    const moveSkill = (from: SkillSummary, delta: number): void => {
-        const at = shownSkills.indexOf(from);
-        const next = shownSkills[Math.min(shownSkills.length - 1, Math.max(0, at + delta))];
-        if (!next || next === from) return;
-        setSelectedSkill(next.name);
-        skillRows.current.get(next.name)?.focus();
-    };
-
-    const moveSchema = (from: SchemaSummary, delta: number): void => {
-        const at = shownSchemas.indexOf(from);
-        const next = shownSchemas[Math.min(shownSchemas.length - 1, Math.max(0, at + delta))];
-        if (!next || next === from) return;
-        setSelectedSchema(next.name);
-        schemaRows.current.get(next.name)?.focus();
-    };
-
-    const moveServer = (from: McpServerEntry, delta: number): void => {
-        const at = shownServers.indexOf(from);
-        const next = shownServers[Math.min(shownServers.length - 1, Math.max(0, at + delta))];
-        if (!next || next === from) return;
-        const key = serverKey(next);
-        setSelectedServer(key);
-        serverRows.current.get(key)?.focus();
-    };
-
-    /** The actions for one flow, shown in its row's context menu. */
-    const actions = (entry: FlowEntry): MenuItem[] => [
-        {label: 'Open', onSelect: () => void open(entry.flow)},
-        {label: 'Show file in folder', onSelect: () => void window.api.flows.reveal(entry.flow.id)},
-        status?.flowIds.includes(entry.flow.id) === true
-            ? {label: 'Stop watching', separator: true, onSelect: () => void setWatching(entry.flow.id, false)}
-            : {label: 'Start watching', separator: true, onSelect: () => void setWatching(entry.flow.id, true)},
-        {label: 'Rename…', separator: true, onSelect: () => setDialog({kind: 'rename', entry})},
-        {label: 'Duplicate…', onSelect: () => setDialog({kind: 'duplicate', entry})},
-        {label: 'Delete…', separator: true, danger: true, onSelect: () => setDialog({kind: 'delete', entry})},
-    ];
+    /** One gone since it was read shows as gone, as the banner says why. */
+    const editReadme = (): Promise<void> => handOff(() => window.api.workspace.editReadme(), refresh);
 
     const noFlows = entries !== null && entries.length === 0;
     const noSkills = skills !== null && skills.length === 0;
     const noSchemas = schemaList !== null && schemaList.length === 0;
     const noServers = mcpListing !== null && mcpListing.servers.length === 0 && mcpListing.unreadable.length === 0;
     /** Nothing in the list shown, so nothing to filter or order. */
-    const nothingYet =
-        tab === 'flows'
-            ? noFlows
-            : tab === 'skills'
-                ? noSkills
-                : tab === 'schemas'
-                    ? noSchemas
-                    : tab === 'mcp'
-                        ? noServers
-                        : true;
-
-    /** Opens a menu under a button, as a right-click would at the pointer. */
-    const menuUnder = (e: { currentTarget: HTMLElement }, label: string, items: MenuItem[]): void => {
-        const box = e.currentTarget.getBoundingClientRect();
-        setWorkspaceMenu({items, label, x: box.left, y: box.bottom + 2});
-    };
+    const nothingYet = {flows: noFlows, skills: noSkills, schemas: noSchemas, mcp: noServers, readme: true}[tab];
+    const unmatched = <div className="empty">Nothing matches “{query}”.</div>;
+    const loading = <div className="empty">Loading…</div>;
 
     return (
         <div className="app">
@@ -993,8 +1065,7 @@ export function Welcome(): JSX.Element {
                             <div className="section-title">Workspace</div>
                             <div className="side-note">
                                 Flows are kept in its <code>flows</code> folder, the skills and schemas they share
-                                in{' '}
-                                <code>skills</code> and <code>schemas</code>, and every run works in it.
+                                in <code>skills</code> and <code>schemas</code>, and every run works in it.
                             </div>
                             <code className="path">{workspace.path}</code>
                             <button className="wide" onClick={() => void attempt(() => window.api.workspace.reveal())}>
@@ -1044,13 +1115,7 @@ export function Welcome(): JSX.Element {
                     )}
 
                     <div className="welcome-foot">
-                        <button
-                            className="ghost"
-                            title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
-                            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-                        >
-                            {theme === 'light' ? '◐ Dark' : '◑ Light'}
-                        </button>
+                        <ThemeButton/>
                         <span className="spacer"/>
                         {about && <span className="dim">v{about.version}</span>}
                     </div>
@@ -1066,8 +1131,7 @@ export function Welcome(): JSX.Element {
                             {recent.length === 0 && (
                                 <div className="empty">
                                     None yet. <b>New workspace</b> makes a folder for your flows, or <b>Open
-                                    folder</b>{' '}
-                                    uses one you have.
+                                    folder</b> uses one you have.
                                 </div>
                             )}
                             {recent.map((w) => (
@@ -1083,16 +1147,7 @@ export function Welcome(): JSX.Element {
                                         e.preventDefault();
                                         void openWorkspace(w);
                                     }}
-                                    onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        const box = e.currentTarget.getBoundingClientRect();
-                                        setWorkspaceMenu({
-                                            items: recentItems(w),
-                                            label: w.name,
-                                            x: e.clientX || box.left + 16,
-                                            y: e.clientY || box.bottom - 6,
-                                        });
-                                    }}
+                                    onContextMenu={(e) => menuAt(e, w.name, recentItems(w))}
                                 >
                                     <div className="grow">
                                         <div className="title">
@@ -1186,57 +1241,22 @@ export function Welcome(): JSX.Element {
                         </div>
 
                         {tab === 'flows' && (
-                            <div
-                                className="flow-list"
-                                role="listbox"
-                                aria-label="Flows"
-                                onClick={(e) => {
-                                    if (e.target === e.currentTarget) setSelectedId(null);
-                                }}
-                            >
-                                {(entries === null || workspace === undefined) && <div className="empty">Loading…</div>}
+                            <PickList label="Flows" onUnpick={() => setSelectedId(null)}>
+                                {(entries === null || workspace === undefined) && loading}
                                 {noFlows && workspace && (
                                     <div className="empty">
                                         No flows in {workspace.name} yet. <b>New flow</b> gives you a canvas, saved in
                                         its <code>flows</code> folder.
                                     </div>
                                 )}
-                                {entries !== null && !noFlows && shown.length === 0 && (
-                                    <div className="empty">Nothing matches “{query}”.</div>
-                                )}
+                                {entries !== null && !noFlows && shown.length === 0 && unmatched}
                                 {shown.map((entry) => (
-                                    <div
+                                    <ListRow
                                         key={entry.flow.id}
-                                        ref={(el) => {
-                                            if (el) rows.current.set(entry.flow.id, el);
-                                            else rows.current.delete(entry.flow.id);
-                                        }}
-                                        role="option"
-                                        aria-selected={entry === selected}
-                                        tabIndex={0}
-                                        className={`flow-row${entry === selected ? ' active' : ''}`}
-                                        onClick={(e) => setSelectedId(unpicks(e, entry === selected) ? null : entry.flow.id)}
-                                        onDoubleClick={() => void open(entry.flow)}
-                                        onContextMenu={(e) => {
-                                            e.preventDefault();
-                                            setSelectedId(entry.flow.id);
-                                            // The menu key and Shift+F10 have no pointer
-                                            // position: open under the row's left edge.
-                                            const box = e.currentTarget.getBoundingClientRect();
-                                            setMenu({
-                                                entry,
-                                                x: e.clientX || box.left + 16,
-                                                y: e.clientY || box.bottom - 6,
-                                            });
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') void open(entry.flow);
-                                            else if (e.key === 'ArrowDown') move(entry, 1);
-                                            else if (e.key === 'ArrowUp') move(entry, -1);
-                                            else if (e.key === 'Escape') setSelectedId(null);
-                                            else return;
-                                            e.preventDefault();
-                                        }}
+                                        list={flows}
+                                        item={entry}
+                                        onOpen={() => void open(entry.flow)}
+                                        onMenu={(e) => menuAt(e, entry.flow.name, flowActions(entry))}
                                     >
                                         <div className="grow">
                                             <div className="title">
@@ -1257,68 +1277,32 @@ export function Welcome(): JSX.Element {
                                             </div>
                                         </div>
                                         <Where path={entry.file}/>
-                                    </div>
+                                    </ListRow>
                                 ))}
-                            </div>
+                            </PickList>
                         )}
 
                         {tab === 'skills' && (
-                            <div
-                                className="flow-list"
-                                role="listbox"
-                                aria-label="Skills"
-                                onClick={(e) => {
-                                    if (e.target === e.currentTarget) setSelectedSkill(null);
-                                }}
-                            >
-                                {(skills === null || workspace === undefined) && <div className="empty">Loading…</div>}
+                            <PickList label="Skills" onUnpick={() => setSelectedSkill(null)}>
+                                {(skills === null || workspace === undefined) && loading}
                                 {noSkills && missing.length === 0 && workspace && (
                                     <div className="empty">
                                         No skills in {workspace.name} yet. <b>New skill</b> writes one from a template
-                                        into
-                                        its <code>skills</code> folder, and <b>Import skills</b> copies in ones you
+                                        into its <code>skills</code> folder, and <b>Import skills</b> copies in ones you
                                         have.
                                     </div>
                                 )}
-                                {skills !== null && !noSkills && shownSkills.length === 0 && missing.length === 0 && (
-                                    <div className="empty">Nothing matches “{query}”.</div>
-                                )}
+                                {skills !== null && !noSkills && shownSkills.length === 0 && missing.length === 0 && unmatched}
                                 {shownSkills.map((skill) => {
                                     const users = tickedIn.get(skill.name) ?? [];
                                     return (
-                                        <div
+                                        <ListRow
                                             key={skill.name}
-                                            ref={(el) => {
-                                                if (el) skillRows.current.set(skill.name, el);
-                                                else skillRows.current.delete(skill.name);
-                                            }}
-                                            role="option"
-                                            aria-selected={skill === skillSelected}
-                                            tabIndex={0}
-                                            className={`flow-row${skill === skillSelected ? ' active' : ''}`}
+                                            list={skillList}
+                                            item={skill}
                                             title={skill.description || undefined}
-                                            onClick={(e) =>
-                                                setSelectedSkill(unpicks(e, skill === skillSelected) ? null : skill.name)
-                                            }
-                                            onDoubleClick={() => void handOff('open', skill.name)}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                setSelectedSkill(skill.name);
-                                                const box = e.currentTarget.getBoundingClientRect();
-                                                setSkillMenu({
-                                                    name: skill.name,
-                                                    x: e.clientX || box.left + 16,
-                                                    y: e.clientY || box.bottom - 6,
-                                                });
-                                            }}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') void handOff('open', skill.name);
-                                                else if (e.key === 'ArrowDown') moveSkill(skill, 1);
-                                                else if (e.key === 'ArrowUp') moveSkill(skill, -1);
-                                                else if (e.key === 'Escape') setSelectedSkill(null);
-                                                else return;
-                                                e.preventDefault();
-                                            }}
+                                            onOpen={() => void editSkill(skill.name)}
+                                            onMenu={(e) => menuAt(e, skill.name, skillActions(skill.name))}
                                         >
                                             <div className="grow">
                                                 <div className="title">
@@ -1335,11 +1319,11 @@ export function Welcome(): JSX.Element {
                                                     {users.length > 0 ? `ticked in ${listed(users)}` : 'ticked in no flow'} ·
                                                     edited {ago(skill.updatedAt)}
                                                 </div>
-                                                {skill === skillSelected && (
+                                                {skill === skillList.picked && (
                                                     <RowActions>
                                                         <button
                                                             title="Opens it in the app your system gives .md files. This list follows what you save there."
-                                                            onClick={() => void handOff('open', skill.name)}
+                                                            onClick={() => void editSkill(skill.name)}
                                                         >
                                                             Edit SKILL.md
                                                         </button>
@@ -1355,39 +1339,22 @@ export function Welcome(): JSX.Element {
                                                     </RowActions>
                                                 )}
                                             </div>
-                                        </div>
+                                        </ListRow>
                                     );
                                 })}
                                 {missing.map((name) => (
-                                    <div key={`missing:${name}`} className="flow-row missing">
-                                        <div className="grow">
-                                            <div className="title">
-                                                {name}
-                                                <span className="badge err">not in this workspace</span>
-                                            </div>
-                                            <div className="meta">
-                                                Ticked in {listed(tickedIn.get(name) ?? [])}, but there is no such skill
-                                                in
-                                                the <code>skills</code> folder, so the nodes that tick it stop at their
-                                                error port. Import it, or untick it on the canvas.
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <MissingRow key={`missing:${name}`} name={name}>
+                                        Ticked in {listed(tickedIn.get(name) ?? [])}, but there is no such skill in
+                                        the <code>skills</code> folder, so the nodes that tick it stop at their error
+                                        port. Import it, or untick it on the canvas.
+                                    </MissingRow>
                                 ))}
-                            </div>
+                            </PickList>
                         )}
 
                         {tab === 'schemas' && (
-                            <div
-                                className="flow-list"
-                                role="listbox"
-                                aria-label="Schemas"
-                                onClick={(e) => {
-                                    if (e.target === e.currentTarget) setSelectedSchema(null);
-                                }}
-                            >
-                                {(schemaList === null || workspace === undefined) &&
-                                    <div className="empty">Loading…</div>}
+                            <PickList label="Schemas" onUnpick={() => setSelectedSchema(null)}>
+                                {(schemaList === null || workspace === undefined) && loading}
                                 {noSchemas && missingSchemas.length === 0 && workspace && (
                                     <div className="empty">
                                         No schemas in {workspace.name} yet. A schema named here, in its{' '}
@@ -1396,46 +1363,20 @@ export function Welcome(): JSX.Element {
                                         template; a node’s <b>New…</b> on the canvas makes one and picks it at once.
                                     </div>
                                 )}
-                                {schemaList !== null && !noSchemas && shownSchemas.length === 0 && missingSchemas.length === 0 && (
-                                    <div className="empty">Nothing matches “{query}”.</div>
-                                )}
+                                {schemaList !== null && !noSchemas && shownSchemas.length === 0 && missingSchemas.length === 0 && unmatched}
                                 {shownSchemas.map((entry) => {
                                     const users = entry.schema ? usedIn(entries ?? [], schemas, entry.name) : [];
                                     const fields = entry.schema ? fieldNames(entry.schema) : null;
                                     const description =
                                         typeof entry.schema?.description === 'string' ? entry.schema.description : '';
-                                    const active = entry === schemaSelected;
+                                    const active = entry === schemaPicking.picked;
                                     return (
-                                        <div
+                                        <ListRow
                                             key={entry.name}
-                                            ref={(el) => {
-                                                if (el) schemaRows.current.set(entry.name, el);
-                                                else schemaRows.current.delete(entry.name);
-                                            }}
-                                            role="option"
-                                            aria-selected={active}
-                                            tabIndex={0}
-                                            className={`flow-row${active ? ' active' : ''}`}
-                                            onClick={(e) => setSelectedSchema(unpicks(e, active) ? null : entry.name)}
-                                            onDoubleClick={() => editSchema(entry)}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                setSelectedSchema(entry.name);
-                                                const box = e.currentTarget.getBoundingClientRect();
-                                                setSchemaMenu({
-                                                    name: entry.name,
-                                                    x: e.clientX || box.left + 16,
-                                                    y: e.clientY || box.bottom - 6,
-                                                });
-                                            }}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') editSchema(entry);
-                                                else if (e.key === 'ArrowDown') moveSchema(entry, 1);
-                                                else if (e.key === 'ArrowUp') moveSchema(entry, -1);
-                                                else if (e.key === 'Escape') setSelectedSchema(null);
-                                                else return;
-                                                e.preventDefault();
-                                            }}
+                                            list={schemaPicking}
+                                            item={entry}
+                                            onOpen={() => editSchema(entry)}
+                                            onMenu={(e) => menuAt(e, entry.name, schemaActions(entry))}
                                         >
                                             <div className="grow">
                                                 <div className="title">
@@ -1492,50 +1433,38 @@ export function Welcome(): JSX.Element {
                                                     </RowActions>
                                                 )}
                                             </div>
-                                        </div>
+                                        </ListRow>
                                     );
                                 })}
                                 {missingSchemas.map((name) => (
-                                    <div key={`missing:${name}`} className="flow-row missing">
-                                        <div className="grow">
-                                            <div className="title">
-                                                {name}
-                                                <span className="badge err">not in this workspace</span>
-                                            </div>
-                                            <div className="meta">
-                                                Named by {together(namedBy.get(name) ?? [])}, but there is no{' '}
-                                                <code>schemas/{name}.json</code>, so the nodes that use it are flagged
-                                                on the canvas and stop at their error port. Create it here, put the
-                                                file back, or pick another schema on those nodes.
-                                            </div>
-                                        </div>
-                                        <button
-                                            className="fixed"
-                                            onClick={() => setDialog({
-                                                kind: 'edit-schema',
-                                                name: null,
-                                                suggested: name
-                                            })}
-                                        >
-                                            Create it…
-                                        </button>
-                                    </div>
+                                    <MissingRow
+                                        key={`missing:${name}`}
+                                        name={name}
+                                        action={
+                                            <button
+                                                className="fixed"
+                                                onClick={() => setDialog({
+                                                    kind: 'edit-schema',
+                                                    name: null,
+                                                    suggested: name
+                                                })}
+                                            >
+                                                Create it…
+                                            </button>
+                                        }
+                                    >
+                                        Named by {together(namedBy.get(name) ?? [])}, but there is no{' '}
+                                        <code>schemas/{name}.json</code>, so the nodes that use it are flagged on the
+                                        canvas and stop at their error port. Create it here, put the file back, or pick
+                                        another schema on those nodes.
+                                    </MissingRow>
                                 ))}
-                            </div>
+                            </PickList>
                         )}
 
                         {tab === 'mcp' && (
-                            <div
-                                className="flow-list"
-                                role="listbox"
-                                aria-label="MCP servers"
-                                onClick={(e) => {
-                                    if (e.target === e.currentTarget) setSelectedServer(null);
-                                }}
-                            >
-                                {(mcpListing === null || workspace === undefined) && (
-                                    <div className="empty">Loading…</div>
-                                )}
+                            <PickList label="MCP servers" onUnpick={() => setSelectedServer(null)}>
+                                {(mcpListing === null || workspace === undefined) && loading}
                                 {noServers && missingServers.length === 0 && workspace && (
                                     <div className="empty">
                                         No MCP servers in {workspace.name} yet. Patchbay
@@ -1543,45 +1472,42 @@ export function Welcome(): JSX.Element {
                                         <code>.vscode/mcp.json</code>, <code>.cursor/mcp.json</code> and{' '}
                                         <code>.gemini/settings.json</code> in the workspace folder. Servers you keep in
                                         Claude Code or agy for every project stay theirs, and no run is handed
-                                        them.{' '}
-                                        <b>Create .mcp.json</b> starts one at the top of the workspace.
+                                        them. <b>Create .mcp.json</b> starts one at the top of the workspace.
                                     </div>
                                 )}
                                 {mcpListing !== null &&
                                     !noServers &&
                                     shownServers.length === 0 &&
                                     missingServers.length === 0 &&
-                                    mcpListing.unreadable.length === 0 && (
-                                        <div className="empty">Nothing matches “{query}”.</div>
-                                    )}
+                                    mcpListing.unreadable.length === 0 &&
+                                    unmatched}
                                 {mcpListing?.unreadable.map((u) => (
-                                    <div key={`unreadable:${u.source}`} className="flow-row missing">
-                                        <div className="grow">
-                                            <div className="title">
-                                                {u.source}
-                                                <span className="badge err">cannot be read</span>
-                                            </div>
-                                            <div className="meta">{u.problem}</div>
-                                        </div>
-                                        <button
-                                            className="fixed"
-                                            onClick={() => void handOffMcpFile('openFile', u.source)}
-                                        >
-                                            Open file
-                                        </button>
-                                    </div>
+                                    <MissingRow
+                                        key={`unreadable:${u.source}`}
+                                        name={u.source}
+                                        badge="cannot be read"
+                                        action={
+                                            <button className="fixed" onClick={() => void openMcpFile(u.source)}>
+                                                Open file
+                                            </button>
+                                        }
+                                    >
+                                        {u.problem}
+                                    </MissingRow>
                                 ))}
                                 {shownServers.map((server) => {
-                                    const key = serverKey(server);
-                                    const active = server === serverSelected;
+                                    const active = server === serverList.picked;
                                     const users = serverTickedIn.get(server.name) ?? [];
                                     const fetched = serverTools[toolsKey(server)];
+                                    const badge = SERVER_BADGES[server.state];
+                                    const unset = missingValues(server);
+                                    const lead = server.summary ? `${server.summary} — ` : '';
                                     const description =
                                         server.problem ??
                                         (server.state === 'new'
-                                            ? `${server.summary ? `${server.summary} — ` : ''}Not allowed yet. A workspace server can run commands on this computer, so it stays off until you allow it.`
+                                            ? `${lead}Not allowed yet. A workspace server can run commands on this computer, so it stays off until you allow it.`
                                             : server.state === 'changed'
-                                                ? `${server.summary ? `${server.summary} — ` : ''}${server.source} changed what this starts since it was allowed. Allow it again to use it.`
+                                                ? `${lead}${server.source} changed what this starts since it was allowed. Allow it again to use it.`
                                                 : server.summary || 'No command or URL');
                                     const details = [
                                         `in ${server.source}`,
@@ -1590,94 +1516,42 @@ export function Welcome(): JSX.Element {
                                         server.headerKeys.length > 0 ? `headers: ${server.headerKeys.join(', ')}` : null,
                                         users.length > 0 ? `ticked in ${listed(users)}` : 'ticked in no flow',
                                     ].filter((part): part is string => part !== null);
+                                    const toolsNote = !fetched
+                                        ? 'Listing tools…'
+                                        : fetched.error
+                                            ? `Could not list tools: ${fetched.error}`
+                                            : fetched.tools?.length === 0
+                                                ? 'This server reported no tools.'
+                                                : null;
                                     return (
-                                        <div
-                                            key={key}
-                                            ref={(el) => {
-                                                if (el) serverRows.current.set(key, el);
-                                                else serverRows.current.delete(key);
-                                            }}
-                                            role="option"
-                                            aria-selected={active}
-                                            tabIndex={0}
-                                            className={`flow-row${active ? ' active' : ''}`}
-                                            onClick={(e) => setSelectedServer(unpicks(e, active) ? null : key)}
-                                            onDoubleClick={() => openServer(server)}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                setSelectedServer(key);
-                                                const box = e.currentTarget.getBoundingClientRect();
-                                                setServerMenu({
-                                                    server,
-                                                    x: e.clientX || box.left + 16,
-                                                    y: e.clientY || box.bottom - 6,
-                                                });
-                                            }}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') openServer(server);
-                                                else if (e.key === 'ArrowDown') moveServer(server, 1);
-                                                else if (e.key === 'ArrowUp') moveServer(server, -1);
-                                                else if (e.key === 'Escape') setSelectedServer(null);
-                                                else return;
-                                                e.preventDefault();
-                                            }}
+                                        <ListRow
+                                            key={serverKey(server)}
+                                            list={serverList}
+                                            item={server}
+                                            onOpen={() => void openMcpFile(server.source)}
+                                            onMenu={(e) => menuAt(e, server.name, serverActions(server))}
                                         >
                                             <div className="grow">
                                                 <div className="title">
                                                     {server.name}
                                                     <span className="badge">{server.source}</span>
-                                                    {server.state === 'allowed' && (
-                                                        <span
-                                                            className="badge ok"
-                                                            title="Allowed to run in this workspace"
-                                                        >
-                                                            allowed
-                                                        </span>
-                                                    )}
-                                                    {server.state === 'new' && (
+                                                    <span
+                                                        className={badge.tone ? `badge ${badge.tone}` : 'badge'}
+                                                        title={badge.title ?? server.problem}
+                                                    >
+                                                        {badge.label}
+                                                    </span>
+                                                    {unset.length > 0 && (
                                                         <span
                                                             className="badge warn"
-                                                            title="Defined in the workspace, and not allowed to run yet"
-                                                        >
-                                                            needs approval
-                                                        </span>
-                                                    )}
-                                                    {server.state === 'changed' && (
-                                                        <span
-                                                            className="badge warn"
-                                                            title="Its definition changed since it was allowed"
-                                                        >
-                                                            changed
-                                                        </span>
-                                                    )}
-                                                    {server.state === 'blocked' && (
-                                                        <span className="badge" title="Blocked in this workspace">
-                                                            blocked
-                                                        </span>
-                                                    )}
-                                                    {server.state === 'shadowed' && (
-                                                        <span className="badge" title={server.problem}>
-                                                            shadowed
-                                                        </span>
-                                                    )}
-                                                    {server.state === 'invalid' && (
-                                                        <span className="badge err" title={server.problem}>
-                                                            cannot be used
-                                                        </span>
-                                                    )}
-                                                    {missingValues(server).length > 0 && (
-                                                        <span
-                                                            className="badge warn"
-                                                            title={`Nothing starts it until ${missingValues(server).map((v) => v.name).join(', ')} has a value`}
+                                                            title={`Nothing starts it until ${unset.map((v) => v.name).join(', ')} has a value`}
                                                         >
                                                             needs a value
                                                         </span>
                                                     )}
                                                     {server.state === 'allowed' && users.length === 0 && (
-                                                        <span
-                                                            className="badge"
-                                                            title="No node in any flow here ticks it"
-                                                        >
+                                                        <span className="badge"
+                                                              title="No node in any flow here ticks it">
                                                             unused
                                                         </span>
                                                     )}
@@ -1685,13 +1559,7 @@ export function Welcome(): JSX.Element {
                                                 <div className="meta desc">{description}</div>
                                                 <div className="meta">{details.join(' · ')}</div>
                                                 {active && server.variables.length > 0 && (
-                                                    <div
-                                                        className="schema-fields values"
-                                                        // Its buttons are not the row's: a click on one leaves it picked.
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        onDoubleClick={(e) => e.stopPropagation()}
-                                                        onKeyDown={(e) => e.stopPropagation()}
-                                                    >
+                                                    <RowActions className="schema-fields values">
                                                         {server.variables.map((variable) => (
                                                             <div key={variable.name} className="schema-field">
                                                                 <span className="name">{variable.name}</span>
@@ -1705,13 +1573,11 @@ export function Welcome(): JSX.Element {
                                                                 <span className="value-actions">
                                                                     <button
                                                                         className="compact"
-                                                                        onClick={() =>
-                                                                            setDialog({
-                                                                                kind: 'set-secret',
-                                                                                server,
-                                                                                variable
-                                                                            })
-                                                                        }
+                                                                        onClick={() => setDialog({
+                                                                            kind: 'set-secret',
+                                                                            server,
+                                                                            variable
+                                                                        })}
                                                                     >
                                                                         {variable.source === 'set' ? 'Change…' : 'Set…'}
                                                                     </button>
@@ -1727,105 +1593,70 @@ export function Welcome(): JSX.Element {
                                                                 </span>
                                                             </div>
                                                         ))}
-                                                    </div>
+                                                    </RowActions>
                                                 )}
                                                 {active && server.state === 'allowed' && !startable(server) && (
                                                     <div className="schema-fields empty-fields">
-                                                        Set {missingValues(server).map((v) => v.name).join(', ')} to
-                                                        start it and list its tools.
+                                                        Set {unset.map((v) => v.name).join(', ')} to start it and list
+                                                        its tools.
                                                     </div>
                                                 )}
-                                                {active && startable(server) && (
-                                                    !fetched ? (
-                                                        <div className="schema-fields empty-fields">
-                                                            Listing tools…
-                                                        </div>
-                                                    ) : fetched.error ? (
-                                                        <div className="schema-fields empty-fields">
-                                                            Could not list tools: {fetched.error}
-                                                        </div>
-                                                    ) : fetched.tools && fetched.tools.length === 0 ? (
-                                                        <div className="schema-fields empty-fields">
-                                                            This server reported no tools.
-                                                        </div>
-                                                    ) : (
-                                                        fetched.tools && (
-                                                            <div className="schema-fields tools">
-                                                                {fetched.tools.map((tool) => (
-                                                                    <div key={tool.name} className="schema-field">
-                                                                        <span className="name">{tool.name}</span>
-                                                                        <span className="type">
-                                                                            mcp__{server.name}__{tool.name}
-                                                                        </span>
-                                                                        <span
-                                                                            className="desc"
-                                                                            title={tool.description || undefined}
-                                                                        >
-                                                                            {tool.description || 'No description'}
-                                                                        </span>
-                                                                    </div>
-                                                                ))}
+                                                {active && startable(server) && toolsNote && (
+                                                    <div className="schema-fields empty-fields">{toolsNote}</div>
+                                                )}
+                                                {active && startable(server) && !toolsNote && fetched?.tools && (
+                                                    <div className="schema-fields tools">
+                                                        {fetched.tools.map((tool) => (
+                                                            <div key={tool.name} className="schema-field">
+                                                                <span className="name">{tool.name}</span>
+                                                                <span className="type">
+                                                                    mcp__{server.name}__{tool.name}
+                                                                </span>
+                                                                <span className="desc"
+                                                                      title={tool.description || undefined}>
+                                                                    {tool.description || 'No description'}
+                                                                </span>
                                                             </div>
-                                                        )
-                                                    )
+                                                        ))}
+                                                    </div>
                                                 )}
                                                 {active && (
                                                     <RowActions>
-                                                        {(server.state === 'new' ||
-                                                            server.state === 'changed' ||
-                                                            server.state === 'blocked') && (
-                                                            <button
-                                                                className="primary"
-                                                                onClick={() => void trustServer(server, true)}
-                                                            >
+                                                        {canAllow(server) && (
+                                                            <button className="primary"
+                                                                    onClick={() => void trustServer(server, true)}>
                                                                 Allow
                                                             </button>
                                                         )}
-                                                        {(server.state === 'new' ||
-                                                            server.state === 'changed' ||
-                                                            server.state === 'allowed') && (
+                                                        {canBlock(server) && (
                                                             <button
-                                                                onClick={() => void trustServer(server, false)}
-                                                            >
-                                                                Block
-                                                            </button>
+                                                                onClick={() => void trustServer(server, false)}>Block</button>
                                                         )}
-                                                        <button
-                                                            onClick={() => void handOffMcpFile('openFile', server.source)}>
+                                                        <button onClick={() => void openMcpFile(server.source)}>
                                                             Edit {server.source}
                                                         </button>
-                                                        <button
-                                                            onClick={() => void handOffMcpFile('revealFile', server.source)}>
+                                                        <button onClick={() => void revealMcpFile(server.source)}>
                                                             Show in folder
                                                         </button>
                                                     </RowActions>
                                                 )}
                                             </div>
-                                        </div>
+                                        </ListRow>
                                     );
                                 })}
                                 {missingServers.map((name) => (
-                                    <div key={`missing:${name}`} className="flow-row missing">
-                                        <div className="grow">
-                                            <div className="title">
-                                                {name}
-                                                <span className="badge err">not in this workspace</span>
-                                            </div>
-                                            <div className="meta">
-                                                Ticked in {listed(serverTickedIn.get(name) ?? [])}, but this workspace
-                                                defines no server named <code>{name}</code>, so the nodes that tick it
-                                                stop at their error port. Add it to <code>.mcp.json</code>, or untick it
-                                                on the canvas.
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <MissingRow key={`missing:${name}`} name={name}>
+                                        Ticked in {listed(serverTickedIn.get(name) ?? [])}, but this workspace defines
+                                        no server named <code>{name}</code>, so the nodes that tick it stop at their
+                                        error port. Add it to <code>.mcp.json</code>, or untick it on the canvas.
+                                    </MissingRow>
                                 ))}
-                            </div>
+                            </PickList>
                         )}
 
                         {tab === 'readme' && (
                             <div className="readme-view">
-                                {readme === undefined && <div className="empty">Loading…</div>}
+                                {readme === undefined && loading}
                                 {readme === null && workspace && (
                                     <div className="empty">
                                         {workspace.name} has no README. It is optional: a <code>README.md</code> at the
@@ -1845,53 +1676,9 @@ export function Welcome(): JSX.Element {
                 <ContextMenu
                     x={menu.x}
                     y={menu.y}
-                    label={menu.entry.flow.name}
-                    items={actions(menu.entry)}
+                    label={menu.label}
+                    items={menu.items}
                     onClose={() => setMenu(null)}
-                />
-            )}
-
-            {skillMenu && (
-                <ContextMenu
-                    x={skillMenu.x}
-                    y={skillMenu.y}
-                    label={skillMenu.name}
-                    items={skillActions(skillMenu.name)}
-                    onClose={() => setSkillMenu(null)}
-                />
-            )}
-
-            {schemaMenu && (
-                <ContextMenu
-                    x={schemaMenu.x}
-                    y={schemaMenu.y}
-                    label={schemaMenu.name}
-                    items={
-                        schemaList?.find((s) => s.name === schemaMenu.name)
-                            ? schemaActions(schemaList.find((s) => s.name === schemaMenu.name)!)
-                            : []
-                    }
-                    onClose={() => setSchemaMenu(null)}
-                />
-            )}
-
-            {serverMenu && (
-                <ContextMenu
-                    x={serverMenu.x}
-                    y={serverMenu.y}
-                    label={serverMenu.server.name}
-                    items={serverActions(serverMenu.server)}
-                    onClose={() => setServerMenu(null)}
-                />
-            )}
-
-            {workspaceMenu && (
-                <ContextMenu
-                    x={workspaceMenu.x}
-                    y={workspaceMenu.y}
-                    label={workspaceMenu.label}
-                    items={workspaceMenu.items}
-                    onClose={() => setWorkspaceMenu(null)}
                 />
             )}
 
@@ -1902,9 +1689,9 @@ export function Welcome(): JSX.Element {
                     initial="New flow"
                     confirmLabel="Create"
                     hint={`Saved in ${workspace.name}’s flows folder, in a file named after it.`}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(name) => {
-                        setDialog(null);
+                        close();
                         void create(name);
                     }}
                 />
@@ -1912,9 +1699,9 @@ export function Welcome(): JSX.Element {
 
             {dialog?.kind === 'new-workspace' && (
                 <NewWorkspaceDialog
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(name, location) => {
-                        setDialog(null);
+                        close();
                         void createWorkspace(name, location);
                     }}
                 />
@@ -1924,11 +1711,10 @@ export function Welcome(): JSX.Element {
                 <SecretDialog
                     server={dialog.server.name}
                     variable={dialog.variable}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onSave={(value) => {
-                        const {server, variable} = dialog;
-                        setDialog(null);
-                        void setSecret(server, variable, value);
+                        close();
+                        void setSecret(dialog.server, dialog.variable, value);
                     }}
                 />
             )}
@@ -1936,11 +1722,10 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'switch' && (
                 <ConfirmDialog
                     {...dialog.question}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={() => {
-                        const {go} = dialog;
-                        setDialog(null);
-                        go();
+                        close();
+                        dialog.go();
                     }}
                 />
             )}
@@ -1949,11 +1734,10 @@ export function Welcome(): JSX.Element {
                 <OpenWhereDialog
                     name={dialog.flow.name}
                     current={dialog.current}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onChoose={(where) => {
-                        const {flow} = dialog;
-                        setDialog(null);
-                        void window.api.window.openFlow(flow.id, where);
+                        close();
+                        void window.api.window.openFlow(dialog.flow.id, where);
                     }}
                 />
             )}
@@ -1965,11 +1749,10 @@ export function Welcome(): JSX.Element {
                     initial={`${dialog.entry.flow.name} copy`}
                     confirmLabel="Duplicate"
                     hint="Saved beside it, in a file of its own. It uses the same skills and schemas, which the workspace shares."
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(name) => {
-                        const {entry} = dialog;
-                        setDialog(null);
-                        void duplicate(entry, name);
+                        close();
+                        void duplicate(dialog.entry, name);
                     }}
                 />
             )}
@@ -1978,11 +1761,10 @@ export function Welcome(): JSX.Element {
                 <RenameFlowDialog
                     name={dialog.entry.flow.name}
                     file={dialog.entry.file}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(result) => {
-                        const {entry} = dialog;
-                        setDialog(null);
-                        void rename(entry, result);
+                        close();
+                        void rename(dialog.entry, result);
                     }}
                 />
             )}
@@ -1997,11 +1779,10 @@ export function Welcome(): JSX.Element {
                         'already recorded. This cannot be undone.'
                     }
                     confirmLabel="Delete"
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={() => {
-                        const {entry} = dialog;
-                        setDialog(null);
-                        void remove(entry);
+                        close();
+                        void remove(dialog.entry);
                     }}
                 />
             )}
@@ -2013,9 +1794,9 @@ export function Welcome(): JSX.Element {
                     initial="my-skill"
                     confirmLabel="Create"
                     hint={`Lowercase and hyphens — it becomes its folder in ${workspace.name}’s skills folder. It opens from a template, to be filled in.`}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(name) => {
-                        setDialog(null);
+                        close();
                         void createSkill(name);
                     }}
                 />
@@ -2030,11 +1811,10 @@ export function Welcome(): JSX.Element {
                         `${losing(dialog.name)} This cannot be undone.`
                     }
                     confirmLabel="Delete"
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={() => {
-                        const {name} = dialog;
-                        setDialog(null);
-                        void removeSkill(name);
+                        close();
+                        void removeSkill(dialog.name);
                     }}
                 />
             )}
@@ -2051,7 +1831,7 @@ export function Welcome(): JSX.Element {
                     taken={schemaList?.map((s) => s.name) ?? []}
                     named={Object.keys(schemas)}
                     usage={dialog.name === null ? undefined : usage(dialog.name)}
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onSave={(to, schema) => saveSchema(dialog.name, to, schema)}
                     onDelete={
                         dialog.name === null
@@ -2068,11 +1848,10 @@ export function Welcome(): JSX.Element {
                     initial={freeSchemaName(dialog.name)}
                     confirmLabel="Duplicate"
                     hint="A copy of its fields under a name of its own, to change without changing the one it came from."
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(to) => {
-                        const {name} = dialog;
-                        setDialog(null);
-                        void duplicateSchema(name, to);
+                        close();
+                        void duplicateSchema(dialog.name, to);
                     }}
                 />
             )}
@@ -2084,11 +1863,10 @@ export function Welcome(): JSX.Element {
                     initial={dialog.name}
                     confirmLabel="Rename"
                     hint="Its file is renamed, and every node and schema using it, in every flow here, follows."
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={(to) => {
-                        const {name} = dialog;
-                        setDialog(null);
-                        if (to !== name) void renameSchema(name, to);
+                        close();
+                        if (to !== dialog.name) void renameSchema(dialog.name, to);
                     }}
                 />
             )}
@@ -2096,8 +1874,8 @@ export function Welcome(): JSX.Element {
             {dialog?.kind === 'delete-schema' && workspace && holdersOf(dialog.name).length > 0 && (
                 <Modal
                     title={`${dialog.name} is in use`}
-                    onClose={() => setDialog(null)}
-                    footer={<button className="primary" onClick={() => setDialog(null)}>OK</button>}
+                    onClose={close}
+                    footer={<button className="primary" onClick={close}>OK</button>}
                 >
                     {`It is named by ${together(holdersOf(dialog.name))}. Every schema is the workspace’s, so there is no copy to leave them: have those use another schema first — pick one on each node, or change the field — and then delete it.`}
                 </Modal>
@@ -2113,11 +1891,10 @@ export function Welcome(): JSX.Element {
                         'No node or schema uses it. This cannot be undone.'
                     }
                     confirmLabel="Delete"
-                    onCancel={() => setDialog(null)}
+                    onCancel={close}
                     onConfirm={() => {
-                        const {name} = dialog;
-                        setDialog(null);
-                        void removeSchema(name);
+                        close();
+                        void removeSchema(dialog.name);
                     }}
                 />
             )}

@@ -1,4 +1,5 @@
 import { AGENT_KEY_VARIABLES, type AgentId, type AgentKeySource } from '@shared/settings';
+import { isObject } from '@shared/util';
 import { agentKeysFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { seal, unseal } from './sealed';
@@ -15,7 +16,7 @@ type KeyFile = Partial<Record<AgentId, string>>;
 
 function readAll(): KeyFile {
     const raw = readJson<unknown>(agentKeysFile(), {});
-    return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as KeyFile) : {};
+    return isObject(raw) ? (raw as KeyFile) : {};
 }
 
 function variableFor(agent: AgentId): string {

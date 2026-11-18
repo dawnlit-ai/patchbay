@@ -1549,16 +1549,6 @@ button.wide {
     box-shadow: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .dot.live {
-        animation: none;
-    }
-
-    .switch::after {
-        transition: none;
-    }
-}
-
 /* ── Side panels ───────────────────────────────────────────────────────── */
 
 .side {
@@ -2963,9 +2953,14 @@ button.add-field:hover:not(:disabled) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .dot.live,
     .node.working,
     .caret {
         animation: none;
+    }
+
+    .switch::after {
+        transition: none;
     }
 
     .node.working {

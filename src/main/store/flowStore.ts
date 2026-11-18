@@ -16,6 +16,7 @@ import { readJson, writeJson } from './jsonFile';
 import { findSchema, removeSchemaFile, renameSchemaFile, workspaceSchemas } from './schemaStore';
 import { editSchemas, emptyFlow, type Flow, parseFlow, repointSchema, schemaHolders } from '@shared/flow';
 import { toFolderName } from '@shared/naming';
+import { isObject, together } from '@shared/util';
 import type { FlowEntry, SaveOutcome } from '@shared/ipc';
 
 /**
@@ -36,8 +37,7 @@ function readFlowFile(path: string): Flow | null {
 /** Write a flow over its file, keeping whatever else the file holds: one written by hand may carry more than the graph. */
 function writeFlowFile(path: string, flow: Flow): void {
     const raw = readJson<unknown>(path, null);
-    const rest = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
-    writeJson(path, {...rest, ...flow});
+    writeJson(path, {...(isObject(raw) ? raw : {}), ...flow});
 }
 
 export function listFlows(): Flow[] {
@@ -202,10 +202,6 @@ export function renameSchema(from: string, to: string): void {
     }
 }
 
-/** Phrases as a sentence joins them: A, A and B, A, B and C. */
-const together = (phrases: string[]): string =>
-    phrases.length < 2 ? (phrases[0] ?? '') : `${phrases.slice(0, -1).join(', ')} and ${phrases.at(-1)}`;
-
 /**
  * Delete a schema. Refused while a node in any flow, or another schema, still
  * names it: no node keeps a schema of its own, so there is nowhere a copy could go.
@@ -230,16 +226,13 @@ export function removeSchema(name: string): void {
 export function importFlowFile(path: string): Flow {
     const file = resolve(path);
     const label = basename(file);
-    let raw: unknown;
+    let fields: unknown;
     try {
-        raw = JSON.parse(readFileSync(file, 'utf8'));
+        fields = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
         throw new Error(`${label} is not readable JSON.`);
     }
-    if (typeof raw !== 'object' || raw === null || !Array.isArray((raw as { nodes?: unknown }).nodes)) {
-        throw new Error(`${label} does not look like a Patchbay flow.`);
-    }
-    const fields = raw as Record<string, unknown>;
+    if (!isObject(fields) || !Array.isArray(fields.nodes)) throw new Error(`${label} does not look like a Patchbay flow.`);
     // Ids name files and key watermarks, so one written by hand has to be fit for both.
     const ownId = typeof fields.id === 'string' && isSafeSegment(fields.id) ? fields.id : null;
     const held = ownId === null ? undefined : flowHomes().get(ownId);

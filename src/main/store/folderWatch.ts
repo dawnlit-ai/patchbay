@@ -17,43 +17,22 @@ interface Target {
     filter?(name: string): boolean;
 }
 
+/** A folder holding an MCP server file, or a folder that does, watched for those alone. */
+const mcpFolder = (name: string, filter: (file: string) => boolean): { name: string; target: Target } => ({
+    name,
+    target: {recursive: false, change: {mcp: true}, filter},
+});
+
+const isMcpFile = (file: string): boolean => file.startsWith('mcp.json');
+
 /** The folders watched inside a workspace, and what a change in each one is. */
 const FOLDERS: { name: string; target: Target }[] = [
-    {name: 'skills', target: {recursive: true, change: {flows: false, skills: true, schemas: false}}},
-    {name: 'schemas', target: {recursive: true, change: {flows: false, skills: false, schemas: true}}},
-    {
-        name: '',
-        target: {
-            recursive: false,
-            change: {flows: false, skills: false, schemas: false, mcp: true},
-            filter: (name) =>
-                name.startsWith('.mcp.json') || name === '.vscode' || name === '.cursor' || name === '.gemini',
-        },
-    },
-    {
-        name: '.vscode',
-        target: {
-            recursive: false,
-            change: {flows: false, skills: false, schemas: false, mcp: true},
-            filter: (name) => name.startsWith('mcp.json'),
-        },
-    },
-    {
-        name: '.cursor',
-        target: {
-            recursive: false,
-            change: {flows: false, skills: false, schemas: false, mcp: true},
-            filter: (name) => name.startsWith('mcp.json'),
-        },
-    },
-    {
-        name: '.gemini',
-        target: {
-            recursive: false,
-            change: {flows: false, skills: false, schemas: false, mcp: true},
-            filter: (name) => name.startsWith('settings.json'),
-        },
-    },
+    {name: 'skills', target: {recursive: true, change: {skills: true}}},
+    {name: 'schemas', target: {recursive: true, change: {schemas: true}}},
+    mcpFolder('', (file) => file.startsWith('.mcp.json') || ['.vscode', '.cursor', '.gemini'].includes(file)),
+    mcpFolder('.vscode', isMcpFile),
+    mcpFolder('.cursor', isMcpFile),
+    mcpFolder('.gemini', (file) => file.startsWith('settings.json')),
 ];
 
 /** An editor's save is several events — a temp file, a rename — and one re-read covers them. */

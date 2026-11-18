@@ -1302,6 +1302,7 @@ async function main(): Promise<void> {
     // One reply per email from a flow, whichever of its Create email nodes drafts it.
     recordReply({
         at: '2026-11-14T15:31:00.000Z',
+        mode: 'reply',
         runId: 'earlier-run',
         flowId: thanks,
         nodeId: quoter,
@@ -1674,57 +1675,6 @@ async function main(): Promise<void> {
     check('a switch with its routes left empty keeps none, and one with no list gets the defaults',
         s2?.routes.length === 0 && s3?.routes.length === 2);
 
-    // The 1.1.1 nightly's Reply nodes, read as the Create email that replaced them.
-    const nightly = parseFlow(
-        {
-            nodes: [
-                {
-                    id: 'always',
-                    kind: 'reply',
-                    config: {
-                        template: 'PreAlertReply',
-                        rules: [],
-                        otherwise: {reply: true, section: ''},
-                        replyAll: true,
-                        output: 'ack',
-                    },
-                },
-                {
-                    id: 'ruled',
-                    kind: 'reply',
-                    config: {
-                        template: 'RateReply',
-                        rules: [{field: 'quote.reply', equals: 'quote', reply: true, section: 'QUOTE'}],
-                        otherwise: {reply: true, section: 'NOQUOTE'},
-                    },
-                },
-                {id: 'held', kind: 'reply', config: {template: 'RateReply', otherwise: {reply: false}}},
-                {id: 'done', kind: 'terminal'},
-            ],
-            edges: [
-                {source: 'always', sourceHandle: 'replied', target: 'done'},
-                {source: 'always', sourceHandle: 'skipped', target: 'done'},
-            ],
-        },
-        'nightly',
-        'Nightly',
-    );
-    const legacy = (id: string) => {
-        const node = nightly.nodes.find((n) => n.id === id);
-        return node?.config.kind === 'create-email' ? node.config : null;
-    };
-    const always = legacy('always');
-    check(
-        'a nightly Reply that always replied becomes a create email exactly',
-        always?.template === 'PreAlertReply' && always.section === '' && always.replyAll && always.output === 'ack' &&
-        always.mode === 'reply' && always.placeholders.length === 0,
-    );
-    check('and its edges leave by the ports that replaced theirs',
-        nightly.edges.map((e) => e.sourceHandle).sort().join(',') === 'drafted,skipped');
-    check(
-        'one whose rules or otherwise could hold the reply back drafts nothing until it is looked at',
-        legacy('ruled')?.template === '' && legacy('ruled')?.section === 'NOQUOTE' && legacy('held')?.template === '',
-    );
     await call('delete_flow', {flowId: thanks});
     await call('delete_schema', {name: 'Verdict'});
 

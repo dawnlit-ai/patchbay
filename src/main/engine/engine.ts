@@ -1,5 +1,6 @@
 import { EMAIL_SLOT, type Flow, type FlowNode, outputPorts, requires } from '@shared/flow';
 import { type EmailEnvelope, now, type Pass, type PassUnderWay, type Run, type TraceEvent } from '@shared/trace';
+import { errorMessage } from '@shared/util';
 import { executeNode } from './nodes';
 import { runScratchDir } from '../paths';
 import { workspaceSchemas } from '../store/schemaStore';
@@ -176,7 +177,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
             }
             if (outcome.disposition) run.disposition = outcome.disposition;
         } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
+            const message = errorMessage(e);
             pass = record({
                 status: 'error',
                 outPort: null,

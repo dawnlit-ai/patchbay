@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toFolderName } from '@shared/naming';
-import { Modal } from './Modal';
+import { Modal, useSelectedOnOpen } from './Modal';
 
 /**
  * Name a new workspace and choose where it is kept. It gets a folder of its own
@@ -18,10 +18,9 @@ export function NewWorkspaceDialog({onCancel, onConfirm}: Props): JSX.Element {
     const [name, setName] = useState('My workspace');
     /** Null until main says which folder to offer. */
     const [location, setLocation] = useState<string | null>(null);
-    const input = useRef<HTMLInputElement>(null);
+    const input = useSelectedOnOpen();
 
     useEffect(() => {
-        input.current?.select();
         void window.api.workspace.location().then((offered) => setLocation((typed) => typed ?? offered));
     }, []);
 

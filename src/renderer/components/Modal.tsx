@@ -1,4 +1,5 @@
-import type { JSX, ReactNode } from 'react';
+import type { JSX, ReactNode, RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * The frame every dialog shares; a click outside or Escape dismisses it. Dialogs
@@ -15,6 +16,18 @@ interface Props {
     children: ReactNode;
 
     onClose(): void;
+}
+
+/**
+ * For the field a dialog opens on: selected rather than merely focused, since
+ * the common case is replacing the suggestion outright.
+ */
+export function useSelectedOnOpen(): RefObject<HTMLInputElement | null> {
+    const input = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        input.current?.select();
+    }, []);
+    return input;
 }
 
 export function Modal({title, wide = false, footer, children, onClose}: Props): JSX.Element {

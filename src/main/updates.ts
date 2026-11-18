@@ -1,6 +1,7 @@
 import { app, dialog } from 'electron';
 import { GithubSource, type UpdateInfo, UpdateManager, type UpdateSource } from 'velopack';
 import type { UpdateChannel, UpdateStatus } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import { getSettings } from './store/settingsStore';
 import { log } from './log';
 
@@ -36,8 +37,6 @@ function manager(channel: UpdateChannel): UpdateManager {
         MaximumDeltasBeforeFallback: 10,
     });
 }
-
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export interface UpdateHost {
     /** Whether a run is under way or waiting, which a restart would cut short. */
@@ -154,12 +153,12 @@ export class Updates {
             log.info('app', `Patchbay ${version} is ready. Restart to use it, or it goes in next time Patchbay starts.`);
             this.set({state: 'ready', progress: undefined});
         } catch (e) {
-            log.warn('app', 'Could not check for updates', {detail: message(e)});
+            log.warn('app', 'Could not check for updates', {detail: errorMessage(e)});
             this.set({
                 state: 'failed',
                 available: undefined,
                 progress: undefined,
-                detail: message(e),
+                detail: errorMessage(e),
                 checkedAt: new Date().toISOString(),
             });
         }
@@ -185,6 +184,6 @@ export async function offerApplicationsFolder(): Promise<void> {
     try {
         app.moveToApplicationsFolder();
     } catch (e) {
-        log.warn('app', 'Could not move Patchbay to Applications', {detail: message(e)});
+        log.warn('app', 'Could not move Patchbay to Applications', {detail: errorMessage(e)});
     }
 }

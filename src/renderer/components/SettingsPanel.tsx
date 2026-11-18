@@ -16,6 +16,7 @@ import {
     type UpdateStatus,
 } from '@shared/settings';
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
+import { errorMessage } from '@shared/util';
 import { ahead, time } from '../format';
 import { SecretPrompt } from './SecretDialog';
 
@@ -280,7 +281,7 @@ function ApiKeyRow({
             setSource(await window.api.agents.setKey(agent, key));
             onChanged();
         } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
+            setError(errorMessage(e));
         }
     };
 

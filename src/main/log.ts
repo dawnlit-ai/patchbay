@@ -1,7 +1,8 @@
-import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LogEntry, LogLevel, LogSource } from '@shared/log';
 import { logsDir } from './paths';
+import { appendJsonLine, readJsonLines } from './store/jsonFile';
 
 /**
  * The app's console. Each entry goes to a bounded in-memory buffer, to any open
@@ -42,7 +43,7 @@ function write(entry: LogEntry): void {
             pruned = true;
             prune(dir);
         }
-        appendFileSync(join(dir, `${dayStamp(new Date(entry.at))}.jsonl`), JSON.stringify(entry) + '\n', 'utf8');
+        appendJsonLine(join(dir, `${dayStamp(new Date(entry.at))}.jsonl`), entry);
     } catch {
         // Nowhere left to say so.
     }
@@ -77,19 +78,7 @@ export function logEntries(): LogEntry[] {
 /** One day's file (`YYYY-MM-DD`, local time), oldest first; empty if there is none. */
 export function logEntriesOn(day: string): LogEntry[] {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`"${day}" is not a day. Write it as YYYY-MM-DD.`);
-    const file = join(logsDir(), `${day}.jsonl`);
-    if (!existsSync(file)) return [];
-    // A torn final line (power loss mid-append) costs one entry, not the day.
-    return readFileSync(file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .flatMap((line): LogEntry[] => {
-            try {
-                return [JSON.parse(line) as LogEntry];
-            } catch {
-                return [];
-            }
-        });
+    return readJsonLines<LogEntry>(join(logsDir(), `${day}.jsonl`));
 }
 
 /** Empties the buffer the window reads. The day's file keeps every line. */

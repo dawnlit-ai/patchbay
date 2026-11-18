@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { sendsFile } from '../paths';
+import { appendJsonLine, readJsonLines } from './jsonFile';
 import type { RepliedEmail } from './replyStore';
 
 /**
@@ -26,32 +26,13 @@ export interface SendRecord {
     email: RepliedEmail;
 }
 
-/** A torn final line (power loss mid-append) costs that record, not the list. */
-function parseRecord(line: string): SendRecord | null {
-    try {
-        return JSON.parse(line) as SendRecord;
-    } catch {
-        return null;
-    }
-}
-
-export function listSends(): SendRecord[] {
-    const file = sendsFile();
-    if (!existsSync(file)) return [];
-    return readFileSync(file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map(parseRecord)
-        .filter((record) => record !== null);
-}
-
 /** The send of the draft `draftEntryId` in `account`, if a Send already sent it. */
 export function findSend(account: string, draftEntryId: string): SendRecord | undefined {
-    return listSends().find(
+    return readJsonLines<SendRecord>(sendsFile()).find(
         (record) => record.draftEntryId === draftEntryId && record.account.toLowerCase() === account.toLowerCase(),
     );
 }
 
 export function recordSend(record: SendRecord): void {
-    appendFileSync(sendsFile(), JSON.stringify(record) + '\n', 'utf8');
+    appendJsonLine(sendsFile(), record);
 }

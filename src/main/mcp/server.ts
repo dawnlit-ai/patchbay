@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { AgentControlStatus } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import { getSettings, saveSettings } from '../store/settingsStore';
 import { type AgentHost, INSTRUCTIONS, registerAgentTools } from './tools';
 import { log } from '../log';
@@ -60,7 +61,7 @@ function logToolCalls(server: McpServer, caller: () => string | undefined): void
                 log.info('agent', `Called ${name}${by}`, {detail});
                 return result;
             } catch (e) {
-                log.warn('agent', `${name}${by} failed: ${e instanceof Error ? e.message : String(e)}`, {detail});
+                log.warn('agent', `${name}${by} failed: ${errorMessage(e)}`, {detail});
                 throw e;
             }
         });
@@ -246,7 +247,7 @@ export class AgentControl {
             this.lastRequestAt = new Date().toISOString();
             if (who) this.lastRequestBy = who;
         } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
+            const message = errorMessage(e);
             this.lastError = message;
             log.error('agent', `A request failed: ${message}`);
             if (!res.headersSent) deny(res, 500, message);

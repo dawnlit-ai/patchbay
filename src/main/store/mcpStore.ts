@@ -17,6 +17,7 @@ import {
     WORKSPACE_MCP_FILES,
     type WorkspaceMcpFile,
 } from '@shared/settings';
+import { errorMessage, isObject } from '@shared/util';
 
 /**
  * The MCP servers a node can be handed: those the open workspace defines in the
@@ -105,9 +106,6 @@ function stringEnd(text: string, start: number): number {
     }
     return text.length;
 }
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** Where in its file a server list is: VS Code calls it `servers`, the rest `mcpServers`. */
 function serverMap(file: WorkspaceMcpFile, root: Record<string, unknown>): Record<string, unknown> {
@@ -407,7 +405,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
                 }
             }
         } catch (e) {
-            unreadable.push({source: file, problem: e instanceof Error ? e.message : String(e)});
+            unreadable.push({source: file, problem: errorMessage(e)});
             continue;
         }
         for (const [name, raw] of Object.entries(servers)) {
@@ -426,7 +424,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
             try {
                 def = readDefinition(file, raw);
             } catch (e) {
-                invalid(e instanceof Error ? e.message : String(e));
+                invalid(errorMessage(e));
                 continue;
             }
             entry.type = def.type;
@@ -455,7 +453,7 @@ function scan(): { workspace: string | null; found: Found[]; unreadable: McpList
             try {
                 lookups = lookupsOf(file, def, root);
             } catch (e) {
-                invalid(e instanceof Error ? e.message : String(e));
+                invalid(errorMessage(e));
                 continue;
             }
             const set = secrets.get(name) ?? new Set<string>();

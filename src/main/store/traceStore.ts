@@ -1,7 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runIndexFile, runScratchDir, runsDir } from '../paths';
-import { readJson, writeJson } from './jsonFile';
+import { appendJsonLine, parseJsonLine, readJson, writeJson } from './jsonFile';
 import { type Run, type RunSummary, toSummary } from '@shared/trace';
 
 /** One JSON file per run, readable and pasteable into a bug report, plus a JSONL index for the list. */
@@ -14,7 +14,7 @@ export function saveRun(run: Run): void {
 
 /** Called once when the run reaches a terminal state, to add one index line. */
 export function indexRun(run: Run): void {
-    appendFileSync(runIndexFile(), JSON.stringify(toSummary(run)) + '\n', 'utf8');
+    appendJsonLine(runIndexFile(), toSummary(run));
 }
 
 /** Ids come from the renderer: refuse anything that could climb out of runsDir. */
@@ -25,25 +25,16 @@ export function getRun(id: string): Run | null {
     return readJson<Run | null>(runFile(id), null);
 }
 
-/** A torn final line (power loss mid-append) costs one row, not the list. */
-function parseSummary(line: string): RunSummary | null {
-    try {
-        return JSON.parse(line) as RunSummary;
-    } catch {
-        return null;
-    }
-}
+const indexLines = (file: string): string[] => readFileSync(file, 'utf8').split('\n').filter(Boolean);
 
 export function listRuns(limit: number): RunSummary[] {
     const file = runIndexFile();
     if (!existsSync(file)) return [];
     // Newest first, and lazy: the walk ends as soon as `limit` rows have parsed.
-    return readFileSync(file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
+    return indexLines(file)
         .toReversed()
         .values()
-        .map(parseSummary)
+        .map((line) => parseJsonLine<RunSummary>(line))
         .filter((run) => run !== null)
         .take(limit)
         .toArray();
@@ -61,9 +52,7 @@ export function removeRun(id: string): void {
     rmSync(runScratchDir(id), {recursive: true, force: true});
     const file = runIndexFile();
     if (!existsSync(file)) return;
-    const kept = readFileSync(file, 'utf8')
-        .split('\n')
-        .filter((line) => line && parseSummary(line)?.id !== id);
+    const kept = indexLines(file).filter((line) => parseJsonLine<RunSummary>(line)?.id !== id);
     // Rewritten whole, so written aside and swapped in: a crash leaves the old index, not half of one.
     const tmp = `${file}.tmp`;
     writeFileSync(tmp, kept.map((line) => line + '\n').join(''), 'utf8');

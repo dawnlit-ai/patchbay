@@ -7,6 +7,7 @@ import { createSdkMcpServer, type SdkMcpToolDefinition, tool } from '@anthropic-
 import { type EmailEnvelope, emailHeader, now, type TraceEvent } from '@shared/trace';
 import type { ProcessorConfig } from '@shared/flow';
 import { EMAIL_SERVER_NAME } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 import * as outlook from '../outlook/bridge';
 import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
 
@@ -80,7 +81,7 @@ async function withCsv(path: string): Promise<string[]> {
             ...left,
         ];
     } catch (e) {
-        return [`${path} — a workbook, but no CSV of it could be made: ${e instanceof Error ? e.message : String(e)}`];
+        return [`${path} — a workbook, but no CSV of it could be made: ${errorMessage(e)}`];
     }
 }
 

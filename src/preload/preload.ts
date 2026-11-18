@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { Api } from '@shared/ipc';
-import { IPC } from '@shared/ipc';
+import { type Api, IPC } from '@shared/ipc';
+import { errorMessage } from '@shared/util';
 
 /**
  * The renderer gets exactly this object and nothing else. Every method is a thin
@@ -15,8 +15,7 @@ const call: typeof ipcRenderer.invoke = async (channel, ...args) => {
     try {
         return await ipcRenderer.invoke(channel, ...args);
     } catch (e) {
-        const raw = e instanceof Error ? e.message : String(e);
-        throw new Error(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''));
+        throw new Error(errorMessage(e).replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''));
     }
 };
 
@@ -62,14 +61,7 @@ const api: Api = {
     },
     mcp: {
         servers: () => call(IPC.mcpServers),
-        serverTools: async (server) => {
-            const res = (await call(IPC.mcpServerTools, server)) as {
-                tools?: Awaited<ReturnType<Api['mcp']['serverTools']>>;
-                error?: string;
-            };
-            if (res.error !== undefined) throw new Error(res.error);
-            return res.tools ?? [];
-        },
+        serverTools: (server) => call(IPC.mcpServerTools, server),
         trustServer: (server, allowed) => call(IPC.mcpTrustServer, server, allowed),
         setServerSecret: (server, variable, value) => call(IPC.mcpSetServerSecret, server, variable, value),
         openFile: (source) => call(IPC.mcpOpenFile, source),

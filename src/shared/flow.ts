@@ -3,6 +3,8 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
+import { errorMessage, isObject, type Json } from './util';
+
 export type NodeKind =
     | 'trigger.outlook'
     | 'categorizer'
@@ -488,7 +490,7 @@ function schemaProblem(schemas: Schemas, schema: JsonSchema): string | null {
         resolveSchema(schemas, schema);
         return null;
     } catch (e) {
-        return e instanceof Error ? e.message : String(e);
+        return errorMessage(e);
     }
 }
 
@@ -586,7 +588,7 @@ export function editSchemas(flow: Flow, edit: (schema: JsonSchema) => JsonSchema
  */
 export function slotTypeLabel(type: SlotType): string {
     if (type.kind === 'email') return 'Email';
-    // A shape of the app's own, such as a Reply's, is named by its title.
+    // A shape of the app's own, such as a Create email's, is named by its title.
     const title = typeof type.schema.title === 'string' ? type.schema.title : null;
     return refName(type.schema) ?? title ?? 'No schema yet';
 }
@@ -887,11 +889,14 @@ const namesField = (field: string): boolean => {
     return SLOT_NAME.test(slot) && steps.length > 0 && steps.every(Boolean);
 };
 
-/** `text` with each field in braces filled from `data`. Throws, naming the first, when one holds no value. */
-export function fillFields(text: string, data: Readonly<Record<string, unknown>>): string {
+/**
+ * `text` with each field in braces filled from `data`. Throws, naming the first,
+ * when one holds no value, or with `trimmed` only blank space, which it trims.
+ */
+export function fillFields(text: string, data: Readonly<Record<string, unknown>>, trimmed = false): string {
     return text.replace(FIELD_REF, (_, raw: string) => {
         const field = raw.trim();
-        const value = fieldText(data, field);
+        const value = trimmed ? fieldText(data, field)?.trim() || null : fieldText(data, field);
         if (value === null) throw new Error(`${field} holds no value to write in`);
         return value;
     });
@@ -935,7 +940,6 @@ export function decideSwitch(config: SwitchConfig, data: Readonly<Record<string,
     if (matched) return {port: routePort(matched.rule.route), why: matched.why, checked};
     return {port: OTHERWISE_PORT, why: noMatch(config.rules), checked};
 }
-
 
 /** Marks a schema this module cannot follow into, where any path may lead. */
 const ANYTHING = Symbol('anything');
@@ -1073,10 +1077,10 @@ export function createEmailProblems(node: FlowNode, config: CreateEmailConfig): 
     return problems;
 }
 
-/** What is wrong with a Create email, said as sentences, given the slots that reach it. */
-function createEmailIssues(node: FlowNode, config: CreateEmailConfig, schemas: Schemas, held: Available): string[] {
-    const issues = createEmailProblems(node, config);
-    for (const field of new Set(createEmailFields(config))) {
+/** What is wrong with the fields a node writes into text, said as sentences, given the slots that reach it. */
+function writtenFieldIssues(node: FlowNode, fields: string[], schemas: Schemas, held: Available): string[] {
+    const issues: string[] = [];
+    for (const field of new Set(fields)) {
         const found = ruleField(schemas, held, field);
         if ('problem' in found) {
             issues.push(`${node.name} writes in ${field}, but ${found.problem}.`);
@@ -1144,21 +1148,6 @@ export function moveEmailProblems(node: FlowNode, config: MoveEmailConfig): stri
         );
     }
     return problems;
-}
-
-/** What is wrong with a Move email, said as sentences, given the slots that reach it. */
-function moveEmailIssues(node: FlowNode, config: MoveEmailConfig, schemas: Schemas, held: Available): string[] {
-    const issues = moveEmailProblems(node, config);
-    for (const field of new Set(moveEmailFields(config))) {
-        const found = ruleField(schemas, held, field);
-        if ('problem' in found) {
-            issues.push(`${node.name} writes in ${field}, but ${found.problem}.`);
-        } else if (isObject(found.schema) && (found.schema.type === 'object' || found.schema.type === 'array')) {
-            const what = found.schema.type === 'array' ? 'a list' : 'a group of fields';
-            issues.push(`${node.name} writes in ${field}, which is ${what}: only one value can be written in.`);
-        }
-    }
-    return issues;
 }
 
 /**
@@ -1297,22 +1286,22 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         }
         const schemaIssue = nodeSchemaIssue(schemas, node);
         if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
+        const errors: string[] = [];
         if (node.config.kind === 'create-email') {
-            for (const message of createEmailIssues(node, node.config, schemas, held)) {
-                issues.push({nodeId: node.id, severity: 'error', message});
-            }
-        }
-        if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
-        if (node.config.kind === 'send') {
-            for (const message of sendIssues(node, node.config, held)) {
-                issues.push({nodeId: node.id, severity: 'error', message});
-            }
+            errors.push(
+                ...createEmailProblems(node, node.config),
+                ...writtenFieldIssues(node, createEmailFields(node.config), schemas, held),
+            );
         }
         if (node.config.kind === 'move-email') {
-            for (const message of moveEmailIssues(node, node.config, schemas, held)) {
-                issues.push({nodeId: node.id, severity: 'error', message});
-            }
+            errors.push(
+                ...moveEmailProblems(node, node.config),
+                ...writtenFieldIssues(node, moveEmailFields(node.config), schemas, held),
+            );
         }
+        if (node.config.kind === 'send') errors.push(...sendIssues(node, node.config, held));
+        for (const message of errors) issues.push({nodeId: node.id, severity: 'error', message});
+        if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
         if ('models' in node.config && !takesJev(node.kind)) {
             const on = modelsInTurn(node.config.models);
@@ -1622,12 +1611,6 @@ export function emptyFlow(id: string, name: string): Flow {
 
 // ── Reading a flow the app did not write ─────────────────────────────────
 
-type Json = Record<string, unknown>;
-
-function isObject(value: unknown): value is Json {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 const str = (value: unknown, fallback: string): string =>
     typeof value === 'string' ? value : fallback;
 
@@ -1672,22 +1655,6 @@ function schemaOf(value: unknown): JsonSchema {
 function outputName(value: unknown, fallback: string): string {
     const output = str(value, '');
     return SLOT_NAME.test(output) && output !== EMAIL_SLOT.name ? output : fallback;
-}
-
-/**
- * A Reply node, as the 1.1.1 nightly wrote one, read as the Create email that
- * replaced it. One that replied the same way to every email it reached, with no
- * rules and an Otherwise that replies, becomes one exactly. One whose rules or
- * Otherwise could hold the reply back loses its template as well, so that it
- * drafts nothing until that choice is moved into a Switch before it: the canvas
- * flags it, and a run that reaches it leaves by Error.
- */
-function fromReply(raw: unknown): Json {
-    const from = isObject(raw) ? raw : {};
-    const otherwise = isObject(from.otherwise) ? from.otherwise : {};
-    const rules = Array.isArray(from.rules) ? from.rules : [];
-    const exact = rules.length === 0 && otherwise.reply !== false;
-    return {...from, template: exact ? from.template : '', section: otherwise.section};
 }
 
 /** One of a node's models. */
@@ -1842,17 +1809,12 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
     const raw = isObject(value) ? value : {};
 
     const takenIds = new Set<string>();
-    /** The nightly's Reply nodes, by id, whose Drafted port was called `replied`. */
-    const retiredIds = new Set<string>();
     const nodes = (Array.isArray(raw.nodes) ? raw.nodes : []).filter(isObject).flatMap(
         (n, i): FlowNode[] => {
-            // The nightly's Reply is read as the Create email that replaced it.
-            const retired = n.kind === 'reply';
-            const kind = retired ? 'create-email' : NODE_KINDS.find((k) => k === n.kind);
+            const kind = NODE_KINDS.find((k) => k === n.kind);
             const nodeId = str(n.id, '') || `node-${i + 1}`;
             if (!kind || takenIds.has(nodeId)) return [];
             takenIds.add(nodeId);
-            if (retired) retiredIds.add(nodeId);
             const position = isObject(n.position) ? n.position : {};
             return [
                 {
@@ -1862,7 +1824,7 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
                     // Laid out in a row when the file carries no coordinates, so a
                     // flow written by hand still opens as something readable.
                     position: {x: num(position.x, 80 + i * 260), y: num(position.y, 200)},
-                    config: parseConfig(kind, retired ? fromReply(n.config) : n.config),
+                    config: parseConfig(kind, n.config),
                 },
             ];
         },
@@ -1874,13 +1836,12 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
     const edges = (Array.isArray(raw.edges) ? raw.edges : []).filter(isObject).flatMap(
         (e): FlowEdge[] => {
             const source = str(e.source, '');
-            const written = str(e.sourceHandle, '');
-            const sourceHandle = retiredIds.has(source) && written === 'replied' ? DRAFTED_PORT : written;
+            const sourceHandle = str(e.sourceHandle, '');
             const target = str(e.target, '');
             const targetNode = byId.get(target);
             if (!portsOf.get(source)?.has(sourceHandle)) return [];
             if (!targetNode || !hasInput(targetNode.kind)) return [];
-            const id = (sourceHandle === written && str(e.id, '')) || edgeId(source, sourceHandle, target);
+            const id = str(e.id, '') || edgeId(source, sourceHandle, target);
             if (takenEdges.has(id)) return [];
             takenEdges.add(id);
             return [{id, source, sourceHandle, target}];

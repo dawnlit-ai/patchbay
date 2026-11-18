@@ -5,6 +5,7 @@ import { activity, liveLabel } from '../activity';
 import { duration, time } from '../format';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Elapsed } from './Elapsed';
+import { Expandable } from './Expandable';
 
 /**
  * The run log. The list is the audit trail; the detail is the "why" — each pass
@@ -17,19 +18,20 @@ function statusBadge(status: string): JSX.Element {
 }
 
 function EventRow({event}: { event: TraceEvent }): JSX.Element {
-    const [open, setOpen] = useState(false);
-    const expandable = Boolean(event.detail);
     return (
-        <div className={`event ${event.type}`}>
-            <div className="head" onClick={() => expandable && setOpen(!open)}>
-                <span className="type">{event.type}</span>
-                <span className="label">
-                    {expandable && <span className="dim">{open ? '▾ ' : '▸ '}</span>}
-                    {event.label}
-                </span>
-            </div>
-            {open && event.detail && <pre>{event.detail}</pre>}
-        </div>
+        <Expandable
+            className={`event ${event.type}`}
+            detail={event.detail}
+            head={(marker) => (
+                <>
+                    <span className="type">{event.type}</span>
+                    <span className="label">
+                        {marker}
+                        {event.label}
+                    </span>
+                </>
+            )}
+        />
     );
 }
 

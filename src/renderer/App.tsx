@@ -25,10 +25,10 @@ import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
 import type { Library } from './components/SkillLibrary';
 import { TestRunDialog } from './components/TestRunDialog';
+import { ThemeButton } from './components/ThemeButton';
 import { WindowControls } from './components/WindowControls';
 import { useErrorBanner } from './errorBanner';
 import { dataTokens } from './slotColors';
-import { useTheme } from './theme';
 
 /** Matches what main keeps, so the window never holds lines main has let go. */
 const LOG_LIMIT = 2_000;
@@ -83,7 +83,6 @@ export function App({initialFlowId}: Props): JSX.Element {
     const consoleOnScreen = useRef(false);
     consoleOnScreen.current = dockTab === 'console' && !dockCollapsed;
     const {error, attempt, report: setError} = useErrorBanner();
-    const [theme, setTheme] = useTheme();
 
     const flowId = flow?.id ?? null;
     /** The workspace's, shared by every flow in it. */
@@ -546,13 +545,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                 </button>
 
                 <button onClick={() => setTesting(true)}>Test run…</button>
-                <button
-                    className="ghost"
-                    title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
-                    onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-                >
-                    {theme === 'light' ? '◐ Dark' : '◑ Light'}
-                </button>
+                <ThemeButton/>
 
                 <span className="spacer"/>
 
