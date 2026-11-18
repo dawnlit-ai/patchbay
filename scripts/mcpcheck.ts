@@ -107,6 +107,7 @@ async function main(): Promise<void> {
 
     const {tools} = await client.listTools();
     check(`${tools.length} tools listed`, tools.length > 0);
+    check('the status names the agent that called', control.status().lastRequestBy === 'mcpcheck');
 
     /** Calls a tool and returns its text, failing the check if it errored. */
     const call = async (name: string, args: Record<string, unknown> = {}): Promise<string> => {
@@ -1305,7 +1306,11 @@ async function main(): Promise<void> {
         // A sender's address in another case is the same sender.
         email: {senderEmail: 'JO@Carrier.example', receivedTime: answered.receivedTime, subject: answered.subject},
     });
-    const sameEmail = {senderEmail: answered.senderEmail, receivedTime: answered.receivedTime, subject: answered.subject};
+    const sameEmail = {
+        senderEmail: answered.senderEmail,
+        receivedTime: answered.receivedTime,
+        subject: answered.subject
+    };
     check('a drafted reply is found again by its email', findReply(thanks, sameEmail)?.draftEntryId === 'D1');
     check('and only by its own flow', findReply('another-flow', sameEmail) === undefined);
     const noQuoteNode = saved(noQuoter);

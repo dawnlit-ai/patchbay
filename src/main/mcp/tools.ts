@@ -106,7 +106,7 @@ rather than a fan-out. The seven node kinds:
                     workspace's skills, ticks the \`skills\` it loads first,
                     reads \`inputs\` and gets the \`mcpTools\` it names, but
                     it cannot draft a reply, move the email or run commands.
-- processor       — runs Claude scoped to one email, with every skill in
+- processor       — runs Claude or agy scoped to one email, with every skill in
                     the workspace and none from elsewhere. \`skills\` ticks,
                     by name, the ones it loads before anything else.
                     Ports: "done", "review" (it needs a person) and "error".
@@ -673,7 +673,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Write a skill',
             description:
-                'Create or replace a SKILL.md in the workspace’s library. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a Claude skill identifier. Every flow in the workspace that ticks it gets the change.',
+                'Create or replace a SKILL.md in the workspace’s library. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a skill identifier. Every flow in the workspace that ticks it gets the change.',
             inputSchema: {name: z.string(), content: z.string().min(1)},
         },
         ({name, content}) => {
@@ -686,7 +686,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 warning:
                     front.name && front.description
                         ? undefined
-                        : 'The frontmatter is missing a name or a description. Claude matches a skill on its description, so this one will be hard to reach.',
+                        : 'The frontmatter is missing a name or a description. An agent matches a skill on its description, so this one will be hard to reach.',
             });
         },
     );
@@ -729,7 +729,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 dir: z
                     .string()
                     .describe(
-                        'Absolute path to a folder whose subfolders each hold a SKILL.md — ~/.claude/skills, say.',
+                        'Absolute path to a folder whose subfolders each hold a SKILL.md — ~/.claude/skills or ~/.gemini/config/skills, say.',
                     ),
                 names: z
                     .array(z.string())
@@ -851,7 +851,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Test a flow against one email',
             description:
-                'Put one real email through a flow now, ignoring the watermark, starting at the trigger named. Without an entryId the newest message in that trigger’s folder is used. This calls Claude and costs money, and a Processor with drafting or filing switched on will act on the mailbox. Returns the run id; get_run has the trace.',
+                'Put one real email through a flow now, ignoring the watermark, starting at the trigger named. Without an entryId the newest message in that trigger’s folder is used. This runs the flow’s models and costs money, and a Processor with drafting or filing switched on will act on the mailbox. Returns the run id; get_run has the trace.',
             inputSchema: {
                 flowId: flowIdArg,
                 nodeId: z.string().describe('The trigger to start from — a flow may have several.'),

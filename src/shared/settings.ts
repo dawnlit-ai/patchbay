@@ -237,6 +237,8 @@ export interface AgentControlStatus {
     lastError?: string;
     /** When an agent last called, so the panel can show a sign of life. */
     lastRequestAt?: string;
+    /** Which agent made that call, such as "Claude Code" or "Antigravity". */
+    lastRequestBy?: string;
 }
 
 /** Who made this and under what terms — shown in Settings → About. */

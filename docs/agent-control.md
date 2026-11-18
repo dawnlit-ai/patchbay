@@ -3,16 +3,21 @@
 There are two kinds of MCP server in this app, pointing opposite ways. A Processor is *handed* servers — the
 [email-scoped one](skills.md#the-email-scoped-tools), plus whatever you allow from the workspace's `.mcp.json`. This
 one is the other direction: Patchbay's own, which an agent connects *to* in order to drive the app. Switch it on under
-**Settings → Agent control** and paste the command shown there into a terminal:
+**Settings → Agent control** and paste the command for your agent into a terminal:
 
 ```bash
+# Claude Code
 claude mcp add --transport http patchbay http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"
+
+# Antigravity
+agy mcp add --header "Authorization: Bearer <token>" patchbay http://127.0.0.1:8787/mcp
 ```
 
 After that, "wire me a flow that sorts invoices from support requests and runs the invoice skill on the first branch" is
-something you can say to Claude Code and watch happen on the canvas. An agent writes through the same stores the window
-does, and the window re-reads what it changed as it goes. A canvas edit made just before an agent's write to the same
-flow is refused rather than saved over it: the canvas says so, and shows the flow as the agent left it.
+something you can say to Claude Code or Antigravity and watch happen on the canvas. An agent writes through the same
+stores the window does, and the window re-reads what it changed as it goes. A canvas edit made just before an agent's
+write to the same flow is refused rather than saved over it: the canvas says so, and shows the flow as the agent left
+it.
 
 ## Tools
 

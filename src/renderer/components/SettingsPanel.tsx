@@ -103,9 +103,13 @@ const RUN_COUNTS = Array.from(
 /** How long "Copied" stays up before the button's words go back. */
 const ACK_MS = 1800;
 
-/** What to paste into a terminal to point Claude Code at this install. */
-function connectCommand(status: AgentControlStatus): string {
+/** What to paste into a terminal to point Claude Code or Antigravity at this install. */
+function claudeConnectCommand(status: AgentControlStatus): string {
     return `claude mcp add --transport http patchbay ${status.url} --header "Authorization: Bearer ${status.token}"`;
+}
+
+function agyConnectCommand(status: AgentControlStatus): string {
+    return `agy mcp add --header "Authorization: Bearer ${status.token}" patchbay ${status.url}`;
 }
 
 /** An on/off setting. A button rather than a checkbox, so it reads as a switch to a screen reader too. */
@@ -668,7 +672,7 @@ export function SettingsPanel({
                         {page === 'agent' && (
                             <>
                                 <PageHead title="Agent control">
-                                    Patchbay's own MCP server, for Claude Code or another agent to drive this app:
+                                    Patchbay's own MCP server, for Claude Code or Antigravity to drive this app:
                                     read your flows, wire nodes, write skills and start test runs. It only listens
                                     on this computer, and every request has to carry the token.
                                 </PageHead>
@@ -726,7 +730,11 @@ export function SettingsPanel({
                                                     <span className="spacer"/>
                                                     <span className="conn-when">
                                                         {agentControl.lastRequestAt
-                                                            ? `Last call ${time(agentControl.lastRequestAt)}`
+                                                            ? `Last call ${time(agentControl.lastRequestAt)}${
+                                                                agentControl.lastRequestBy
+                                                                    ? ` · ${agentControl.lastRequestBy}`
+                                                                    : ''
+                                                            }`
                                                             : 'No calls yet'}
                                                     </span>
                                                 </>
@@ -740,7 +748,13 @@ export function SettingsPanel({
 
                                         {agentControl?.running && (
                                             <>
-                                                <div className="conn-label">Add this install to Claude Code</div>
+                                                <div className="conn-label">
+                                                    <span>Add this install to Claude Code</span>
+                                                    <button
+                                                        onClick={() => copy('claude', claudeConnectCommand(agentControl))}>
+                                                        {copied === 'claude' ? 'Copied' : 'Copy command'}
+                                                    </button>
+                                                </div>
                                                 <pre className="conn-command">
                                                     <span className="cmd">claude mcp add</span>{' '}
                                                     <span className="flag">--transport</span> http patchbay{' '}
@@ -751,11 +765,22 @@ export function SettingsPanel({
                                                     </span>
                                                     "
                                                 </pre>
-                                                <div className="conn-actions">
+                                                <div className="conn-label">
+                                                    <span>Add this install to Antigravity</span>
                                                     <button
-                                                        onClick={() => copy('command', connectCommand(agentControl))}>
-                                                        {copied === 'command' ? 'Copied' : 'Copy command'}
+                                                        onClick={() => copy('agy', agyConnectCommand(agentControl))}>
+                                                        {copied === 'agy' ? 'Copied' : 'Copy command'}
                                                     </button>
+                                                </div>
+                                                <pre className="conn-command">
+                                                    <span className="cmd">agy mcp add</span>{' '}
+                                                    <span className="flag">--header</span> "Authorization: Bearer{' '}
+                                                    <span className="arg">
+                                                        {revealToken ? agentControl.token : '•'.repeat(16)}
+                                                    </span>
+                                                    " patchbay <span className="arg">{agentControl.url}</span>
+                                                </pre>
+                                                <div className="conn-actions">
                                                     <button onClick={() => copy('url', agentControl.url)}>
                                                         {copied === 'url' ? 'Copied' : 'Copy URL'}
                                                     </button>
@@ -777,9 +802,10 @@ export function SettingsPanel({
                                 )}
 
                                 <p className="set-note">
-                                    Its tools arrive as <code>mcp__patchbay__*</code>. None of them reads a message
-                                    from your mailbox or sends mail: an agent picks an email to test against, and the
-                                    run's own tools do the reading.
+                                    Its tools arrive as <code>mcp__patchbay__*</code> in Claude Code and{' '}
+                                    <code>patchbay/*</code> in Antigravity. None of them reads a message from your
+                                    mailbox or sends mail: an agent picks an email to test against, and the run's own
+                                    tools do the reading.
                                 </p>
                             </>
                         )}

@@ -1473,7 +1473,11 @@ button.wide {
 }
 
 .conn-label {
-    padding: 10px 14px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 14px 0;
     color: var(--term-dim);
     font-size: 11.5px;
     border-top: 1px solid var(--term-line);
@@ -1514,21 +1518,21 @@ button.wide {
     border-top: 1px solid var(--term-line);
 }
 
-.conn-actions button {
+.conn button {
     color: var(--term-fg);
     background: transparent;
     border-color: var(--term-line);
 }
 
-.conn-actions button:hover:not(:disabled) {
+.conn button:hover:not(:disabled) {
     background: var(--term-line);
 }
 
-.conn-actions button.danger {
+.conn button.danger {
     color: var(--term-err);
 }
 
-.conn-actions button:focus-visible {
+.conn button:focus-visible {
     border-color: var(--term-accent);
     box-shadow: none;
 }

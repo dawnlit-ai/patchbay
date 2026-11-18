@@ -18,7 +18,7 @@ import { log } from '../log';
 
 const MCP_PATH = '/mcp';
 
-/** The name the tools arrive under in a client: `mcp__patchbay__list_flows`. */
+/** The name the tools arrive under in a client: `mcp__patchbay__list_flows` or `patchbay/list_flows`. */
 const SERVER_NAME = 'patchbay';
 
 const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
@@ -31,8 +31,21 @@ function deny(res: ServerResponse, status: number, message: string): void {
 /** An agent's input can carry a whole SKILL.md; the console keeps the start of it. */
 const MAX_ARGS_CHARS = 2_000;
 
+/** Names the agent a request came from, by its MCP client info or HTTP User-Agent. */
+function callerOf(
+    clientName: string | undefined,
+    userAgent: string | undefined,
+    known: Map<string, string>,
+): string | undefined {
+    const raw = clientName || (userAgent ? known.get(userAgent) : undefined) || userAgent || '';
+    if (/claude/i.test(raw)) return 'Claude Code';
+    if (/antigravity|\bagy\b|jetski|cortex|go-http-client/i.test(raw)) return 'Antigravity';
+    if (clientName) return clientName;
+    return userAgent ? known.get(userAgent) : undefined;
+}
+
 /** Logs every agent tool call, and why any failed, to the console. */
-function logToolCalls(server: McpServer): void {
+function logToolCalls(server: McpServer, caller: () => string | undefined): void {
     const register = server.registerTool.bind(server) as (name: string, config: unknown, cb: unknown) => unknown;
     const logged = (name: string, config: { inputSchema?: unknown }, cb: (...args: unknown[]) => unknown): unknown =>
         register(name, config, async (...args: unknown[]) => {
@@ -40,12 +53,14 @@ function logToolCalls(server: McpServer): void {
             // included, so that is never logged.
             const input = config.inputSchema ? JSON.stringify(args[0] ?? {}) : '{}';
             const detail = input === '{}' ? undefined : input.slice(0, MAX_ARGS_CHARS);
+            const who = caller();
+            const by = who ? ` (${who})` : '';
             try {
                 const result = await cb(...args);
-                log.info('agent', `Called ${name}`, {detail});
+                log.info('agent', `Called ${name}${by}`, {detail});
                 return result;
             } catch (e) {
-                log.warn('agent', `${name} failed: ${e instanceof Error ? e.message : String(e)}`, {detail});
+                log.warn('agent', `${name}${by} failed: ${e instanceof Error ? e.message : String(e)}`, {detail});
                 throw e;
             }
         });
@@ -65,6 +80,9 @@ export class AgentControl {
     private port = 0;
     private lastError?: string;
     private lastRequestAt?: string;
+    private lastRequestBy?: string;
+    /** Client names announced at `initialize`, keyed by HTTP User-Agent for the stateless calls that follow. */
+    private readonly clients = new Map<string, string>();
 
     constructor(
         private readonly host: AgentHost,
@@ -83,6 +101,7 @@ export class AgentControl {
             token: settings.token,
             lastError: this.lastError,
             lastRequestAt: this.lastRequestAt,
+            lastRequestBy: this.lastRequestBy,
         };
     }
 
@@ -173,7 +192,6 @@ export class AgentControl {
     }
 
     private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        this.lastRequestAt = new Date().toISOString();
         const {token} = getSettings().agentControl;
         const path = (req.url ?? '/').split('?')[0];
         // A refusal is the one outcome the agent sees and the person does not, so
@@ -199,11 +217,14 @@ export class AgentControl {
     }
 
     private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        const userAgent = req.headers['user-agent'];
         const server = new McpServer(
             {name: SERVER_NAME, version: app.getVersion()},
             {instructions: INSTRUCTIONS},
         );
-        logToolCalls(server);
+        const caller = (): string | undefined =>
+            callerOf(server.server.getClientVersion()?.name, userAgent, this.clients);
+        logToolCalls(server, caller);
         registerAgentTools(server, this.host);
 
         const transport = new StreamableHTTPServerTransport({
@@ -220,6 +241,10 @@ export class AgentControl {
         try {
             await server.connect(transport);
             await transport.handleRequest(req, res);
+            const who = caller();
+            if (userAgent && who) this.clients.set(userAgent, who);
+            this.lastRequestAt = new Date().toISOString();
+            if (who) this.lastRequestBy = who;
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             this.lastError = message;
