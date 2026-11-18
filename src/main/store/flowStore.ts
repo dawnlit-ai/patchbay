@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -30,8 +30,16 @@ function readFlowFile(path: string): Flow | null {
     const raw = readJson<Record<string, unknown> | null>(path, null);
     if (!raw || typeof raw.id !== 'string') return null;
     const flow = parseFlow(raw, raw.id, typeof raw.name === 'string' ? raw.name : 'Untitled flow');
-    // Kept as written: it is the version a canvas saves against.
-    return typeof raw.updatedAt === 'string' ? {...flow, updatedAt: raw.updatedAt} : flow;
+    // Kept as written: it is the version a canvas saves against. A file written by
+    // hand may have none; then it is when the file was last written, which reads
+    // the same each time, where parseFlow's stamp of now would make every canvas
+    // save look like one made over somebody else's.
+    if (typeof raw.updatedAt === 'string') return {...flow, updatedAt: raw.updatedAt};
+    try {
+        return {...flow, updatedAt: statSync(path).mtime.toISOString()};
+    } catch {
+        return flow;
+    }
 }
 
 /** Write a flow over its file, keeping whatever else the file holds: one written by hand may carry more than the graph. */

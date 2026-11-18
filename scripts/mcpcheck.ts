@@ -593,6 +593,24 @@ async function main(): Promise<void> {
         late !== null && 'current' in late && late.current === null && getFlow(lane) === null && !existsSync(laneFile),
     );
 
+    // A flow file written by hand, with no updatedAt: each read is the same
+    // version, so a canvas edit to it is saved rather than refused as overtaken.
+    const byHandFile = join(root, 'flows', 'by-hand.json');
+    writeFileSync(byHandFile, JSON.stringify({id: 'by-hand', name: 'By hand', nodes: [], edges: []}));
+    const firstRead = getFlow('by-hand');
+    await new Promise((r) => setTimeout(r, 20));
+    const secondRead = getFlow('by-hand');
+    check(
+        'a flow file with no updatedAt reads as the same version each time',
+        firstRead !== null && firstRead.updatedAt === secondRead?.updatedAt,
+    );
+    const byHandSave = firstRead ? saveFlowFrom('canvas', {...firstRead, name: 'Edited on the canvas'}) : null;
+    check(
+        'and a canvas edit to it is saved',
+        byHandSave !== null && 'saved' in byHandSave && getFlow('by-hand')?.name === 'Edited on the canvas',
+    );
+    rmSync(byHandFile);
+
     // A flow file from elsewhere is copied in, as a file of its own named after the flow.
     const elsewhere = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-elsewhere-'));
     const sent = join(elsewhere, 'sent.json');
