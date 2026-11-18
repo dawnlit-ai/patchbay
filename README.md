@@ -73,7 +73,7 @@ they are.
 
 A downloaded copy updates itself in the background; **Settings → Updates** says what it found and has **Restart to
 update**. Choose the channel there too: **Stable** for published releases, or **Nightly** for a build of each day's
-changes to master.
+changes to the `dev` branch.
 
 ## Requirements
 

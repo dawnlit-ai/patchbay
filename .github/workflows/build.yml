@@ -14,6 +14,11 @@ on:
         description: The drafted release the builds are added to.
         required: true
         type: string
+      ref:
+        description: The commit to build. Left empty, the one that started the run.
+        required: false
+        type: string
+        default: ''
     secrets:
       MACOS_SIGNING_CERTIFICATE:
         required: false
@@ -49,6 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           path: patchbay
       # The `file:../outlook-bridge` dependency wants the sibling checkout.
       - uses: actions/checkout@v7

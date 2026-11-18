@@ -1,7 +1,7 @@
-# A build of master as it stands, each day it has changed, published as a
+# A build of dev as it stands, each day it has changed, published as a
 # prerelease: copies on the Nightly channel update to it. Run it from the Actions
-# tab to get one now, changed or not. A commit a stable release was tagged on gets
-# no nightly, either way.
+# tab to get one now, changed or not. With no dev branch there is no nightly, and a
+# commit a stable release was tagged on gets none either way.
 name: Nightly
 
 on:
@@ -25,28 +25,46 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.dev.outputs.sha }}
       skip: ${{ steps.changes.outputs.skip }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # The tags, to see what has been released.
+          # Every branch, for dev, and the tags, to see what has been released.
           fetch-depth: 0
+
+      - name: Check out dev
+        id: dev
+        run: |
+          # Whichever branch started the run, the nightly is a build of dev.
+          if sha=$(git rev-parse -q --verify refs/remotes/origin/dev); then
+            git checkout -q --detach "$sha"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::There is no dev branch, so no nightly."
+          fi
 
       - name: Anything new since the last release or nightly?
         id: changes
+        env:
+          SHA: ${{ steps.dev.outputs.sha }}
         run: |
+          if [ -z "$SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A commit tagged for a stable release is that release already: a nightly of it would
           # only hand the Nightly channel the same build under a newer version.
-          release=$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+          release=$(git tag --points-at "$SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
           last=$(gh release list --limit 30 --exclude-drafts --json tagName,isPrerelease \
             --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\.")))][0].tagName // ""')
           if [ -n "$release" ]; then
-            echo "::notice::Master is $release, released already."
+            echo "::notice::Dev is $release, released already."
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_EVENT_NAME" = schedule ] && [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$GITHUB_SHA" ]; then
-            echo "Nothing on master since $last."
+          elif [ "$GITHUB_EVENT_NAME" = schedule ] && [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$SHA" ]; then
+            echo "Nothing on dev since $last."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -69,10 +87,12 @@ jobs:
 
       - name: Draft the release
         if: steps.changes.outputs.skip == 'false'
+        env:
+          SHA: ${{ steps.dev.outputs.sha }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" --draft --prerelease --target "$GITHUB_SHA" \
+          gh release create "${{ steps.version.outputs.tag }}" --draft --prerelease --target "$SHA" \
             --title "Nightly ${{ steps.version.outputs.version }}" \
-            --notes "Master at ${GITHUB_SHA::7}, built $(date -u '+%Y-%m-%d %H:%M UTC'). Untried: copies on the Nightly channel update to each one."
+            --notes "Dev at ${SHA::7}, built $(date -u '+%Y-%m-%d %H:%M UTC'). Untried: copies on the Nightly channel update to each one."
 
   build:
     needs: prepare
@@ -81,6 +101,8 @@ jobs:
     with:
       version: ${{ needs.prepare.outputs.version }}
       tag: ${{ needs.prepare.outputs.tag }}
+      # The commit the release was drafted at, even if dev has moved on since.
+      ref: ${{ needs.prepare.outputs.sha }}
     secrets: inherit
 
   publish:
