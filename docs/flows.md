@@ -29,9 +29,9 @@ of concurrent activity.
   *Error*. Give it an output slot and one of the workspace's schemas and its result fills that slot on *Done*, so a
   long job can be split into steps that each hand their work to the next — and a run that stops shows which step it
   stopped at.
-- **Create email** — drafts a [reply](#create-email) to the email from a template email in the mailbox. It runs no
-  model, and drafts nothing an earlier run of the flow already drafted. It leaves by *Drafted*, by *Already drafted*,
-  or by *Error*.
+- **Create email** — drafts a [reply](#create-email) to the email, or a new email, from a template email in the
+  mailbox, its placeholders filled from what earlier steps found. It runs no model, and drafts nothing an earlier run
+  already drafted. It leaves by *Drafted*, by *Already drafted*, or by *Error*.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -74,14 +74,26 @@ is pointed out, since no email can leave by it.
 
 ## Create email
 
-Many flows end the same way: thank the sender, or confirm receipt, in wording the office has already written. A
-**Create email** drafts that reply without a model, so it costs nothing to run and gives the same answer every time.
+Many flows end the same way: thank the sender, confirm receipt, or tell someone else what came in, in wording the
+office has already written. A **Create email** drafts that email without a model, so it costs nothing to run and gives
+the same answer every time.
+
+It drafts **a reply to this email**, or **a new email**. A new one goes *To* the addresses it names, separated by `;`
+or `,`, copied to any under *Cc*, with its own *Subject*; any of the three can name a field an earlier node filled, in
+braces, which the run writes in — `{{shipment.agent_email}}`, `Pre-alert received: B/L {{shipment.bl_no}}`. *Reply
+to everyone* widens a reply from the sender to everyone on the email.
 
 Its **template** is the subject of an email saved in the mailbox's `Templates` folder. One template can hold several
-replies around a shared greeting and signature, each between `[[SECTION]]` and `[[/SECTION]]` markers, such as
+emails around a shared greeting and signature, each between `[[SECTION]]` and `[[/SECTION]]` markers, such as
 `[[QUOTE]]…[[/QUOTE]]` and `[[NOQUOTE]]…[[/NOQUOTE]]`; its **section** is the one it drafts, and a template without
-them is replied with whole. A *Signature* names an Outlook signature, which goes in the template's `{{SIGNATURE}}`, or
-below its text when it has none. *Reply to everyone* widens the reply from the sender to everyone on the email.
+them is drafted whole. A new email keeps the template's whole document, its styles included; a reply takes its body,
+above the quoted original. Its **placeholders** fill the template's `{{NAME}}`s, each from a field an earlier node
+filled — `{{TOTAL}}` from `quote.total` — written in as text. A *Signature* names an Outlook signature, which goes in
+the template's `{{SIGNATURE}}`, or below its text when it has none.
+
+Each field it names is checked against the schema of the slot it reads, as a Switch's rules are, so the canvas flags
+one that schema lacks, a group or a list where one value is written in, and a slot not every path fills. A field that
+holds nothing when a run reaches it leaves by *Error*, drafting nothing.
 
 Whether an email gets a reply, and which, is the path's to decide: a [Switch](#switches) before one Create email per
 reply. The rate-replies flow's Switch above sends *Quote* to a Create email drafting `QUOTE`, *No quote* to one
@@ -93,11 +105,12 @@ have — leaves by *Error*, drafting nothing, and every email fails the same way
 It fills its **output slot** with what happened — `drafted`, the `section`, who it went `to`, the draft's Outlook id
 and `why` — so the steps after it can say so.
 
-**It only drafts, and never twice.** The reply waits in the mailbox's Drafts folder for a person to send. Patchbay
+**It only drafts, and never twice.** The email waits in the mailbox's Drafts folder for a person to send. Patchbay
 records each draft, by the id Outlook gave it, in the app's data rather than the workspace. An email gets one reply
 from a flow: a second run over it — a re-run, or one after a later step failed — finds the reply already drafted, by
 whichever of the flow's Create email nodes, and leaves by *Already drafted* without drafting another, even when this
-time its route led to a different one.
+time its route led to a different one. A new email is the node's own: each Create email drafts one about an email, so
+a flow can tell the office and the trucker each, once.
 
 A Reply node, as the 1.1.1 nightly had, is read as a Create email. One that replied the same way to every email that
 reached it becomes one exactly. One whose rules could hold the reply back comes in with no template, so that it drafts

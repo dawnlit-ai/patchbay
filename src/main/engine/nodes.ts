@@ -2,11 +2,13 @@ import { z } from 'zod';
 import {
     type CategorizerConfig,
     type CreateEmailConfig,
-    createEmailIssue,
+    createEmailProblems,
     decideSwitch,
     DRAFTED_PORT,
     type DraftOutcome,
     type ExtractorConfig,
+    fieldText,
+    fillFields,
     type FlowNode,
     type JsonSchema,
     type ModelChoice,
@@ -29,7 +31,7 @@ import type { ChoiceQuestion } from '../agents/decision';
 import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { requireServer, usableServers } from '../store/mcpStore';
-import { findReply, recordReply, repliedEmail } from '../store/replyStore';
+import { findNewEmail, findReply, recordReply, repliedEmail, type ReplyRecord } from '../store/replyStore';
 import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
@@ -623,10 +625,51 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Promise<NodeOutcome> {
-    const issue = createEmailIssue(ctx.node, config);
-    if (issue) return {outPort: 'error', summary: issue, error: issue};
+/** Text made safe to stand in a template's HTML, its line breaks kept. */
+const asHtml = (text: string): string =>
+    text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/\r?\n/g, '<br>');
 
+/** What a Create email drafts, once its fields are filled from the run. */
+interface Drafting {
+    placeholders: Record<string, string>;
+    /** A new email's; empty for a reply. */
+    to: string;
+    cc: string;
+    subject: string;
+}
+
+/** The node's placeholders, and a new email's To, Cc and Subject, filled from the run. Throws, naming the field, when one holds no value. */
+function filled(config: CreateEmailConfig, data: Readonly<Record<string, unknown>>): Drafting {
+    const placeholders: Record<string, string> = {};
+    for (const {name, field} of config.placeholders) {
+        const value = fieldText(data, field);
+        if (value === null) throw new Error(`{{${name}}} is filled from ${field}, which holds no value to write in`);
+        placeholders[name] = asHtml(value);
+    }
+    if (config.mode === 'reply') return {placeholders, to: '', cc: '', subject: ''};
+    const written = (text: string, label: string): string => {
+        try {
+            return fillFields(text, data).trim();
+        } catch (e) {
+            throw new Error(`${label}: ${errorText(e)}`);
+        }
+    };
+    const to = written(config.to, 'To');
+    if (!/[^\s;,]/.test(to)) throw new Error(`To came to no one once ${config.to.trim()} was filled in`);
+    return {placeholders, to, cc: written(config.cc, 'Cc'), subject: written(config.subject, 'Subject')};
+}
+
+async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Promise<NodeOutcome> {
+    const [problem] = createEmailProblems(ctx.node, config);
+    if (problem) return {outPort: 'error', summary: problem, error: problem};
+
+    const fresh = config.mode === 'new';
+    const what = fresh ? 'new email' : 'reply';
     const template = config.template.trim();
     const section = config.section.trim();
     const from = `template ${template}${section ? ` [${section}]` : ''}`;
@@ -634,42 +677,73 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
         [config.output]: {drafted: false, section: '', to: '', draftEntryId: '', ...outcome} satisfies DraftOutcome,
     });
 
-    // A second run over this email — a re-run, or one down another path after
-    // the first took a different route — finds the reply the first one drafted,
-    // whichever of the flow's nodes drafted it, and makes none of its own.
+    // A second run over this email finds what the first one drafted, and drafts
+    // none of its own. A reply is the flow's — one per email, whichever of its
+    // nodes a later run's route reaches; a new email is this node's.
     const email = repliedEmail(ctx.email);
-    const earlier = findReply(ctx.flowId, email);
+    const earlier: ReplyRecord | undefined = fresh
+        ? findNewEmail(ctx.flowId, ctx.node.id, email)
+        : findReply(ctx.flowId, email);
     if (earlier) {
         const by = earlier.nodeId === ctx.node.id ? '' : ` by another node of this flow (${earlier.nodeId})`;
-        const why = `a reply to this email was already drafted${by}, ${earlier.at} (run ${earlier.runId}), to ${earlier.to}`;
-        return {outPort: SKIPPED_PORT, summary: `No second reply — ${why}`, provided: handOn({why})};
+        const why = `a ${what} about this email was already drafted${by}, ${earlier.at} (run ${earlier.runId}), to ${earlier.to}`;
+        return {outPort: SKIPPED_PORT, summary: `No second ${what} — ${why}`, provided: handOn({why})};
+    }
+
+    let drafting: Drafting;
+    try {
+        drafting = filled(config, ctx.data);
+    } catch (e) {
+        const message = `${ctx.node.name} drafted nothing: ${errorText(e)}.`;
+        return {outPort: 'error', summary: message, error: message};
     }
 
     const signature = config.signature.trim();
-    let result;
+    const content = {
+        templateSubject: template,
+        ...(section ? {templateSection: section} : {}),
+        ...(Object.keys(drafting.placeholders).length > 0 ? {templatePlaceholders: drafting.placeholders} : {}),
+        ...(signature ? {signatureName: signature} : {}),
+    };
+    let result: { to: string; subject: string; draftEntryId: string; detail: string };
     try {
-        result = await outlook.draftReply(ctx.email.ref, {
-            templateSubject: template,
-            ...(section ? {templateSection: section} : {}),
-            ...(signature ? {signatureName: signature} : {}),
-            replyAll: config.replyAll,
-        });
+        if (fresh) {
+            const {draftEntryId} = await outlook.draftEmail(ctx.email.ref.account, {
+                ...content,
+                to: drafting.to,
+                ...(drafting.cc ? {cc: drafting.cc} : {}),
+                subject: drafting.subject,
+            });
+            result = {
+                to: drafting.to,
+                subject: drafting.subject,
+                draftEntryId,
+                detail: `Cc: ${drafting.cc || '(none)'}`
+            };
+        } else {
+            const reply = await outlook.draftReply(ctx.email.ref, {...content, replyAll: config.replyAll});
+            result = {
+                ...reply,
+                detail: [`Original sender: ${reply.repliedToSender}`, `Reply all: ${config.replyAll ? 'yes' : 'no'}`].join('\n'),
+            };
+        }
     } catch (e) {
         // A missing template, section, placeholder or signature fails every
         // email the same way until it is fixed in Outlook; the bridge says which.
         const message = errorText(e);
-        return {outPort: 'error', summary: `Could not draft the reply: ${message}`, error: message};
+        return {outPort: 'error', summary: `Could not draft the ${what}: ${message}`, error: message};
     }
 
+    const filledIn = Object.entries(drafting.placeholders).map(([name, value]) => `{{${name}}}: ${value}`);
     ctx.onEvent({
         at: now(),
         type: 'outlook',
-        label: `draft_reply → ${result.to} from ${from}`,
+        label: `${fresh ? 'draft_email' : 'draft_reply'} → ${result.to} from ${from}`,
         detail: [
             `Subject: ${result.subject}`,
-            `Original sender: ${result.repliedToSender}`,
+            result.detail,
             `Signature: ${signature || '(none)'}`,
-            `Reply all: ${config.replyAll ? 'yes' : 'no'}`,
+            ...filledIn,
             `Draft id: ${result.draftEntryId || '(Outlook did not say)'}`,
         ].join('\n'),
     });
@@ -677,6 +751,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     try {
         recordReply({
             at: now(),
+            mode: config.mode,
             runId: ctx.runId,
             flowId: ctx.flowId,
             nodeId: ctx.node.id,
@@ -700,10 +775,11 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     }
 
     const signed = signature ? ` · signed ${signature}` : '';
-    const everyone = config.replyAll ? ' · reply all' : '';
+    const everyone = !fresh && config.replyAll ? ' · reply all' : '';
+    const kind = fresh ? ' · new email' : '';
     return {
         outPort: DRAFTED_PORT,
-        summary: `${section || template} drafted to ${result.to}${signed}${everyone}`,
+        summary: `${section || template} drafted to ${result.to}${kind}${signed}${everyone}`,
         provided: handOn({
             drafted: true,
             section,

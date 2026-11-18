@@ -1325,6 +1325,110 @@ async function main(): Promise<void> {
             'the create email was not saved');
     }
 
+    // A new email: its own To, Cc and Subject, and the template's placeholders
+    // filled from fields, all checked against the slots that reach it.
+    const {fieldRefs, fillFields} = await import('../src/shared/flow');
+    const {findNewEmail} = await import('../src/main/store/replyStore');
+    const notifier = (await addNode('create-email')).id;
+    await wire(judge, 'route:b', notifier);
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: notifier,
+        config: {
+            mode: 'new',
+            template: 'Notice',
+            to: '',
+            cc: '{{verdict}}; {{order.id}}',
+            subject: '',
+            placeholders: [
+                {name: 'REPLY', field: 'verdict.reply'},
+                {name: 'bad name!', field: 'verdict.seen'},
+                {name: 'SIGNATURE', field: 'verdict.seen'},
+                {name: 'reply', field: 'verdict.answering'},
+                {name: 'NOPE', field: 'verdict.nope'},
+                {name: 'EMPTY', field: ''},
+            ],
+        },
+    });
+    const noticed = await issuesOf(notifier);
+    check('a new email to no one is flagged', flaggedWith(noticed, 'error', 'writes a new email to no one'));
+    check('and one with no subject', flaggedWith(noticed, 'error', 'writes a new email with no subject'));
+    check('braces that name no field are flagged',
+        flaggedWith(noticed, 'error', 'Cc has {{verdict}}, which names no field'));
+    check('a field in Cc from a slot no path fills is flagged as any read is',
+        flaggedWith(noticed, 'error', 'reads "order", but not every path here fills it'));
+    check('a placeholder name no template can hold is flagged',
+        flaggedWith(noticed, 'error', 'placeholder 2, “bad name!”, is no name a template can hold'));
+    check('filling {{SIGNATURE}} is left to the signature',
+        flaggedWith(noticed, 'error', 'fills {{SIGNATURE}}, which is the signature’s'));
+    check('a placeholder filled twice is flagged, whatever its case',
+        flaggedWith(noticed, 'error', 'fills {{reply}} a second time'));
+    check('a group written in as one value is flagged',
+        flaggedWith(noticed, 'error', 'writes in verdict.answering, which is a group of fields'));
+    check('a field the slot’s schema lacks is flagged',
+        flaggedWith(noticed, 'error', 'writes in verdict.nope, but Verdict has no field nope'));
+    check('a placeholder filled from nothing is flagged', flaggedWith(noticed, 'error', 'fills {{EMPTY}} from nothing'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: notifier,
+        config: {
+            to: 'ops@example.com; {{verdict.reply}}',
+            cc: '',
+            subject: 'Verdict: {{ verdict.reply }}',
+            placeholders: [
+                {name: 'REPLY', field: 'verdict.reply'},
+                {name: 'KIND', field: 'verdict.answering.kind'},
+            ],
+        },
+    });
+    check('a new email whose fields all fit is not flagged', (await issuesOf(notifier)).length === 0);
+    const filledIn = fillFields('Verdict: {{ verdict.reply }}, {{verdict.seen}}', verdict('quote', false));
+    check('fields in braces are written in as text', filledIn === 'Verdict: quote, false');
+    check('and found as written', fieldRefs('a {{ x.y }} b {{z}}').join(',') === 'x.y,z');
+
+    const notifierNode = saved(notifier);
+    if (notifierNode?.config.kind === 'create-email') {
+        const missing = await runNode(notifierNode, {verdict: {reply: 'quote', seen: false}});
+        check(
+            'a placeholder whose field holds nothing leaves by error, drafting nothing',
+            missing.outPort === 'error' &&
+            missing.error?.includes('{{KIND}} is filled from verdict.answering.kind, which holds no value') === true,
+        );
+        const nobody = await runNode(
+            {...notifierNode, config: {...notifierNode.config, to: '{{verdict.reply}}'}},
+            verdict('', false),
+        );
+        check('a To that comes to no one once filled in leaves by error, drafting nothing',
+            nobody.outPort === 'error' && nobody.error?.includes('To came to no one') === true);
+
+        recordReply({
+            at: '2026-11-14T15:32:00.000Z',
+            mode: 'new',
+            runId: 'notice-run',
+            flowId: thanks,
+            nodeId: notifier,
+            account: answered.ref.account,
+            draftEntryId: 'N1',
+            to: 'ops@example.com; quote',
+            subject: 'Verdict: quote',
+            template: 'Notice',
+            section: '',
+            email: sameEmail,
+        });
+        check('a new email is found again by the node that drafted it',
+            findNewEmail(thanks, notifier, sameEmail)?.draftEntryId === 'N1');
+        check('and by no other node, nor taken for one by a node that drafted a reply',
+            findNewEmail(thanks, quoter, sameEmail) === undefined && findNewEmail(thanks, noQuoter, sameEmail) === undefined);
+        check('nor is it the flow’s reply to the email', findReply(thanks, sameEmail)?.draftEntryId === 'D1');
+        const again = await runNode(notifierNode, verdict('quote', false, 'request'));
+        check('the node drafts no second new email about the email',
+            again.outPort === 'skipped' && (again.provided?.draft as DraftOutcome | undefined)?.why.includes(
+                'a new email about this email was already drafted') === true);
+    } else {
+        check('a placeholder whose field holds nothing leaves by error, drafting nothing', false,
+            'the create email was not saved');
+    }
+
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,
     // and a list left empty stays empty.
     const handWritten = parseFlow(
@@ -1398,7 +1502,8 @@ async function main(): Promise<void> {
     const always = legacy('always');
     check(
         'a nightly Reply that always replied becomes a create email exactly',
-        always?.template === 'PreAlertReply' && always.section === '' && always.replyAll && always.output === 'ack',
+        always?.template === 'PreAlertReply' && always.section === '' && always.replyAll && always.output === 'ack' &&
+        always.mode === 'reply' && always.placeholders.length === 0,
     );
     check('and its edges leave by the ports that replaced theirs',
         nightly.edges.map((e) => e.sourceHandle).sort().join(',') === 'drafted,skipped');

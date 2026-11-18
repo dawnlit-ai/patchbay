@@ -115,28 +115,34 @@ rather than a fan-out. The seven node kinds:
                     step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
                     list_server_tools gives a server's.
-- create-email    — drafts a reply to the email from a template email in
-                    the mailbox's Templates folder, \`template\` being its
-                    subject and \`section\` the [[SECTION]] it drafts (""
-                    for a template with none), and runs no model.
-                    \`signature\` names an Outlook signature, \`replyAll\`
-                    widens it. Whether an email gets a reply, and which, is
-                    the path's to decide: put a switch before one
-                    create-email per reply. Ports: "drafted", "skipped" (an
-                    earlier run of this flow already drafted a reply to this
-                    email, from whichever of its create-email nodes) and
-                    "error"; the first two fill \`output\` with {drafted,
-                    section, to, draftEntryId, why}. It only drafts.
+- create-email    — drafts an email from a template email in the mailbox's
+                    Templates folder, \`template\` being its subject and
+                    \`section\` the [[SECTION]] it drafts ("" for a
+                    template with none), and runs no model. \`mode\` is
+                    "reply" (to the email; \`replyAll\` widens it) or "new"
+                    (to \`to\`, copied to \`cc\`, with \`subject\`: each may
+                    name fields in braces, "{{shipment.agent_email}}", that
+                    the run writes in). \`placeholders\` ([{name, field}])
+                    fill the template's {{NAME}}s from fields earlier nodes
+                    filled; \`signature\` names an Outlook signature.
+                    Whether an email gets one, and which, is the path's to
+                    decide: put a switch before one create-email per email.
+                    Ports: "drafted", "skipped" (already drafted by an
+                    earlier run: a reply by any of the flow's create-email
+                    nodes, a new email by this one) and "error"; the first
+                    two fill \`output\` with {drafted, section, to,
+                    draftEntryId, why}. It only drafts.
 - terminal        — ends the path and records how the email came out, as
                     its \`disposition\`. It does nothing to the email: a
                     step that files it or saves its attachments does so
                     with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
-extractor), or by naming it in a rule's \`field\` (a switch);
+extractor), or by naming one of its fields: in a rule's \`field\` (a switch), or
+in a placeholder or in braces in To, Cc or Subject (a create-email);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
-slotIssues flag a rule whose field the slot's schema lacks or whose value it
-never holds, and a switch's rule that leads to no route it has.
+slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
+and a switch's rule that leads to no route it has.
 
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as

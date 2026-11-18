@@ -7,6 +7,7 @@ import {
     type Disposition,
     DISPOSITIONS,
     EMAIL_SLOT,
+    type EmailMode,
     type ExtractorConfig,
     type FlowIssue,
     type FlowNode,
@@ -21,6 +22,7 @@ import {
     type NodeKind,
     offeredTo,
     outputPorts,
+    type Placeholder,
     type ProcessorConfig,
     provides,
     refName,
@@ -1565,9 +1567,108 @@ function SwitchFields({
     );
 }
 
-function CreateEmailFields({config, patch}: Section<CreateEmailConfig>): JSX.Element {
+/** A template's placeholders, each filled from a field: its name in the template, and the field it takes. */
+function PlaceholderTable({nodeId, placeholders, onChange, available, schemas}: {
+    nodeId: string;
+    placeholders: Placeholder[];
+    onChange(placeholders: Placeholder[]): void;
+    available: Available | undefined;
+    schemas: Schemas;
+}): JSX.Element {
+    const fields = available ? ruleFields(schemas, available) : [];
+    const fieldList = `placeholder-fields-${nodeId}`;
+    const replace = (index: number, change: Partial<Placeholder>): void =>
+        onChange(placeholders.map((p, j) => (j === index ? {...p, ...change} : p)));
     return (
         <>
+            <datalist id={fieldList}>
+                {fields.map((f) => (
+                    <option key={f.field} value={f.field}/>
+                ))}
+            </datalist>
+            {placeholders.map((placeholder, i) => (
+                <div key={i} className="row">
+                    <input
+                        value={placeholder.name}
+                        placeholder="NAME"
+                        aria-label={`Placeholder ${i + 1}: name`}
+                        spellCheck={false}
+                        onChange={(e) => replace(i, {name: e.target.value})}
+                    />
+                    <span className="rule-word fixed">←</span>
+                    <input
+                        value={placeholder.field}
+                        list={fieldList}
+                        placeholder="slot.field"
+                        aria-label={`Placeholder ${i + 1}: field`}
+                        spellCheck={false}
+                        onChange={(e) => replace(i, {field: e.target.value})}
+                    />
+                    <span className="field-tools fixed">
+                        <button
+                            className="ghost icon remove"
+                            title={`Remove placeholder ${i + 1}`}
+                            onClick={() => onChange(placeholders.filter((_, j) => j !== i))}
+                        >
+                            ✕
+                        </button>
+                    </span>
+                </div>
+            ))}
+            <button onClick={() => onChange([...placeholders, {name: '', field: ''}])}>+ Add placeholder</button>
+        </>
+    );
+}
+
+function CreateEmailFields({
+                               nodeId,
+                               config,
+                               patch,
+                               available,
+                               shelf,
+                           }: Section<CreateEmailConfig> & SchemaProps & {
+    nodeId: string;
+    available: Available | undefined;
+}): JSX.Element {
+    const fresh = config.mode === 'new';
+    const fieldsHint = 'A field an earlier node filled, in braces, is written in by the run: {{shipment.agent_email}}.';
+    return (
+        <>
+            <Field label="Drafts">
+                <select value={config.mode} onChange={(e) => patch({mode: e.target.value as EmailMode})}>
+                    <option value="reply">A reply to this email</option>
+                    <option value="new">A new email</option>
+                </select>
+            </Field>
+
+            {fresh && (
+                <>
+                    <Field label="To" hint={`Addresses separated by ; or ,. ${fieldsHint}`}>
+                        <input
+                            value={config.to}
+                            placeholder="ops@example.com; {{shipment.agent_email}}"
+                            spellCheck={false}
+                            onChange={(e) => patch({to: e.target.value})}
+                        />
+                    </Field>
+                    <Field label="Cc">
+                        <input
+                            value={config.cc}
+                            placeholder="(none)"
+                            spellCheck={false}
+                            onChange={(e) => patch({cc: e.target.value})}
+                        />
+                    </Field>
+                    <Field label="Subject" hint={fieldsHint}>
+                        <input
+                            value={config.subject}
+                            placeholder="Pre-alert received: B/L {{shipment.bl_no}}"
+                            onChange={(e) => patch({subject: e.target.value})}
+                        />
+                    </Field>
+                </>
+            )}
+
             <Field
                 label="Template"
                 hint="The subject of a template email in this mailbox’s Templates folder."
@@ -1581,7 +1682,7 @@ function CreateEmailFields({config, patch}: Section<CreateEmailConfig>): JSX.Ele
             </Field>
             <Field
                 label="Section"
-                hint="One template can hold several replies, each between [[SECTION]] and [[/SECTION]]: the one this node drafts. Blank for a template with none."
+                hint="One template can hold several emails, each between [[SECTION]] and [[/SECTION]]: the one this node drafts. Blank for a template with none."
             >
                 <input
                     value={config.section}
@@ -1590,6 +1691,24 @@ function CreateEmailFields({config, patch}: Section<CreateEmailConfig>): JSX.Ele
                     onChange={(e) => patch({section: e.target.value})}
                 />
             </Field>
+
+            <Legend
+                label="Placeholders"
+                hint={
+                    available
+                        ? 'Each {{NAME}} in the template, filled from a field an earlier node filled, such as quote.total.'
+                        : 'Connect this node to a trigger to see which fields reach it.'
+                }
+            />
+            <PlaceholderTable
+                nodeId={nodeId}
+                placeholders={config.placeholders}
+                onChange={(placeholders) => patch({placeholders})}
+                available={available}
+                schemas={shelf.schemas}
+            />
+
+            <div className="gap"/>
             <Field
                 label="Signature"
                 hint="An Outlook signature by its name, put in the template’s {{SIGNATURE}}, or below its text. Blank for none."
@@ -1600,14 +1719,16 @@ function CreateEmailFields({config, patch}: Section<CreateEmailConfig>): JSX.Ele
                     onChange={(e) => patch({signature: e.target.value})}
                 />
             </Field>
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.replyAll}
-                    onChange={(e) => patch({replyAll: e.target.checked})}
-                />
-                Reply to everyone on the email, not only its sender
-            </label>
+            {!fresh && (
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={config.replyAll}
+                        onChange={(e) => patch({replyAll: e.target.checked})}
+                    />
+                    Reply to everyone on the email, not only its sender
+                </label>
+            )}
 
             <SlotField
                 value={config.output}
@@ -1616,11 +1737,9 @@ function CreateEmailFields({config, patch}: Section<CreateEmailConfig>): JSX.Ele
             />
 
             <div className="hint">
-                It only drafts: the reply waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of
-                each
-                draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches:
-                that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a
-                Switch.
+                {fresh
+                    ? 'It only drafts: the email waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of each draft, so this node drafts one new email per email that reaches it: a later run leaves by Already drafted.'
+                    : 'It only drafts: the reply waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of each draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches: that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a Switch.'}
             </div>
             <div className="gap"/>
         </>
@@ -1785,7 +1904,10 @@ export function Inspector({
                 <ProcessorFields key={node.id} config={config} patch={patch} library={library}
                                  available={available} shelf={shelf}/>
             )}
-            {config.kind === 'create-email' && <CreateEmailFields key={node.id} config={config} patch={patch}/>}
+            {config.kind === 'create-email' && (
+                <CreateEmailFields key={node.id} nodeId={node.id} config={config} patch={patch}
+                                   available={available} shelf={shelf}/>
+            )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 
             <DataSection node={node} available={available} tokens={tokens}/>

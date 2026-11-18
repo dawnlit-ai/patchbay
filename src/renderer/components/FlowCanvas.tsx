@@ -197,10 +197,11 @@ function describe(node: FlowNode): string {
             return c.skills.length > 0
                 ? `skills: ${c.skills.join(', ')}`
                 : 'No skill assigned — instruction only';
-        case 'create-email':
-            return c.template.trim()
-                ? `${c.template.trim()}${c.section.trim() ? ` [${c.section.trim()}]` : ''} · drafts only`
-                : 'No template yet';
+        case 'create-email': {
+            if (!c.template.trim()) return 'No template yet';
+            const from = `${c.template.trim()}${c.section.trim() ? ` [${c.section.trim()}]` : ''}`;
+            return c.mode === 'new' ? `New email to ${c.to.trim() || 'no one yet'} · ${from} · drafts only` : `${from} · drafts only`;
+        }
         case 'terminal':
             return c.disposition;
     }

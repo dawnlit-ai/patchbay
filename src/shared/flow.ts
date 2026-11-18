@@ -199,20 +199,43 @@ export interface ProcessorConfig {
     mcpTools: string[];
 }
 
+/** What a Create email drafts: a reply to the email, or a new email of its own. */
+export type EmailMode = 'reply' | 'new';
+export const EMAIL_MODES: EmailMode[] = ['reply', 'new'];
+
+/** One of a template's `{{NAME}}` placeholders, and the field an earlier node filled that fills it. */
+export interface Placeholder {
+    /** As the template writes it, without its braces: `TOTAL`. */
+    name: string;
+    /** A slot and the path into it, as a Switch's rule names one: `quote.total`. */
+    field: string;
+}
+
 /**
- * Drafts a reply to the email from a template email, with no model, and never a
- * second one: whether an email gets a reply, and which, is decided before it,
- * by the path that reaches it.
+ * Drafts an email from a template email, with no model: a reply to the email,
+ * or a new one. Whether an email gets one, and which, is decided before it, by
+ * the path that reaches it; and it never drafts the same one twice.
  */
 export interface CreateEmailConfig {
+    mode: EmailMode;
     /** The subject of a template email in the mailbox's Templates folder. */
     template: string;
-    /** The template's [[SECTION]] to reply with. Empty for a template with none. */
+    /** The template's [[SECTION]] to draft. Empty for a template with none. */
     section: string;
     /** An Outlook signature by name, put in the template's {{SIGNATURE}} or below its text. Empty for none. */
     signature: string;
-    /** Answer everyone on the email rather than only its sender. */
+    /** The template's placeholders, each filled from a field an earlier node filled. */
+    placeholders: Placeholder[];
+    /** A reply's: answer everyone on the email rather than only its sender. */
     replyAll: boolean;
+    /**
+     * A new email's recipients and subject. Addresses are separated by `;` or
+     * `,`, and any of the three can name a field in braces, `{{shipment.agent_email}}`,
+     * which the run fills in.
+     */
+    to: string;
+    cc: string;
+    subject: string;
     /** The slot later nodes read what happened by: filled whether it drafted or found a draft already made. */
     output: string;
 }
@@ -586,10 +609,10 @@ export function requires(node: FlowNode): string[] {
         case 'processor':
             return [...(node.config.readEmail ? [EMAIL_SLOT.name] : []), ...node.config.inputs];
         case 'create-email':
-            return [EMAIL_SLOT.name];
+            return [EMAIL_SLOT.name, ...fieldSlots(createEmailFields(node.config))];
         case 'switch':
             // Its rules are all it reads: the email goes on past it untouched.
-            return ruleSlots(node.config.rules);
+            return fieldSlots(node.config.rules.map((rule) => rule.field));
         case 'categorizer':
             return [EMAIL_SLOT.name];
         case 'terminal':
@@ -676,9 +699,9 @@ function splitField(field: string): { slot: string; steps: string[] } {
     return {slot, steps};
 }
 
-/** The slots a table of rules reads, each once. */
-function ruleSlots(rules: RuleTest[]): string[] {
-    const slots = rules.map((rule) => splitField(rule.field).slot).filter(Boolean);
+/** The slots these fields read, each once. */
+function fieldSlots(fields: string[]): string[] {
+    const slots = fields.map((field) => splitField(field).slot).filter(Boolean);
     return [...new Set(slots)];
 }
 
@@ -699,6 +722,32 @@ function valueAt(data: Readonly<Record<string, unknown>>, field: string): unknow
         else return undefined;
     }
     return at;
+}
+
+/** What `data` holds at `field`, as text: null where it holds no one value — nothing, a group, a list. */
+export const fieldText = (data: Readonly<Record<string, unknown>>, field: string): string | null =>
+    ruleText(valueAt(data, field));
+
+/** A field written into a new email's To, Cc or Subject, in braces: `{{quote.total}}`. */
+const FIELD_REF = /\{\{([^{}]*)\}\}/g;
+
+/** The fields `text` names in braces, as written. */
+export const fieldRefs = (text: string): string[] => [...text.matchAll(FIELD_REF)].map((m) => (m[1] ?? '').trim());
+
+/** Whether a field in braces names a slot and a field in it, as `quote.total` does. */
+const namesField = (field: string): boolean => {
+    const {slot, steps} = splitField(field);
+    return SLOT_NAME.test(slot) && steps.length > 0 && steps.every(Boolean);
+};
+
+/** `text` with each field in braces filled from `data`. Throws, naming the first, when one holds no value. */
+export function fillFields(text: string, data: Readonly<Record<string, unknown>>): string {
+    return text.replace(FIELD_REF, (_, raw: string) => {
+        const field = raw.trim();
+        const value = fieldText(data, field);
+        if (value === null) throw new Error(`${field} holds no value to write in`);
+        return value;
+    });
 }
 
 /** How a table of rules read the run's data: the first rule that matched and why, if one did, and one line per rule read. */
@@ -781,7 +830,7 @@ function ruleField(
     const type = held.get(slot);
     // A slot not filled on every path is flagged as a read, once, by checkSlots.
     if (!type) return {schema: ANYTHING};
-    if (type.kind === 'email') return {problem: `the email is not data a rule can compare: read a slot an earlier node filled`};
+    if (type.kind === 'email') return {problem: `the email itself has no fields to read: name a slot an earlier node filled`};
     if (steps.length === 0) return {problem: `${slot} is a whole ${slotTypeLabel(type)}: name a field in it, as ${slot}.<field>`};
     let resolved: JsonSchema;
     try {
@@ -824,11 +873,72 @@ function ruleIssues(node: FlowNode, rules: RuleTest[], schemas: Schemas, held: A
     return issues;
 }
 
-/** Why a Create email cannot draft, said as a sentence, or null when it can. */
-export function createEmailIssue(node: FlowNode, config: CreateEmailConfig): string | null {
-    return config.template.trim()
-        ? null
-        : `${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`;
+/** A name a template's placeholder can have: what the bridge reads between `{{` and `}}`. */
+const PLACEHOLDER_NAME = /^[A-Za-z0-9_-]{1,40}$/;
+
+/** A new email's fields with text a person writes, and what each is called in a sentence. */
+const WRITTEN = [
+    ['to', 'To'],
+    ['cc', 'Cc'],
+    ['subject', 'Subject'],
+] as const;
+
+/** Every field a Create email reads: its placeholders', and the ones a new email's To, Cc and Subject name. */
+function createEmailFields(config: CreateEmailConfig): string[] {
+    const written = config.mode === 'new' ? WRITTEN.flatMap(([key]) => fieldRefs(config[key])).filter(namesField) : [];
+    return [...config.placeholders.map((p) => p.field.trim()), ...written].filter(Boolean);
+}
+
+/**
+ * Why a Create email cannot draft whatever reaches it, said as sentences: what
+ * the canvas flags and a run stops on, before Outlook is asked for anything.
+ */
+export function createEmailProblems(node: FlowNode, config: CreateEmailConfig): string[] {
+    const problems: string[] = [];
+    if (!config.template.trim()) {
+        problems.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
+    }
+    if (config.mode === 'new') {
+        if (!config.to.trim()) problems.push(`${node.name} writes a new email to no one: give it a To.`);
+        if (!config.subject.trim()) problems.push(`${node.name} writes a new email with no subject: give it one.`);
+        for (const [key, label] of WRITTEN) {
+            for (const field of fieldRefs(config[key])) {
+                if (namesField(field)) continue;
+                problems.push(
+                    `${node.name}’s ${label} has {{${field}}}, which names no field: write a slot and a field in it, as {{quote.total}}.`,
+                );
+            }
+        }
+    }
+    const seen = new Set<string>();
+    for (const [i, {name, field}] of config.placeholders.entries()) {
+        const at = `${node.name}’s placeholder ${i + 1}`;
+        if (!PLACEHOLDER_NAME.test(name)) {
+            problems.push(`${at}, “${name}”, is no name a template can hold: letters, digits, _ and - only, as TOTAL.`);
+        } else if (name.toUpperCase() === 'SIGNATURE') {
+            problems.push(`${at} fills {{SIGNATURE}}, which is the signature’s: name one under Signature instead.`);
+        } else if (seen.has(name.toUpperCase())) {
+            problems.push(`${at} fills {{${name}}} a second time.`);
+        }
+        seen.add(name.toUpperCase());
+        if (!field.trim()) problems.push(`${at} fills {{${name}}} from nothing: name a slot and a field in it, as quote.total.`);
+    }
+    return problems;
+}
+
+/** What is wrong with a Create email, said as sentences, given the slots that reach it. */
+function createEmailIssues(node: FlowNode, config: CreateEmailConfig, schemas: Schemas, held: Available): string[] {
+    const issues = createEmailProblems(node, config);
+    for (const field of new Set(createEmailFields(config))) {
+        const found = ruleField(schemas, held, field);
+        if ('problem' in found) {
+            issues.push(`${node.name} writes in ${field}, but ${found.problem}.`);
+        } else if (isObject(found.schema) && (found.schema.type === 'object' || found.schema.type === 'array')) {
+            const what = found.schema.type === 'array' ? 'a list' : 'a group of fields';
+            issues.push(`${node.name} writes in ${field}, which is ${what}: only one value can be written in.`);
+        }
+    }
+    return issues;
 }
 
 /**
@@ -968,8 +1078,9 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         const schemaIssue = nodeSchemaIssue(schemas, node);
         if (schemaIssue) issues.push({nodeId: node.id, severity: 'error', message: schemaIssue});
         if (node.config.kind === 'create-email') {
-            const message = createEmailIssue(node, node.config);
-            if (message) issues.push({nodeId: node.id, severity: 'error', message});
+            for (const message of createEmailIssues(node, node.config, schemas, held)) {
+                issues.push({nodeId: node.id, severity: 'error', message});
+            }
         }
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
@@ -1135,10 +1246,15 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
         case 'create-email':
             return {
                 kind,
+                mode: 'reply',
                 template: '',
                 section: '',
                 signature: '',
+                placeholders: [],
                 replyAll: false,
+                to: '',
+                cc: '',
+                subject: '',
                 output: 'draft',
             };
         case 'terminal':
@@ -1194,7 +1310,7 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
     },
     'create-email': {
         label: 'Create email',
-        blurb: 'Drafts a reply from a template email in the mailbox, and never twice for one email. Runs no model.',
+        blurb: 'Drafts a reply, or a new email, from a template email in the mailbox, and never the same one twice. Runs no model.',
         token: 'create-email',
     },
     terminal: {
@@ -1432,10 +1548,17 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
         case 'create-email':
             return {
                 ...base,
+                mode: oneOf(from.mode, EMAIL_MODES, base.mode),
                 template: str(from.template, base.template),
                 section: str(from.section, base.section),
                 signature: str(from.signature, base.signature),
+                placeholders: (Array.isArray(from.placeholders) ? from.placeholders : [])
+                    .filter(isObject)
+                    .map((p): Placeholder => ({name: str(p.name, '').trim(), field: str(p.field, '').trim()})),
                 replyAll: bool(from.replyAll, base.replyAll),
+                to: str(from.to, base.to),
+                cc: str(from.cc, base.cc),
+                subject: str(from.subject, base.subject),
                 output: outputName(from.output, base.output),
             };
         case 'terminal':

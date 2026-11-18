@@ -1,9 +1,11 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import type { EmailMode } from '@shared/flow';
 import type { EmailEnvelope } from '@shared/trace';
 import { repliesFile } from '../paths';
 
 /**
- * Every reply a Create email node drafted in the open workspace, one JSON line each.
+ * Every email a Create email node drafted in the open workspace, a reply or a
+ * new one, one JSON line each.
  * Outlook has no mark a program can put on a draft on both platforms, so this is
  * how the app knows a draft is its own: by the id Outlook gave it. It is also how
  * a second run over the same email knows a reply is already drafted.
@@ -19,6 +21,8 @@ export interface RepliedEmail {
 export interface ReplyRecord {
     /** When it was drafted. */
     at: string;
+    /** A reply to the email, or a new email of its own. Left out, as the nightly wrote them: a reply. */
+    mode?: EmailMode;
     runId: string;
     flowId: string;
     nodeId: string;
@@ -69,7 +73,20 @@ export function listReplies(): ReplyRecord[] {
  * its routes lead to one.
  */
 export function findReply(flowId: string, email: RepliedEmail): ReplyRecord | undefined {
-    return listReplies().findLast((record) => record.flowId === flowId && sameEmail(record.email, email));
+    return listReplies().findLast(
+        (record) => record.flowId === flowId && record.mode !== 'new' && sameEmail(record.email, email),
+    );
+}
+
+/**
+ * The new email this node already drafted about `email`, if any. A new email is
+ * one per node, not per flow: a flow may tell the office and the trucker each.
+ */
+export function findNewEmail(flowId: string, nodeId: string, email: RepliedEmail): ReplyRecord | undefined {
+    return listReplies().findLast(
+        (record) =>
+            record.flowId === flowId && record.nodeId === nodeId && record.mode === 'new' && sameEmail(record.email, email),
+    );
 }
 
 export function recordReply(record: ReplyRecord): void {

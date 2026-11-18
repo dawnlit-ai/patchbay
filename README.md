@@ -29,8 +29,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
 - **Extractor** — pulls fields out of the email into a workspace schema you pick, for later steps to read.
 - **Processor** — runs Claude with the workspace's [skills](docs/skills.md), the ones you tick first, holding tools
   scoped to this one email.
-- **Create email** — drafts a reply from a template email in the mailbox, a Switch before it picking whether, and
-  which. No model runs, and no email gets a second reply.
+- **Create email** — drafts a reply, or a new email, from a template email in the mailbox, filled in from what
+  earlier steps found, a Switch before it picking whether, and which. No model runs, and nothing is drafted twice.
 - **Terminal** — ends a path and records a disposition.
 
 Each node hands the email out of exactly **one** output port, so a run is a readable path rather than a cloud of

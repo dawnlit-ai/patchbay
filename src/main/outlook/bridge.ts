@@ -7,6 +7,8 @@ import type {
     ReplyEmailResult,
     SavedAttachment,
     SelectedEmail,
+    SendEmailParams,
+    SendEmailResult,
 } from '@dawnlit/outlook-bridge';
 import { folderLabel, type MailScope, readsFolder, soleFolder } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
@@ -344,6 +346,28 @@ export async function draftReply(ref: EmailRef, content: DraftContent): Promise<
             emailAccount: ref.account,
             entryId: ref.entryId,
             storeId: ref.storeId,
+            sendImmediately: false,
+            openDraftWindow: false,
+        }),
+    );
+}
+
+/**
+ * What a new email says and who it is to. Which mailbox it is drafted in, and
+ * whether it is sent, are not the caller's to choose.
+ */
+export type NewEmailContent = Omit<SendEmailParams, 'emailAccount' | 'sendImmediately' | 'openDraftWindow'>;
+
+/**
+ * A new email, always a draft, as a reply is: `sendImmediately` is hard-wired
+ * false here too. It is filed silently in `account`'s Drafts, which gives back its id.
+ */
+export async function draftEmail(account: string, content: NewEmailContent): Promise<SendEmailResult> {
+    const b = await bridge();
+    return serialize(`Draft a new email in ${account}`, () =>
+        b.sendOutlookEmail({
+            ...content,
+            emailAccount: account,
             sendImmediately: false,
             openDraftWindow: false,
         }),
