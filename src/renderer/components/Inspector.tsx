@@ -28,6 +28,7 @@ import {
     type ProcessorConfig,
     provides,
     refName,
+    RETIRED_TOOLS,
     routeLabel,
     ruleFields,
     schemaRef,
@@ -984,28 +985,44 @@ function ProcessorFields({
                     Off, it still reads its run folder — saved attachments — and saves files there, with no shell.
                 </div>
             )}
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.allowDraftReply}
-                    onChange={(e) => patch({allowDraftReply: e.target.checked})}
-                />
-                Leave a reply as an unsent draft
-            </label>
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.allowMoveEmail}
-                    onChange={(e) => patch({allowMoveEmail: e.target.checked})}
-                />
-                Move the email to another folder
-            </label>
-            <div className="hint">
-                Nothing here can send mail. A drafted reply waits in Outlook for a person.
-            </div>
+            <RetiredToolsField config={config} patch={patch}/>
 
             <div className="gap"/>
             <McpToolsField config={config} patch={patch}/>
+        </>
+    );
+}
+
+/**
+ * The boxes a Processor from an older flow still has ticked for work it no
+ * longer does, each to be unticked once the node that does it now is in place.
+ * Unticked, a box is gone for good: there is nothing to tick it back for.
+ */
+function RetiredToolsField({config, patch}: Section<ProcessorConfig>): JSX.Element | null {
+    const retired = config.retiredTools ?? [];
+    if (retired.length === 0) return null;
+    const one = retired.length === 1;
+    const instead = retired.map((tool) => `a ${RETIRED_TOOLS[tool].node}`).join(' and ');
+    return (
+        <>
+            {retired.map((tool) => (
+                <label key={tool} className="check">
+                    <input
+                        type="checkbox"
+                        checked
+                        onChange={() => {
+                            const left = retired.filter((t) => t !== tool);
+                            patch({retiredTools: left.length > 0 ? left : undefined});
+                        }}
+                    />
+                    {RETIRED_TOOLS[tool].label}
+                </label>
+            ))}
+            <div className="hint">
+                {`A Processor no longer does ${one ? 'this' : 'these'}, and the run does not get ${one ? 'it' : 'them'}. ` +
+                    `Put ${instead} after this node to do ${one ? 'it' : 'them'} with no model, take ` +
+                    `${one ? 'it' : 'them'} out of the instruction, then untick ${one ? 'it' : 'each'} here.`}
+            </div>
         </>
     );
 }

@@ -295,8 +295,7 @@ that email — you cannot reach any other message.
 - Never invent a fact that is not in the email or an attachment you read.
 - If the email is unclear about what it wants, say so plainly in the summary
   rather than guessing.
-- You do not send anything. Drafting a reply is only available when the node
-  enables it, and even then a draft is left in Outlook for a human to send.
+- You do not draft, send or move mail: the steps after this one do.
 `;
 
 /** Give a new workspace's library its first skill, so a Processor has something to tick. */

@@ -1675,6 +1675,52 @@ async function main(): Promise<void> {
     check('a switch with its routes left empty keeps none, and one with no list gets the defaults',
         s2?.routes.length === 0 && s3?.routes.length === 2);
 
+    // A Processor no longer drafts or moves: one whose flow still ticks either is
+    // flagged until each is unticked, and the old boxes are not written back.
+    const retiredAdded = await addNode('processor');
+    const retiring = retiredAdded.id;
+    check('a new processor has no retired tools', !retiredAdded.text.includes('retiredTools'));
+    await wire(mover, 'moved', retiring);
+    const oldBoxes = await call('update_node', {
+        flowId: thanks,
+        nodeId: retiring,
+        config: {allowDraftReply: true, allowMoveEmail: true},
+    });
+    check(
+        'a processor’s old draft and move boxes, ticked, become retired tools and are not written back',
+        oldBoxes.includes('"retiredTools": [') && oldBoxes.includes('"draft_reply"') &&
+        oldBoxes.includes('"move_email"') && !oldBoxes.includes('allowDraftReply') && !oldBoxes.includes('allowMoveEmail'),
+    );
+    const retiredFlagged = await issuesOf(retiring);
+    check('a processor still drafting is flagged, pointing to a Create email',
+        flaggedWith(retiredFlagged, 'error', '“Leave a reply as an unsent draft” ticked, which a Processor no longer does. Put a Create email'));
+    check('a processor still moving the email is flagged, pointing to a Move email',
+        flaggedWith(retiredFlagged, 'error', '“Move the email to another folder” ticked, which a Processor no longer does. Put a Move email'));
+    await call('update_node', {flowId: thanks, nodeId: retiring, config: {retiredTools: ['move_email']}});
+    const halfCleared = await issuesOf(retiring);
+    check('unticking one retired tool clears its flag alone',
+        !flaggedWith(halfCleared, 'error', 'unsent draft') && flaggedWith(halfCleared, 'error', 'Move the email'));
+    const unticked = await call('update_node', {flowId: thanks, nodeId: retiring, config: {retiredTools: []}});
+    check('unticking the last clears the flag, and the node no longer carries the list',
+        (await issuesOf(retiring)).length === 0 && !unticked.includes('retiredTools'));
+    const oldFile = parseFlow(
+        {
+            nodes: [
+                {id: 'p1', kind: 'processor', config: {allowDraftReply: true, allowMoveEmail: false}},
+                {id: 'p2', kind: 'processor', config: {retiredTools: ['move_email', 'send_mail', 'move_email']}},
+                {id: 'p3', kind: 'processor', config: {allowDraftReply: false}},
+            ],
+        },
+        'old',
+        'Old',
+    );
+    const [p1, p2, p3] = oldFile.nodes.map((n) => (n.config.kind === 'processor' ? n.config : null));
+    check(
+        'a flow file from before keeps what its processors ticked as retired tools, each once and only known ones',
+        p1?.retiredTools?.join(',') === 'draft_reply' && p2?.retiredTools?.join(',') === 'move_email' &&
+        p3 !== null && p3 !== undefined && !('retiredTools' in p3),
+    );
+
     await call('delete_flow', {flowId: thanks});
     await call('delete_schema', {name: 'Verdict'});
 

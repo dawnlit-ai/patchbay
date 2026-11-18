@@ -169,8 +169,7 @@ export interface ProcessorConfig {
     instruction: string;
     /**
      * Whether Claude gets the email's content: its body in the prompt, `read_email`,
-     * and its attachments. Off, the node works from `inputs` alone; drafting a reply
-     * and moving the email still act on it.
+     * and its attachments. Off, the node works from `inputs` alone.
      */
     readEmail: boolean;
     /** Slots an earlier node filled, put into the prompt as JSON. */
@@ -187,9 +186,7 @@ export interface ProcessorConfig {
     schema: JsonSchema;
     /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
     models: ModelChoice[];
-    /** Each capability adds one tool to the run-scoped MCP server. */
-    allowDraftReply: boolean;
-    allowMoveEmail: boolean;
+    /** Adds `save_attachment` to the run-scoped MCP server, while the node reads the email. */
     allowSaveAttachments: boolean;
     /**
      * Read, Write, Edit and Bash anywhere on the machine. Off, Claude reads only
@@ -203,7 +200,21 @@ export interface ProcessorConfig {
      * A server none of them names is not started for the run.
      */
     mcpTools: string[];
+    /**
+     * Tools this node had ticked in a flow from before Processors lost them, each
+     * now another node's work. The run does not get them; the node is flagged on
+     * the canvas until each is unticked, once that node is in place. Absent when
+     * there are none, so a flow file carries it only while there is something to say.
+     */
+    retiredTools?: RetiredTool[];
 }
+
+/** A tool a Processor once had and no longer does, the node that does its work now, and the box it had. */
+export type RetiredTool = 'draft_reply' | 'move_email';
+export const RETIRED_TOOLS: Record<RetiredTool, { label: string; node: string; key: string }> = {
+    draft_reply: {label: 'Leave a reply as an unsent draft', node: 'Create email', key: 'allowDraftReply'},
+    move_email: {label: 'Move the email to another folder', node: 'Move email', key: 'allowMoveEmail'},
+};
 
 /** What a Create email drafts: a reply to the email, or a new email of its own. */
 export type EmailMode = 'reply' | 'new';
@@ -1300,6 +1311,14 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
             );
         }
         if (node.config.kind === 'send') errors.push(...sendIssues(node, node.config, held));
+        if (node.config.kind === 'processor') {
+            for (const tool of node.config.retiredTools ?? []) {
+                const {label, node: instead} = RETIRED_TOOLS[tool];
+                errors.push(
+                    `${node.name} still has “${label}” ticked, which a Processor no longer does. Put a ${instead} after it, take that out of its instruction, then untick it.`,
+                );
+            }
+        }
         for (const message of errors) issues.push({nodeId: node.id, severity: 'error', message});
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
@@ -1456,8 +1475,6 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 output: '',
                 schema: {},
                 models: models('high'),
-                allowDraftReply: false,
-                allowMoveEmail: false,
                 allowSaveAttachments: true,
                 allowFileSystem: false,
                 mcpTools: [],
@@ -1744,7 +1761,13 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
-        case 'processor':
+        case 'processor': {
+            // Ticked as its old box, `allowDraftReply: true`, in a flow from before,
+            // or carried over since in `retiredTools`.
+            const listed = strings(from.retiredTools, []);
+            const retired = (Object.keys(RETIRED_TOOLS) as RetiredTool[]).filter(
+                (tool) => listed.includes(tool) || from[RETIRED_TOOLS[tool].key] === true,
+            );
             return {
                 ...base,
                 skills: skillTicks(from.skills, base.skills),
@@ -1754,12 +1777,12 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 output: outputName(from.output, base.output),
                 schema: schemaOf(from.schema),
                 models: modelsOf(from.models, base.models),
-                allowDraftReply: bool(from.allowDraftReply, base.allowDraftReply),
-                allowMoveEmail: bool(from.allowMoveEmail, base.allowMoveEmail),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
+                ...(retired.length > 0 ? {retiredTools: retired} : {}),
             };
+        }
         case 'create-email':
             return {
                 ...base,

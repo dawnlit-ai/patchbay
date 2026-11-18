@@ -106,7 +106,7 @@ rather than a fan-out. The nine node kinds:
                     "valid" fills the slot. Like a processor it has the
                     workspace's skills, ticks the \`skills\` it loads first,
                     reads \`inputs\` and gets the \`mcpTools\` it names, but
-                    it cannot draft a reply, move the email or run commands.
+                    it cannot run commands.
 - processor       — runs Claude or agy scoped to one email, with every skill in
                     the workspace and none from elsewhere. \`skills\` ticks,
                     by name, the ones it loads before anything else.
@@ -115,7 +115,12 @@ rather than a fan-out. The nine node kinds:
                     schema, its result fills that slot on "done" — how one
                     step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
-                    list_server_tools gives a server's.
+                    list_server_tools gives a server's. It drafts, sends
+                    and moves no mail: a create-email, send or move-email
+                    after it does. One from an older flow may still list
+                    "draft_reply" or "move_email" in \`retiredTools\`; the
+                    run does not get them, and the node is flagged until
+                    each is taken out, once the node doing that is in place.
 - create-email    — drafts an email from a template email in the mailbox's
                     Templates folder, \`template\` being its subject and
                     \`section\` the [[SECTION]] it drafts ("" for a
@@ -166,8 +171,8 @@ in a placeholder or in braces in To, Cc or Subject (a create-email), or in
 braces in \`folder\` (a move-email);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
 slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
-a slot in \`drafts\` that is not a draft, and a switch's rule that leads to no
-route it has.
+a slot in \`drafts\` that is not a draft, a switch's rule that leads to no
+route it has, and a processor's \`retiredTools\`.
 
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as

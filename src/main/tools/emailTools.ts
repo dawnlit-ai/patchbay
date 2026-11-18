@@ -13,17 +13,15 @@ import { saveWorkbookAsCsv, WORKBOOK_EXTENSIONS } from './workbook';
 
 /**
  * A step's mailbox tools, bound to this run's one email: none takes an
- * entryId, so a skill cannot reach another message. Anything beyond reading is
- * opt-in per node, and nothing sends mail.
+ * entryId, so a skill cannot reach another message. They read the email and
+ * write into the run folder; none drafts, sends or moves mail, which nodes of
+ * their own do with no model.
  */
 
 export { EMAIL_SERVER_NAME };
 
 /** The switches that decide which tools are built. A Processor's config is one. */
-export type EmailCapabilities = Pick<
-    ProcessorConfig,
-    'readEmail' | 'allowSaveAttachments' | 'allowDraftReply' | 'allowMoveEmail'
->;
+export type EmailCapabilities = Pick<ProcessorConfig, 'readEmail' | 'allowSaveAttachments'>;
 
 export interface EmailToolContext {
     email: EmailEnvelope;
@@ -189,74 +187,18 @@ export function createEmailToolServer(ctx: EmailToolContext) {
         );
     }
 
-    if (config.allowDraftReply) {
-        tools.push(
-            tool(
-                'draft_reply',
-                'Leave a reply to this email in Outlook as an UNSENT draft, for a person to review and send. This never sends. Either write the body as real HTML in `htmlBody`, or reply with a template email saved in this mailbox: `templateSubject` names it, `templateSection` keeps one of its [[SECTION]] variants, `templatePlaceholders` fills its {{PLACEHOLDERS}} with HTML, and `signatureName` puts that Outlook signature in its {{SIGNATURE}} (or below the text when it has none). A template the call cannot fill completely fails rather than drafting a half-filled reply.',
-                {
-                    htmlBody: z.string().min(1).optional(),
-                    templateSubject: z.string().min(1).optional(),
-                    templateFolder: z.string().min(1).optional(),
-                    templateSection: z.string().min(1).optional(),
-                    // Not z.record: its `propertyNames` keyword makes the SDK list none of
-                    // this server's tools, read_email included, while calling it connected.
-                    templatePlaceholders: z.object({}).catchall(z.string()).optional(),
-                    signatureName: z.string().min(1).optional(),
-                    replyAll: z.boolean().optional(),
-                },
-                async ({replyAll, ...content}) => {
-                    if (!content.htmlBody && !content.templateSubject) {
-                        return fail('Give the reply a body: `htmlBody`, or a `templateSubject` to reply with.');
-                    }
-                    const result = await outlook.draftReply(email.ref, {...content, replyAll: replyAll === true});
-                    const from = content.templateSubject
-                        ? ` from template ${content.templateSubject}${content.templateSection ? ` [${content.templateSection}]` : ''}`
-                        : '';
-                    ctx.actions.push(`drafted a reply to ${result.repliedToSender}${from}`);
-                    log(
-                        `draft_reply → ${result.to}${from}`,
-                        content.htmlBody ?? JSON.stringify(content.templatePlaceholders ?? {}, null, 2),
-                    );
-                    return ok(
-                        `Draft saved (not sent). To: ${result.to}; subject: ${result.subject}; original sender: ${result.repliedToSender}`,
-                    );
-                },
-            ),
-        );
-    }
-
-    if (config.allowMoveEmail) {
-        tools.push(
-            tool(
-                'move_email',
-                'File this email into an Inbox subfolder, creating the folder if it does not exist. Give a path relative to the Inbox, e.g. "Processed/Invoices".',
-                {folderPath: z.string().min(1)},
-                async ({folderPath}) => {
-                    const result = await outlook.moveEmail(email.ref, folderPath);
-                    if (result.moved === 0) {
-                        return fail(`Outlook refused the move: ${result.failed.map((f) => f.error).join('; ')}`);
-                    }
-                    ctx.actions.push(`moved to ${result.folderPath}`);
-                    log(`move_email → ${result.folderPath}`);
-                    return ok(`Moved to ${result.folderPath}${result.folderCreated ? ' (folder created)' : ''}`);
-                },
-            ),
-        );
-    }
-
     return createSdkMcpServer({
         name: EMAIL_SERVER_NAME,
         version: app.getVersion(),
         instructions:
-            'These tools act on exactly one email — the one this run is about. None of them can reach another message, and none of them sends mail.',
+            'These tools act on exactly one email — the one this run is about. None of them can reach another message, and none of them drafts, sends or moves mail.',
         tools,
     });
 }
 
 /**
  * The email tools a step can call again without doing anything twice: they read,
- * or write only into the run's own folder. Drafting and moving are not among them.
+ * or write only into the run's own folder. That is all of them.
  */
 export const REPEATABLE_EMAIL_TOOLS = ['read_email', 'record_note', 'save_file', 'save_attachment'].map(
     (n) => `mcp__${EMAIL_SERVER_NAME}__${n}`,
@@ -267,7 +209,5 @@ export function emailToolNames(config: EmailCapabilities): string[] {
     const names = ['record_note', 'save_file'];
     if (config.readEmail) names.push('read_email');
     if (config.readEmail && config.allowSaveAttachments) names.push('save_attachment');
-    if (config.allowDraftReply) names.push('draft_reply');
-    if (config.allowMoveEmail) names.push('move_email');
     return names.map((n) => `mcp__${EMAIL_SERVER_NAME}__${n}`);
 }

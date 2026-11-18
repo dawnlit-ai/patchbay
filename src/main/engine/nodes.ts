@@ -338,12 +338,7 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         return {outPort: 'error', summary: message, error: message};
     }
 
-    const capabilities = {
-        readEmail: true,
-        allowSaveAttachments: config.includeAttachments,
-        allowDraftReply: false,
-        allowMoveEmail: false,
-    };
+    const capabilities = {readEmail: true, allowSaveAttachments: config.includeAttachments};
     const server = createEmailToolServer({
         email: ctx.email,
         scratchDir: ctx.scratchDir,
@@ -493,7 +488,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
     const allowedTools = [...emailToolNames(config), ...extra.allowed];
     if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
 
-    const acting = config.allowDraftReply || config.allowMoveEmail;
     const one = config.skills.length === 1;
     const prompt = [
         config.instruction.trim(),
@@ -517,9 +511,6 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             : [
                 'You are working from the data below, which earlier steps took from one email;',
                 'the email itself is not yours to read.',
-                ...(acting
-                    ? ['The `mcp__email__*` tools act on that email and cannot reach any other.']
-                    : []),
             ]),
         '',
         `Scratch folder for this run (save and read files here): ${ctx.scratchDir}`,

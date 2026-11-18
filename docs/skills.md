@@ -99,8 +99,7 @@ and a node that ticks it stops at its error port saying which, rather than start
 
 ## The email-scoped tools
 
-Inside a Processor run, a skill gets an MCP server whose tools are bound to the one email being handled. An
-Extractor's gets the same server, less `draft_reply` and `move_email`:
+Inside a Processor or Extractor run, a skill gets an MCP server whose tools are bound to the one email being handled:
 
 | Tool              | Always | What it does                                                                       |
 |-------------------|--------|------------------------------------------------------------------------------------|
@@ -108,20 +107,20 @@ Extractor's gets the same server, less `draft_reply` and `move_email`:
 | `record_note`     | ✅     | Writes a note into the run trace                                                   |
 | `save_file`       | ✅     | Saves a text file into the run folder, by a bare file name, and returns its path   |
 | `save_attachment` | opt-in | Saves into the run folder, returns paths                                           |
-| `draft_reply`     | opt-in | Leaves an **unsent** draft in Outlook, written or from a template email            |
-| `move_email`      | opt-in | Files the email into an Inbox subfolder                                            |
 
 `save_attachment` also writes a workbook (`.xlsx`, `.xlsm`) out beside itself as CSV, one file per visible sheet, since
 Read can't open one. Each cell reads as the sheet shows it — `51%` rather than `0.51`, dates as `YYYY-MM-DD` — and line
 N of the CSV is row N of the sheet, so a figure can be traced to its cell.
 
-`draft_reply` can reply with a template email kept in the mailbox (a `Templates` folder by default), found by subject:
-it keeps the one `[[SECTION]]` asked for, fills its `{{PLACEHOLDERS}}`, and puts the named Outlook signature in
-`{{SIGNATURE}}`. A template that cannot be filled completely fails the call rather than drafting half a reply.
-
 There is no tool that takes an entry id, so a skill cannot reach another message however it is prompted — and **nothing
-here sends mail.** A drafted reply waits in Outlook for a person. `read_email` does hand back this email's own entry
-id, so a record a skill writes elsewhere can link back to the message it came from.
+here drafts, sends or moves mail.** A [Create email](flows.md#create-email), [Send](flows.md#sending) or [Move
+email](flows.md#moving) after the step does that, with no model. `read_email` does hand back this email's own entry id,
+so a record a skill writes elsewhere can link back to the message it came from.
+
+A Processor once had `draft_reply` and `move_email` too, each a box of its own in the inspector. One from a flow made
+then still shows the box ticked, and is flagged on the canvas: the run no longer gets the tool, so the flow cannot be
+watched until the node after it that does the work is in place, its instruction no longer asks for it, and the box is
+unticked.
 
 ## File access
 

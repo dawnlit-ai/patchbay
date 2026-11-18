@@ -22,13 +22,13 @@ of concurrent activity.
   schema](#named-schemas) it names, and puts the result in a named slot. It leaves by *Valid* when every required
   field was in the email and the result matches the schema, by *Incomplete* when something is missing or wrong, or by
   *Error*. Like a Processor, it has the workspace's skills, reads slots earlier nodes filled, and takes tools from the
-  workspace's MCP servers; unlike one, it cannot draft a reply, move the email or run commands.
+  workspace's MCP servers; unlike one, it cannot run commands.
 - **Processor** — runs Claude with the workspace's [skills](skills.md), loading the ones you tick first, and holding
   [tools scoped to this one email](skills.md#the-email-scoped-tools).
   It leaves by *Done*, by *Needs review* when it finished but a person has to decide or check something, or by
   *Error*. Give it an output slot and one of the workspace's schemas and its result fills that slot on *Done*, so a
   long job can be split into steps that each hand their work to the next — and a run that stops shows which step it
-  stopped at.
+  stopped at. It drafts, sends and moves no mail: a Create email, Send or Move email after it does.
 - **Create email** — drafts a [reply](#create-email) to the email, or a new email, from a template email in the
   mailbox, its placeholders filled from what earlier steps found. It runs no model, and drafts nothing an earlier run
   already drafted. It leaves by *Drafted*, by *Already drafted*, or by *Error*.
@@ -163,8 +163,8 @@ schema leaves by *Error* instead. A node adds slots and never takes one away, so
 step replies to it or files it.
 
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
-both. Without the email it gets none of the email's content, but drafting a reply and moving the email still act on
-it — so an Extractor can pull the fields, and a Processor draft a templated reply from them alone. An Extractor always
+both. Without the email it gets none of the email's content, and works from those slots alone — so an Extractor can
+pull the fields, and a Processor work from them without the email's wording to steer it. An Extractor always
 reads the email, and any slots it ticks besides, and a Switch the slots its rules name. The inspector's *Reads* list names the schema each slot carries
 beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.
 

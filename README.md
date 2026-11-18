@@ -41,7 +41,7 @@ Each node hands the email out of exactly **one** output port, so a run is a read
 concurrent activity. Every run records the prompt each node sent, every tool call and result, and every change to the
 mailbox; select one and the canvas lights up the path that email took.
 
-**Nothing sends mail on its own.** A Processor or a Create email leaves an unsent draft in Outlook for a person. Only a
+**Nothing sends mail on its own.** A Create email leaves an unsent draft in Outlook for a person. Only a
 Send node can send, only the drafts a Create email made in that same run, only once you switch its sending on, and
 never on a test run.
 
