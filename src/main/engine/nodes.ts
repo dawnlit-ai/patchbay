@@ -10,9 +10,14 @@ import {
     fieldText,
     fillFields,
     type FlowNode,
+    HELD_PORT,
     type JsonSchema,
     type ModelChoice,
     modelsInTurn,
+    MOVED_PORT,
+    type MoveEmailConfig,
+    type MoveEmailOutcome,
+    moveEmailProblems,
     needsField,
     nodeSchemaIssue,
     outputPorts,
@@ -24,7 +29,6 @@ import {
     type SendOutcome,
     sendProblems,
     SENT_PORT,
-    HELD_PORT,
     SKIPPED_PORT,
     type SwitchConfig,
     type SwitchOutcome,
@@ -929,7 +933,12 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
             });
         } catch (e) {
             // It went: failing the step would say otherwise.
-            ctx.onEvent({at: now(), type: 'error', label: `Sent to ${r.to}, but could not record it`, detail: errorText(e)});
+            ctx.onEvent({
+                at: now(),
+                type: 'error',
+                label: `Sent to ${r.to}, but could not record it`,
+                detail: errorText(e)
+            });
         }
     }
 
@@ -937,10 +946,85 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
     if (failed.length > 0) {
         const went = sent.length > 0 ? `Sent to ${whoTo(sent)}, but not` : 'Sent nothing';
         const message = `${went}: ${failed.map((f) => `${f.to || '(no one named)'} — ${f.why}`).join('; ')}.`;
-        return {outPort: 'error', summary: message, error: message, provided: handOn({sent: tos, failed, why: message})};
+        return {
+            outPort: 'error',
+            summary: message,
+            error: message,
+            provided: handOn({sent: tos, failed, why: message})
+        };
     }
     const why = `Sent to ${whoTo(sent)}`;
     return {outPort: SENT_PORT, summary: why, provided: handOn({sent: tos, why})};
+}
+
+// ── Move email ───────────────────────────────────────────────────────────
+// No model: Outlook files the email into the folder, creating it if it is not
+// there yet. A field in braces is filled from the run's slots first; an empty
+// field stops before Outlook so `Processed/{{order.client}}` never files into
+// `Processed` when `order.client` is blank.
+
+function filledFolder(folder: string, data: Readonly<Record<string, unknown>>): string {
+    const written = folder.replace(/\{\{([^{}]*)\}\}/g, (_, raw: string) => {
+        const field = raw.trim();
+        const value = fieldText(data, field)?.trim() ?? '';
+        if (!value) throw new Error(`${field} holds no value to write in`);
+        return value;
+    }).trim();
+    if (!/[^\\/\s]/.test(written)) {
+        throw new Error(`folder came to nothing once ${folder.trim()} was filled in`);
+    }
+    return written;
+}
+
+async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<NodeOutcome> {
+    const handOn = (outcome: Pick<MoveEmailOutcome, 'why'> & Partial<MoveEmailOutcome>): Record<string, unknown> | undefined =>
+        config.output
+            ? {[config.output]: {moved: false, folder: '', folderCreated: false, ...outcome} satisfies MoveEmailOutcome}
+            : undefined;
+
+    const [problem] = moveEmailProblems(ctx.node, config);
+    if (problem) return {outPort: 'error', summary: problem, error: problem, provided: handOn({why: problem})};
+
+    let folder: string;
+    try {
+        folder = filledFolder(config.folder, ctx.data);
+    } catch (e) {
+        const message = `${ctx.node.name} moved nothing: ${errorText(e)}.`;
+        return {outPort: 'error', summary: message, error: message, provided: handOn({why: message})};
+    }
+
+    let result: { folderPath: string; folderCreated: boolean; moved: number; failed: { error: string }[] };
+    try {
+        result = await outlook.moveEmail(ctx.email.ref, folder);
+    } catch (e) {
+        const message = `Could not move the email to ${folder}: ${errorText(e)}`;
+        return {outPort: 'error', summary: message, error: message, provided: handOn({folder, why: message})};
+    }
+    if (result.moved === 0) {
+        const reason = result.failed.map((f) => f.error).join('; ') || 'Outlook did not move the email';
+        const message = `Could not move the email to ${folder}: ${reason}`;
+        return {
+            outPort: 'error',
+            summary: message,
+            error: message,
+            provided: handOn({folder: result.folderPath || folder, why: message}),
+        };
+    }
+
+    const where = result.folderPath || folder;
+    const created = result.folderCreated ? ' (folder created)' : '';
+    ctx.email.ref.folderPath = where;
+    ctx.onEvent({
+        at: now(),
+        type: 'outlook',
+        label: `move_email → ${where}${created}`,
+    });
+    const why = `Moved to ${where}${created}`;
+    return {
+        outPort: MOVED_PORT,
+        summary: why,
+        provided: handOn({moved: true, folder: where, folderCreated: result.folderCreated, why}),
+    };
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────
@@ -971,6 +1055,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runCreateEmail(ctx, config);
         case 'send':
             return runSend(ctx, config);
+        case 'move-email':
+            return runMoveEmail(ctx, config);
         case 'terminal':
             return runTerminal(config);
     }

@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     checkSlots,
+    findTriggers,
     type Flow,
     type FlowNode,
     type JsonSchema,
@@ -672,6 +673,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                             tokens={tokens}
                             onChange={updateNode}
                             shelf={shelf}
+                            accounts={[...new Set(findTriggers(flow).map((n) => triggerConfig(n)?.account ?? '').filter(Boolean))]}
                             onDelete={deleteNode}
                         />
                     </div>

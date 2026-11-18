@@ -33,6 +33,8 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
   earlier steps found, a Switch before it picking whether, and which. No model runs, and nothing is drafted twice.
 - **Send** — sends the drafts a Create email made earlier in the same run, picked by the draft slots it ticks. Its
   sending is off by default, and a test run never sends.
+- **Move email** — files the email into a folder in its mailbox, creating the folder if it does not exist, with no
+  model.
 - **Terminal** — ends a path and records a disposition.
 
 Each node hands the email out of exactly **one** output port, so a run is a readable path rather than a cloud of

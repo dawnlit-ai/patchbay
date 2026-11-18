@@ -18,6 +18,7 @@ import {
     isJevModel,
     type JsonSchema,
     type ModelChoice,
+    type MoveEmailConfig,
     NODE_KIND_META,
     type NodeConfig,
     type NodeKind,
@@ -1820,6 +1821,78 @@ function SendFields({
     );
 }
 
+function MoveEmailFields({
+                             nodeId,
+                             config,
+                             patch,
+                             available,
+                             shelf,
+                             accounts,
+                         }: Section<MoveEmailConfig> & SchemaProps & {
+    nodeId: string;
+    available: Available | undefined;
+    accounts: string[];
+}): JSX.Element {
+    const [folders, setFolders] = useState<string[]>([]);
+    const accountKey = accounts.join('\n');
+
+    useEffect(() => {
+        if (accounts.length === 0) return;
+        let cancelled = false;
+        void Promise.all(accounts.map((account) => window.api.outlook.folders(account).catch(() => []))).then(
+            (lists) => {
+                if (cancelled) return;
+                const paths = lists.flat().map((f) => f.relativePath).filter(Boolean);
+                setFolders([...new Set(paths)]);
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [accountKey]);
+
+    const fields = available ? ruleFields(shelf.schemas, available) : [];
+    const openBrace = /^(.*\{\{)[^{}]*$/.exec(config.folder);
+    const suggestions = openBrace ? fields.map((f) => `${openBrace[1]}${f.field}}}`) : folders;
+    const folderList = `move-folders-${nodeId}`;
+
+    return (
+        <>
+            <Field
+                label="Folder"
+                hint="A folder under the Inbox, such as Processed or Clients\Acme; Outlook creates it if it is not there yet. A field an earlier node filled, in braces, is written in by the run: Processed\{{shipment.client}}."
+            >
+                <input
+                    value={config.folder}
+                    list={folderList}
+                    placeholder="Processed"
+                    spellCheck={false}
+                    onChange={(e) => patch({folder: e.target.value})}
+                />
+                <datalist id={folderList}>
+                    {suggestions.map((value) => (
+                        <option key={value} value={value}/>
+                    ))}
+                </datalist>
+            </Field>
+
+            <SlotField
+                value={config.output}
+                optional
+                onChange={(output) => patch({output})}
+                hint="Later nodes read whether it moved the email, and which folder Outlook put it in, by this name. Blank fills nothing."
+            />
+
+            <div className="hint">
+                It runs no model. Moving an email in Outlook gives it a new id; a trigger watching more than one folder
+                knows an email by sender, time and subject, so filing it from one watched folder into another does not
+                run it a second time.
+            </div>
+            <div className="gap"/>
+        </>
+    );
+}
+
 function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
     return (
         <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
@@ -1910,6 +1983,8 @@ interface Props {
     tokens: DataTokens;
     /** The workspace's named schemas, which a node's schema can be. */
     shelf: SchemaShelf;
+    /** Mailboxes the flow's triggers watch, for offering their folders. */
+    accounts?: string[];
 
     onChange(node: FlowNode): void;
 
@@ -1924,6 +1999,7 @@ export function Inspector({
                               tokens,
                               onChange,
                               shelf,
+                              accounts = [],
                               onDelete,
                           }: Props): JSX.Element {
     if (!node) {
@@ -1984,6 +2060,10 @@ export function Inspector({
             )}
             {config.kind === 'send' && (
                 <SendFields key={node.id} config={config} patch={patch} available={available}/>
+            )}
+            {config.kind === 'move-email' && (
+                <MoveEmailFields key={node.id} nodeId={node.id} config={config} patch={patch}
+                                 available={available} shelf={shelf} accounts={accounts}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

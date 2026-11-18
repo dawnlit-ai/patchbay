@@ -58,6 +58,7 @@
     --k-processor: #7c3aed;
     --k-create-email: #db2777;
     --k-send: #ea580c;
+    --k-move-email: #0284c7;
     --k-terminal: #64748b;
 
     /*
@@ -129,6 +130,7 @@
     --k-processor: #c084fc;
     --k-create-email: #f472b6;
     --k-send: #fb923c;
+    --k-move-email: #38bdf8;
     --k-terminal: #9aa0a6;
 
     --data-email: #38bdf8;
@@ -183,6 +185,10 @@ body {
 
 .kind-send {
     --k: var(--k-send);
+}
+
+.kind-move-email {
+    --k: var(--k-move-email);
 }
 
 .kind-terminal {

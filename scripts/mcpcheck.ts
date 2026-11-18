@@ -24,7 +24,14 @@ import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { DraftOutcome, FlowNode, SendOutcome, SwitchConfig, SwitchOutcome } from '../src/shared/flow';
+import type {
+    DraftOutcome,
+    FlowNode,
+    MoveEmailOutcome,
+    SendOutcome,
+    SwitchConfig,
+    SwitchOutcome
+} from '../src/shared/flow';
 import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
 import type { EmailEnvelope } from '../src/shared/trace';
@@ -1489,7 +1496,10 @@ async function main(): Promise<void> {
             draftEntryId: '',
             why: 'already drafted by an earlier run',
         };
-        const unconfigured = await runNode({...senderNode, config: {...senderNode.config, drafts: []}}, {notice: freshDraft});
+        const unconfigured = await runNode({
+            ...senderNode,
+            config: {...senderNode.config, drafts: []}
+        }, {notice: freshDraft});
         check('a send node with no draft slots leaves by error and still fills its output slot',
             unconfigured.outPort === 'error' &&
             (unconfigured.provided?.sent as SendOutcome | undefined)?.why.includes('sends nothing') === true);
@@ -1558,6 +1568,79 @@ async function main(): Promise<void> {
     } else {
         check('with sending off, a polled run leaves by held and lists who it would have sent to', false,
             'the send node was not saved');
+    }
+
+    // A Move email node: files into a folder, checks fields in braces against the
+    // slots that reach it, and stops before Outlook when a field is missing or blank.
+    const moveAdded = await addNode('move-email');
+    const mover = moveAdded.id;
+    check(
+        'a new move email has moved and error ports, and starts with no folder and no output slot',
+        moveAdded.text.includes('"port": "moved"') && moveAdded.text.includes('"port": "error"') &&
+        moveAdded.text.includes('"folder": ""') && moveAdded.text.includes('"output": ""'),
+    );
+    await wire(sender, 'sent', mover);
+    await wire(sender, 'held', mover);
+    check('a move email with no folder is flagged',
+        flaggedWith(await issuesOf(mover), 'error', 'has no folder yet'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: mover,
+        config: {folder: '///'},
+    });
+    check('a folder of only slashes is flagged',
+        flaggedWith(await issuesOf(mover), 'error', 'names no folder'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: mover,
+        config: {folder: 'Processed/{{verdict}}/{{verdict.answering}}/{{verdict.nope}}/{{order.id}}'},
+    });
+    const moveFlagged = await issuesOf(mover);
+    check('braces in folder that name no field are flagged',
+        flaggedWith(moveFlagged, 'error', 'folder has {{verdict}}, which names no field'));
+    check('a group written into folder is flagged',
+        flaggedWith(moveFlagged, 'error', 'writes in verdict.answering, which is a group of fields'));
+    check('a field the slot’s schema lacks is flagged on a move email',
+        flaggedWith(moveFlagged, 'error', 'writes in verdict.nope, but Verdict has no field nope'));
+    check('a slot not every path fills is flagged as any read is on a move email',
+        flaggedWith(moveFlagged, 'error', 'reads "order", but not every path here fills it'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: mover,
+        config: {folder: 'Processed/{{verdict.reply}}', output: 'filing'},
+    });
+    check('a move email whose folder and fields fit is not flagged', (await issuesOf(mover)).length === 0);
+
+    const moverNode = saved(mover);
+    if (moverNode?.config.kind === 'move-email') {
+        const noFolder = await runNode({
+            ...moverNode,
+            config: {...moverNode.config, folder: ''}
+        }, verdict('quote', false));
+        const noFolderSlot = noFolder.provided?.filing as MoveEmailOutcome | undefined;
+        check(
+            'a move email with no folder leaves by error, moving nothing, and fills its output slot when named',
+            noFolder.outPort === 'error' && noFolderSlot?.moved === false &&
+            noFolderSlot.why.includes('has no folder yet'),
+        );
+        const missingField = await runNode(
+            {...moverNode, config: {...moverNode.config, folder: 'Processed/{{verdict.answering.kind}}'}},
+            {verdict: {reply: 'quote', seen: false}},
+        );
+        check(
+            'a move email whose field holds nothing leaves by error, moving nothing',
+            missingField.outPort === 'error' &&
+            missingField.error?.includes('verdict.answering.kind holds no value to write in') === true,
+        );
+        const blankField = await runNode(moverNode, verdict('   ', false));
+        check(
+            'a move email whose field is blank leaves by error rather than filing into the parent folder',
+            blankField.outPort === 'error' &&
+            blankField.error?.includes('verdict.reply holds no value to write in') === true,
+        );
+    } else {
+        check('a move email with no folder leaves by error, moving nothing, and fills its output slot when named', false,
+            'the move email node was not saved');
     }
 
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,

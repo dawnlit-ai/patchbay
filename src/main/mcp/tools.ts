@@ -74,7 +74,7 @@ it is; only the person can open another.
 
 A flow is a graph. Every node hands the email out of exactly one output port and
 the engine follows the single edge attached to it, so a run is a readable path
-rather than a fan-out. The seven node kinds:
+rather than a fan-out. The nine node kinds:
 
 - trigger.outlook — watches the mailbox folders it ticks and starts a run per
                     new email. \`folders\` holds each one's path under the
@@ -145,6 +145,14 @@ rather than a fan-out. The seven node kinds:
                     "held" and "error"; every port fills \`output\` with
                     {sent, held, failed, why}, where \`sent\` and \`held\`
                     list recipients and \`failed\` is [{to, why}].
+- move-email      — files the email into a folder in its mailbox, creating
+                    the folder if it does not exist, with no model. \`folder\`
+                    is a path under the Inbox ("Processed", "Clients\\Acme")
+                    or a well-known folder ("Deleted Items"), and may name
+                    fields in braces ("Processed/{{order.client}}") that the
+                    run writes in. Ports: "moved" and "error". With \`output\`
+                    set, both ports fill that slot with {moved, folder,
+                    folderCreated, why}.
 - terminal        — ends the path and records how the email came out, as
                     its \`disposition\`. It does nothing to the email: a
                     step that files it or saves its attachments does so
@@ -152,8 +160,9 @@ rather than a fan-out. The seven node kinds:
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor) or in \`drafts\` (a send, where each slot must be a create-email's
-draft), or by naming one of its fields: in a rule's \`field\` (a switch), or
-in a placeholder or in braces in To, Cc or Subject (a create-email);
+draft), or by naming one of its fields: in a rule's \`field\` (a switch),
+in a placeholder or in braces in To, Cc or Subject (a create-email), or in
+braces in \`folder\` (a move-email);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
 slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
 a slot in \`drafts\` that is not a draft, and a switch's rule that leads to no

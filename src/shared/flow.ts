@@ -11,6 +11,7 @@ export type NodeKind =
     | 'processor'
     | 'create-email'
     | 'send'
+    | 'move-email'
     | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
@@ -24,6 +25,7 @@ export const NODE_KINDS: NodeKind[] = [
     'processor',
     'create-email',
     'send',
+    'move-email',
     'terminal',
 ];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
@@ -259,6 +261,25 @@ export interface SendConfig {
     output: string;
 }
 
+/**
+ * Files the email into a folder in its mailbox, creating the folder if it does
+ * not exist, with no model. The folder path can name a field an earlier node
+ * filled, in braces, such as `Processed/{{order.client}}`.
+ */
+export interface MoveEmailConfig {
+    /**
+     * Where to file the email: a path under the Inbox (`Processed`,
+     * `Processed/Invoices`), or a well-known folder (`Deleted Items`). May name
+     * a field in braces, `{{order.client}}`, which the run writes in.
+     */
+    folder: string;
+    /**
+     * The slot later nodes read where the email went by, filled on Moved and
+     * Error. Empty fills nothing.
+     */
+    output: string;
+}
+
 /** Ends a path and records how the email came out. It does nothing to the email: the steps before it do. */
 export interface TerminalConfig {
     disposition: Disposition;
@@ -272,6 +293,7 @@ export type NodeConfig =
     | ({ kind: 'processor' } & ProcessorConfig)
     | ({ kind: 'create-email' } & CreateEmailConfig)
     | ({ kind: 'send' } & SendConfig)
+    | ({ kind: 'move-email' } & MoveEmailConfig)
     | ({ kind: 'terminal' } & TerminalConfig);
 
 export interface FlowNode {
@@ -325,6 +347,9 @@ export const SKIPPED_PORT = 'skipped';
 export const SENT_PORT = 'sent';
 export const HELD_PORT = 'held';
 
+/** A Move email's port when Outlook filed the email. */
+export const MOVED_PORT = 'moved';
+
 export function outputPorts(node: FlowNode): Port[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
@@ -365,6 +390,11 @@ export function outputPorts(node: FlowNode): Port[] {
             return [
                 {id: SENT_PORT, label: 'Sent', tone: 'flow'},
                 {id: HELD_PORT, label: 'Held', tone: 'fallback'},
+                {id: 'error', label: 'Error', tone: 'error'},
+            ];
+        case 'move-email':
+            return [
+                {id: MOVED_PORT, label: 'Moved', tone: 'flow'},
                 {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'terminal':
@@ -627,6 +657,11 @@ export function provides(node: FlowNode, port: string): Slot[] {
         case 'send':
             // Every way out, Error too: a send that went partly wrong says which went.
             return [{name: node.config.output, type: {kind: 'json', schema: SEND_SCHEMA}}];
+        case 'move-email':
+            // Every way out when an output slot is named, so nodes after it can read whether it moved.
+            return node.config.output
+                ? [{name: node.config.output, type: {kind: 'json', schema: MOVE_EMAIL_SCHEMA}}]
+                : [];
         default:
             return [];
     }
@@ -649,6 +684,8 @@ export function requires(node: FlowNode): string[] {
         case 'send':
             // The email for its mailbox, which the drafts sit in.
             return [EMAIL_SLOT.name, ...node.config.drafts];
+        case 'move-email':
+            return [EMAIL_SLOT.name, ...fieldSlots(moveEmailFields(node.config))];
         case 'categorizer':
             return [EMAIL_SLOT.name];
         case 'terminal':
@@ -1051,6 +1088,79 @@ function createEmailIssues(node: FlowNode, config: CreateEmailConfig, schemas: S
     return issues;
 }
 
+// ── Moving ───────────────────────────────────────────────────────────────
+
+/** What a Move email fills its output slot with. */
+export interface MoveEmailOutcome {
+    moved: boolean;
+    folder: string;
+    folderCreated: boolean;
+    why: string;
+}
+
+/** The shape of a Move email's output slot: the app's own. */
+export const MOVE_EMAIL_SCHEMA: JsonSchema = {
+    type: 'object',
+    title: 'Move',
+    properties: {
+        moved: {
+            type: 'boolean',
+            description: 'True when Outlook filed the email into the folder; false when it could not.',
+        },
+        folder: {
+            type: 'string',
+            description: 'The folder Outlook filed the email into, as Outlook paths it, or the folder asked for when the move failed.',
+        },
+        folderCreated: {
+            type: 'boolean',
+            description: 'True when Outlook created the folder to file the email into.',
+        },
+        why: {type: 'string', description: 'Where the email was moved, or why it was not.'},
+    },
+    required: ['moved', 'folder', 'folderCreated', 'why'],
+};
+
+/** Every field a Move email's folder names in braces. */
+function moveEmailFields(config: MoveEmailConfig): string[] {
+    return fieldRefs(config.folder).filter(namesField);
+}
+
+/**
+ * Why a Move email cannot run whatever reaches it, said as sentences: what the
+ * canvas flags and a run stops on, before Outlook is asked for anything.
+ */
+export function moveEmailProblems(node: FlowNode, config: MoveEmailConfig): string[] {
+    const problems: string[] = [];
+    const folder = config.folder.trim();
+    if (!folder) {
+        problems.push(`${node.name} has no folder yet: give the folder under the Inbox to move the email to, such as Processed.`);
+    } else if (!/[^\\/\s]/.test(folder)) {
+        problems.push(`${node.name}’s folder, “${folder}”, names no folder: give a folder under the Inbox, such as Processed.`);
+    }
+    for (const field of fieldRefs(config.folder)) {
+        if (namesField(field)) continue;
+        problems.push(
+            `${node.name}’s folder has {{${field}}}, which names no field: write a slot and a field in it, as {{order.client}}.`,
+        );
+    }
+    return problems;
+}
+
+/** What is wrong with a Move email, said as sentences, given the slots that reach it. */
+function moveEmailIssues(node: FlowNode, config: MoveEmailConfig, schemas: Schemas, held: Available): string[] {
+    const issues = moveEmailProblems(node, config);
+    for (const field of new Set(moveEmailFields(config))) {
+        const found = ruleField(schemas, held, field);
+        if ('problem' in found) {
+            issues.push(`${node.name} writes in ${field}, but ${found.problem}.`);
+        } else if (isObject(found.schema) && (found.schema.type === 'object' || found.schema.type === 'array')) {
+            const what = found.schema.type === 'array' ? 'a list' : 'a group of fields';
+            issues.push(`${node.name} writes in ${field}, which is ${what}: only one value can be written in.`);
+        }
+    }
+    return issues;
+}
+
 /**
  * What is wrong with a Switch's configuration, given the slots that reach it: its
  * rules, checked against the schemas of the slots they read; a rule sent down a
@@ -1195,6 +1305,11 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
         if (node.config.kind === 'send') {
             for (const message of sendIssues(node, node.config, held)) {
+                issues.push({nodeId: node.id, severity: 'error', message});
+            }
+        }
+        if (node.config.kind === 'move-email') {
+            for (const message of moveEmailIssues(node, node.config, schemas, held)) {
                 issues.push({nodeId: node.id, severity: 'error', message});
             }
         }
@@ -1374,6 +1489,8 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
             };
         case 'send':
             return {kind, drafts: [], sending: false, output: 'sent'};
+        case 'move-email':
+            return {kind, folder: '', output: ''};
         case 'terminal':
             return {kind, disposition: 'done'};
     }
@@ -1395,6 +1512,8 @@ function defaultNodeName(kind: NodeKind): string {
             return 'Create email';
         case 'send':
             return 'Send';
+        case 'move-email':
+            return 'Move email';
         case 'terminal':
             return 'Done';
     }
@@ -1436,6 +1555,11 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         label: 'Send',
         blurb: 'Sends the drafts a Create email made earlier in this run. Off until you turn it on, and a test run never sends.',
         token: 'send',
+    },
+    'move-email': {
+        label: 'Move email',
+        blurb: 'Files the email into a folder in its mailbox, creating the folder if it does not exist. Runs no model.',
+        token: 'move-email',
     },
     terminal: {
         label: 'Terminal',
@@ -1694,6 +1818,12 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ),
                 sending: bool(from.sending, base.sending),
                 output: outputName(from.output, base.output),
+            };
+        case 'move-email':
+            return {
+                ...base,
+                folder: str(from.folder, base.folder),
+                output: outputName(from.output, ''),
             };
         case 'terminal':
             return {

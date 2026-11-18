@@ -204,6 +204,10 @@ function describe(node: FlowNode): string {
         }
         case 'send':
             return `Sending: ${c.sending ? 'on' : 'off'} · ${c.drafts.length > 0 ? c.drafts.join(', ') : 'no drafts ticked'}`;
+        case 'move-email':
+            return c.folder.trim()
+                ? `To ${c.folder.trim()} · no model${c.output ? ` · → ${c.output}` : ''}`
+                : 'No folder yet';
         case 'terminal':
             return c.disposition;
     }

@@ -34,6 +34,8 @@ of concurrent activity.
   already drafted. It leaves by *Drafted*, by *Already drafted*, or by *Error*.
 - **Send** — [sends](#sending) the drafts a Create email made earlier in the same run, picked by the draft slots it
   ticks. Its sending is off by default, and a test run never sends. It leaves by *Sent*, by *Held*, or by *Error*.
+- **Move email** — [files](#moving) the email into a folder in its mailbox, creating the folder if it does not exist,
+  with no model. It leaves by *Moved* or by *Error*.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -142,6 +144,20 @@ test run, whether started by **Run** or by dragging an email onto the trigger �
 in Outlook's Drafts to be sent by hand: turning sending on later does not reach back to send them on a re-run.
 
 Every way out — *Sent*, *Held* and *Error* — fills its **output slot** with `sent`, `held`, `failed` and `why`.
+
+## Moving
+
+Once a flow has handled an email, a **Move email** files it into a folder in its mailbox, with no model.
+
+Give it a **folder** under the Inbox, such as `Processed` or `Clients\Acme` — when a trigger in the flow names a
+mailbox, the folder box offers the folders already under its Inbox — or a well-known folder such as `Deleted Items`. If
+the folder is not there yet, Outlook creates it. The folder path can name a field an earlier node filled, in braces,
+which the run writes in: `Processed\{{shipment.client}}`; typing `{{` offers the fields that reach the node. Each field
+is checked against the schema of the slot it reads, and a field that is missing or blank when the run reaches the node
+leaves by *Error* rather than filing into the parent folder.
+
+Give it an **output slot** and both *Moved* and *Error* fill it with `moved`, the `folder` Outlook filed the email into,
+`folderCreated` and `why`.
 
 ## Data on the wire
 
