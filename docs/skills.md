@@ -124,8 +124,25 @@ unticked.
 
 ## File access
 
-A Processor's own file access is a separate switch, *Read and write files anywhere, and run commands*, and it starts
-off. Off, Claude reads the run folder — the saved attachments — and the workspace's folder, writes only through
-`save_file`, and has no shell at all. That is what a node reading mail from outside should get: an email written to
-steer the agent reading it can then reach nothing outside the workspace and change nothing in it. Keep anything a step
-should not read out of the workspace's folder, and switch file access on only for a skill that has to run a script.
+A Processor's file tools reach the folders it ticks under *What this node may do* and its own run folder, and nowhere
+else. The folders come from **Settings → Folders**, which lists every folder on this computer a run may ever be handed,
+each under a name and either *Read only* or *Read and write*. A node ticks a folder by that name, and picks *Read only*
+or *Read and write* where Settings allows writing there. A flow names folders, never paths, so a flow copied to another
+computer finds its folders there under the same names; a node ticking one that computer's Settings does not list stops
+at its error port, saying which, rather than running without it.
+
+With nothing ticked, Claude reads the run folder — the saved attachments — writes only through `save_file`, and
+reads nothing else: not even the workspace's folder, where the flows and the files that say which MCP servers start
+live, unless that folder, or one inside it, is listed in Settings and ticked. That is what a node reading mail from
+outside should get: an email written to steer the agent reading it can reach nothing a person did not hand it. Each of
+Read, Glob, Grep, Write and Edit is checked against those folders before it runs, links followed, and refused with the
+reason when it reaches outside them.
+
+*Run commands (Bash)* is a separate box, and it starts off. A command is held to no folder: it reaches whatever this
+computer's user can, whatever is ticked. Tick it only for a skill that has to run a script.
+
+A Processor from before Settings had folders had one box, *Read and write files anywhere, and run commands*. One that
+had it ticked opens with *Run commands* ticked and *Read and write files anywhere* ticked under it, and is flagged on the
+canvas: its run still reads and writes anywhere until that box is unticked, which is for good.
+
+An Extractor's Read reaches its run folder alone, and only when it saves the attachments.

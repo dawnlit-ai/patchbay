@@ -3,6 +3,7 @@
  * Imported by both renderer and main, so it stays free of Node and DOM.
  */
 
+import type { FolderAccess } from './settings';
 import { errorMessage, isObject, type Json } from './util';
 
 export type NodeKind =
@@ -189,11 +190,21 @@ export interface ProcessorConfig {
     /** Adds `save_attachment` to the run-scoped MCP server, while the node reads the email. */
     allowSaveAttachments: boolean;
     /**
-     * Read, Write, Edit and Bash anywhere on the machine. Off, Claude reads only
-     * the workspace's folder and the run folder, writes only through `save_file`,
-     * and has no shell.
+     * Folders from Settings → Folders, by name, that the run's file tools reach
+     * besides its run folder, each read or also written in, up to what Settings
+     * allows there. With none, the run reads its run folder alone and writes only
+     * through `save_file`.
      */
-    allowFileSystem: boolean;
+    folders: FolderGrant[];
+    /** Bash, which is held to no folder: it reaches whatever this computer's user can. */
+    allowShell: boolean;
+    /**
+     * Read, Write and Edit anywhere on the machine, as a Processor's file-system
+     * box gave them before folders were picked in Settings. The run still gets
+     * them; the node is flagged until it is unticked, which is for good. Absent
+     * when off, so a flow file carries it only while there is something to say.
+     */
+    filesAnywhere?: true;
     /**
      * Tools from the workspace's MCP servers, in the SDK's own spelling:
      * `mcp__<server>` for every tool a server has, `mcp__<server>__<tool>` for one.
@@ -207,6 +218,15 @@ export interface ProcessorConfig {
      * there are none, so a flow file carries it only while there is something to say.
      */
     retiredTools?: RetiredTool[];
+}
+
+/** What the inspector and the canvas call a Processor's `filesAnywhere`. */
+export const FILES_ANYWHERE_LABEL = 'Read and write files anywhere';
+
+/** A folder a node ticks, by the name Settings → Folders gives it, and how far its run may go there. */
+export interface FolderGrant {
+    folder: string;
+    access: FolderAccess;
 }
 
 /** A tool a Processor once had and no longer does, the node that does its work now, and the box it had. */
@@ -1318,6 +1338,13 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
                     `${node.name} still has “${label}” ticked, which a Processor no longer does. Put a ${instead} after it, take that out of its instruction, then untick it.`,
                 );
             }
+            if (node.config.filesAnywhere) {
+                issues.push({
+                    nodeId: node.id,
+                    severity: 'warning',
+                    message: `${node.name} still has “${FILES_ANYWHERE_LABEL}” ticked, from before a node picked its folders. Add the folders it needs in Settings → Folders, tick them on the node, then untick that.`,
+                });
+            }
         }
         for (const message of errors) issues.push({nodeId: node.id, severity: 'error', message});
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
@@ -1476,7 +1503,8 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 schema: {},
                 models: models('high'),
                 allowSaveAttachments: true,
-                allowFileSystem: false,
+                folders: [],
+                allowShell: false,
                 mcpTools: [],
             };
         case 'create-email':
@@ -1694,6 +1722,21 @@ function modelsOf(value: unknown, base: ModelChoice[]): ModelChoice[] {
         : models.map((choice, i) => (i === 0 ? {...choice, enabled: true} : choice));
 }
 
+/**
+ * A node's folders, each named and once, whatever the letter case: the first
+ * entry for a name is kept. A file may write one as its name alone, for read.
+ */
+function folderGrants(value: unknown): FolderGrant[] {
+    const out: FolderGrant[] = [];
+    for (const entry of Array.isArray(value) ? value : []) {
+        const grant: Json = typeof entry === 'string' ? {folder: entry} : isObject(entry) ? entry : {};
+        const folder = str(grant.folder, '').trim();
+        if (!folder || out.some((g) => g.folder.toLowerCase() === folder.toLowerCase())) continue;
+        out.push({folder, access: grant.access === 'write' ? 'write' : 'read'});
+    }
+    return out;
+}
+
 /** Every field replaced by its default unless the file supplies the right type. */
 function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
     const base = defaultConfig(kind);
@@ -1768,6 +1811,9 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             const retired = (Object.keys(RETIRED_TOOLS) as RetiredTool[]).filter(
                 (tool) => listed.includes(tool) || from[RETIRED_TOOLS[tool].key] === true,
             );
+            // Ticked as its old box, `allowFileSystem: true`, in a flow from before
+            // folders were picked in Settings: files anywhere, and the shell.
+            const anywhere = from.filesAnywhere === true || from.allowFileSystem === true;
             return {
                 ...base,
                 skills: skillTicks(from.skills, base.skills),
@@ -1778,8 +1824,10 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 schema: schemaOf(from.schema),
                 models: modelsOf(from.models, base.models),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
-                allowFileSystem: bool(from.allowFileSystem, base.allowFileSystem),
+                folders: folderGrants(from.folders),
+                allowShell: from.allowFileSystem === true || bool(from.allowShell, base.allowShell),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
+                ...(anywhere ? {filesAnywhere: true as const} : {}),
                 ...(retired.length > 0 ? {retiredTools: retired} : {}),
             };
         }

@@ -58,6 +58,7 @@ const api: Api = {
     settings: {
         get: () => call(IPC.settingsGet),
         save: (settings) => call(IPC.settingsSave, settings),
+        pickFolder: (current) => call(IPC.settingsPickFolder, current),
     },
     mcp: {
         servers: () => call(IPC.mcpServers),
@@ -147,6 +148,7 @@ const api: Api = {
         updateStatus: (cb) => subscribe(IPC.evtUpdateStatus, cb),
         workspaceChanged: (cb) => subscribe(IPC.evtWorkspaceChanged, cb),
         logged: (cb) => subscribe(IPC.evtLogged, cb),
+        settings: (cb) => subscribe(IPC.evtSettings, cb),
     },
 };
 

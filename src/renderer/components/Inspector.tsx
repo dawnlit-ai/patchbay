@@ -10,8 +10,10 @@ import {
     EMAIL_SLOT,
     type EmailMode,
     type ExtractorConfig,
+    FILES_ANYWHERE_LABEL,
     type FlowIssue,
     type FlowNode,
+    type FolderGrant,
     hasInput,
     isAgyModel,
     isClaudeModel,
@@ -49,6 +51,9 @@ import type { InboxFolderOption, ModelOption } from '@shared/ipc';
 import {
     AGENT_NAMES,
     type AgentId,
+    findFolder,
+    type FolderAccess,
+    type FolderSetting,
     type McpListing,
     type McpServerEntry,
     type McpServerTool,
@@ -970,23 +975,148 @@ function ProcessorFields({
             <ModelsField kind="processor" value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="section-title">What this node may do</div>
+            <FoldersField config={config} patch={patch}/>
+            <FilesAnywhereField config={config} patch={patch}/>
             <label className="check">
                 <input
                     type="checkbox"
-                    checked={config.allowFileSystem}
-                    onChange={(e) => patch({allowFileSystem: e.target.checked})}
+                    checked={config.allowShell}
+                    onChange={(e) => patch({allowShell: e.target.checked})}
                 />
-                Read and write files anywhere, and run commands (Read, Write, Edit, Bash)
+                Run commands (Bash)
             </label>
-            {!config.allowFileSystem && (
+            {config.allowShell && (
                 <div className="hint">
-                    Off, it still reads its run folder — saved attachments — and saves files there, with no shell.
+                    A command reaches every folder this computer’s user can, whatever is ticked above.
                 </div>
             )}
             <RetiredToolsField config={config} patch={patch}/>
 
             <div className="gap"/>
             <McpToolsField config={config} patch={patch}/>
+        </>
+    );
+}
+
+/** Settings → Folders as saved, kept up to date while the inspector is open. Null until it has been read. */
+function useSettingsFolders(): FolderSetting[] | null {
+    const [folders, setFolders] = useState<FolderSetting[] | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        void window.api.settings.get().then((settings) => {
+            if (!cancelled) setFolders(settings.folders);
+        });
+        const off = window.api.on.settings((settings) => setFolders(settings.folders));
+        return () => {
+            cancelled = true;
+            off();
+        };
+    }, []);
+    return folders;
+}
+
+/**
+ * The folders a Processor's run reaches besides its run folder, ticked from
+ * Settings → Folders, each read or also written in up to what Settings allows
+ * there. A tick naming a folder Settings no longer lists stays, flagged, to be unticked.
+ */
+function FoldersField({config, patch}: Section<ProcessorConfig>): JSX.Element {
+    const folders = useSettingsFolders();
+    const named = (name: string) => (grant: FolderGrant): boolean => grant.folder.toLowerCase() === name.toLowerCase();
+    const set = (name: string, access: FolderAccess | null): void => {
+        const has = config.folders.some(named(name));
+        patch({
+            folders:
+                access === null
+                    ? config.folders.filter((g) => !named(name)(g))
+                    : has
+                        ? config.folders.map((g) => (named(name)(g) ? {...g, access} : g))
+                        : [...config.folders, {folder: name, access}],
+        });
+    };
+    const stranded = folders ? config.folders.filter((g) => !findFolder(folders, g.folder)) : [];
+    const ticked = config.folders.length > 0;
+
+    return (
+        <>
+            {folders?.map((folder) => {
+                const grant = config.folders.find(named(folder.name));
+                const writable = folder.access === 'write';
+                return (
+                    <div key={folder.name} className="pick-row" title={folder.path}>
+                        <label className="check">
+                            <input
+                                type="checkbox"
+                                checked={grant !== undefined}
+                                onChange={(e) => set(folder.name, e.target.checked ? 'read' : null)}
+                            />
+                            {folder.name}
+                        </label>
+                        {grant && (
+                            <select
+                                className="compact"
+                                aria-label={`What the run may do in ${folder.name}`}
+                                value={writable ? grant.access : 'read'}
+                                disabled={!writable}
+                                title={writable ? undefined : 'Settings → Folders allows reading here, and nothing more.'}
+                                onChange={(e) => set(folder.name, e.target.value as FolderAccess)}
+                            >
+                                <option value="read">Read only</option>
+                                <option value="write">Read and write</option>
+                            </select>
+                        )}
+                    </div>
+                );
+            })}
+            {stranded.map((grant) => (
+                <div key={grant.folder} className="pick-row">
+                    <label className="check">
+                        <input type="checkbox" checked onChange={() => set(grant.folder, null)}/>
+                        {grant.folder}
+                    </label>
+                    <span className="dim">not in Settings</span>
+                </div>
+            ))}
+            <div className="hint">
+                {!folders
+                    ? 'Reading Settings → Folders…'
+                    : config.filesAnywhere
+                        ? `While “${FILES_ANYWHERE_LABEL}” is ticked below, its file tools reach every folder, ticked or not.`
+                        : stranded.length > 0
+                            ? `Settings → Folders on this computer lists no ${stranded.map((g) => `“${g.folder}”`).join(' or ')}, so the run stops with an error. Add ${stranded.length === 1 ? 'it' : 'them'} there under the same name, or untick ${stranded.length === 1 ? 'it' : 'each'}.`
+                            : folders.length === 0
+                                ? 'Its file tools reach its run folder alone, where attachments are saved. Add a folder in Settings → Folders to tick it here.'
+                                : ticked
+                                    ? 'Its file tools reach these and its run folder, and nowhere else.'
+                                    : 'Its file tools reach its run folder alone, where attachments are saved.'}
+            </div>
+            {folders && (
+                <button className="field-link" onClick={() => void window.api.window.showSettings()}>
+                    Open Settings
+                </button>
+            )}
+            <div className="gap"/>
+        </>
+    );
+}
+
+/**
+ * A Processor's box from before folders were picked in Settings, which gave its
+ * run files anywhere. It still does, until it is unticked, which is for good.
+ */
+function FilesAnywhereField({config, patch}: Section<ProcessorConfig>): JSX.Element | null {
+    if (!config.filesAnywhere) return null;
+    return (
+        <>
+            <label className="check">
+                <input type="checkbox" checked onChange={() => patch({filesAnywhere: undefined})}/>
+                {FILES_ANYWHERE_LABEL}
+            </label>
+            <div className="hint">
+                From before a node picked its folders: the run still reads and writes anywhere. Tick the folders it
+                needs above, then untick this. Once unticked it cannot be ticked again.
+            </div>
+            <div className="gap"/>
         </>
     );
 }

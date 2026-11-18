@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { z } from 'zod';
 import {
     type CategorizerConfig,
@@ -10,6 +11,7 @@ import {
     fieldText,
     fillFields,
     type FlowNode,
+    type FolderGrant,
     HELD_PORT,
     type JsonSchema,
     type ModelChoice,
@@ -35,6 +37,7 @@ import {
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
+import { findFolder, type FolderSetting } from '@shared/settings';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
 import { errorMessage, isObject } from '@shared/util';
 import type { AgentMcpServer, AgentRunRequest } from '../agents';
@@ -45,6 +48,7 @@ import { requireServer, usableServers } from '../store/mcpStore';
 import { findNewEmail, findReply, recordReply, repliedEmail, type ReplyRecord } from '../store/replyStore';
 import { findSend, recordSend } from '../store/sendStore';
 import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
+import { getSettings } from '../store/settingsStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
 
@@ -150,6 +154,51 @@ async function nodeServers(mcpTools: string[]): Promise<NodeServers> {
         }
     }
     return {servers, allowed};
+}
+
+/** A node's folders as this computer has them, split by what its run may do there, and why it cannot have them. */
+interface NodeFolders {
+    read: FolderSetting[];
+    write: FolderSetting[];
+    problem?: NodeOutcome;
+}
+
+/**
+ * The folders from Settings → Folders that a node ticks, each held to the less
+ * of what the node asks and Settings allows there. A folder Settings does not
+ * list, or one not on this computer, stops the step with `problem` rather than
+ * running without a folder it was built to use, as a missing skill does.
+ */
+function nodeFolders(grants: FolderGrant[]): NodeFolders {
+    const read: FolderSetting[] = [];
+    const write: FolderSetting[] = [];
+    const refused = (message: string): NodeFolders => ({
+        read,
+        write,
+        problem: {outPort: 'error', summary: message, error: message}
+    });
+    const {folders} = getSettings();
+    for (const grant of grants) {
+        const folder = findFolder(folders, grant.folder);
+        if (!folder) {
+            return refused(
+                `The node ticks the folder "${grant.folder}", which Settings → Folders on this computer does not list. Add it there, or untick it on the node.`,
+            );
+        }
+        if (!isFolder(folder.path)) {
+            return refused(`Settings → Folders has "${folder.name}" at ${folder.path}, which is not a folder on this computer.`);
+        }
+        (grant.access === 'write' && folder.access === 'write' ? write : read).push(folder);
+    }
+    return {read, write};
+}
+
+function isFolder(path: string): boolean {
+    try {
+        return statSync(path).isDirectory();
+    } catch {
+        return false;
+    }
 }
 
 /** Skills as Claude names them: each of the workspace's plugin, `workspace:<name>`. */
@@ -395,6 +444,8 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         skills: library.names,
         followSkills: skillNames(config.skills),
         additionalDirectories: config.includeAttachments ? [ctx.scratchDir] : undefined,
+        // Read reaches the attachments it saves, and not the workspace it starts in.
+        folders: {read: config.includeAttachments ? [ctx.scratchDir] : [], write: []},
         // Nothing that writes or runs a command: Skill to load the workspace's
         // skills, and Read for the attachments it saves.
         tools: [...(library.names.length > 0 ? ['Skill'] : []), ...(config.includeAttachments ? ['Read'] : [])],
@@ -483,10 +534,15 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         actions,
     });
 
+    const folders = nodeFolders(config.folders);
+    if (folders.problem) return folders.problem;
     const extra = await nodeServers(config.mcpTools);
     if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(config), ...extra.allowed];
-    if (config.allowFileSystem) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash');
+    // Files anywhere, from an older flow, as its box gave them: no folder holds the file tools.
+    if (config.filesAnywhere) allowedTools.push('Read', 'Write', 'Edit', 'Glob', 'Grep');
+    if (config.allowShell) allowedTools.push('Bash');
+    const where = (list: FolderSetting[]): string => list.map((f) => `${f.name} (${f.path})`).join(', ');
 
     const one = config.skills.length === 1;
     const prompt = [
@@ -514,6 +570,11 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
             ]),
         '',
         `Scratch folder for this run (save and read files here): ${ctx.scratchDir}`,
+        ...(folders.read.length > 0 ? [`Folders you may read: ${where(folders.read)}`] : []),
+        ...(folders.write.length > 0 ? [`Folders you may read and write in: ${where(folders.write)}`] : []),
+        ...(config.filesAnywhere || folders.read.length + folders.write.length === 0
+            ? []
+            : ['Your file tools reach these folders and no others: give Glob and Grep one of them as their `path`.']),
         ...(config.readEmail ? ['', '--- Email ---', emailContext(ctx.email, ctx.email.body)] : []),
         ...slotContext(ctx, config.inputs),
         '',
@@ -537,15 +598,23 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
         skillPlugins: library.plugins,
         // The scratch folder, where attachments are saved, is outside that directory.
         additionalDirectories: [ctx.scratchDir],
+        // Its file tools reach the run folder and the node's folders, and not the
+        // workspace it starts in unless that is one of them: not its flows, nor
+        // the files that say which MCP servers start with what.
+        folders: config.filesAnywhere
+            ? undefined
+            : {
+                read: [ctx.scratchDir, ...folders.read.map((f) => f.path)],
+                write: folders.write.map((f) => f.path),
+            },
         skills: library.names,
         followSkills: skillNames(config.skills),
         allowedTools,
-        // Without file-system access the run still reads its own two folders,
-        // which `dontAsk` allows; the shell goes, since `dontAsk` would let its
-        // read-only commands through too, and "read-only" is the shell's own guess.
+        // Without the shell ticked it goes, since `dontAsk` would let its read-only
+        // commands through too, and "read-only" is the shell's own guess.
         // With no skills in the workspace, no Skill tool either: nothing else is this step's to load.
         disallowedTools: [
-            ...(config.allowFileSystem ? [] : ['Bash', 'PowerShell']),
+            ...(config.allowShell ? [] : ['Bash', 'PowerShell']),
             ...(library.names.length > 0 ? [] : ['Skill']),
         ],
         mcpServers: {[EMAIL_SERVER_NAME]: server, ...extra.servers},

@@ -299,7 +299,17 @@ export function registerIpc(): void {
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
+        // An inspector open on a Processor ticks from Settings → Folders.
+        broadcast(IPC.evtSettings, saved);
         return saved;
+    });
+    handle(IPC.settingsPickFolder, async (current: string) => {
+        const picked = await dialog.showOpenDialog({
+            title: 'Choose a folder runs may be handed',
+            defaultPath: current || app.getPath('documents'),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        return picked.canceled ? null : (picked.filePaths[0] ?? null);
     });
 
     handle(IPC.mcpServers, () => {

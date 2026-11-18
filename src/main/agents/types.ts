@@ -40,6 +40,14 @@ export interface AgentRunRequest {
     /** Absolute paths the run may touch beyond `cwd` — the run's scratch folder. */
     additionalDirectories?: string[];
     /**
+     * Where the run's own file tools reach, as absolute paths: Read, Glob and
+     * Grep in `read` and `write`, Write and Edit in `write` alone, and nowhere
+     * else — `cwd` included, unless listed, and the skills' own folders aside.
+     * Absent, they reach what `cwd`, `additionalDirectories` and `allowedTools`
+     * let them. A shell is not held to these.
+     */
+    folders?: { read: string[]; write: string[] };
+    /**
      * Plugin folders outside `cwd` whose `skills` folder holds skills the run may
      * use, each named `<plugin>:<skill>` — the only way Claude Code loads skills a
      * run's own working directory does not hold.

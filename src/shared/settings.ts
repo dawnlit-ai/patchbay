@@ -167,6 +167,47 @@ export function agentsInOrder(stored: unknown): AgentSetting[] {
 /** Bounds for the concurrency cap. Past a handful, runs just queue at Outlook, which takes one caller at a time. */
 export const CONCURRENT_RUNS_RANGE = {min: 1, max: 8} as const;
 
+/** How far a run may go in a folder: read what is there, or also write and edit files in it. */
+export type FolderAccess = 'read' | 'write';
+
+export const FOLDER_ACCESS: FolderAccess[] = ['read', 'write'];
+
+/**
+ * A folder on this computer that a run may be handed, kept in Settings → Folders.
+ * A node ticks it by `name`, so a flow names no path: a flow copied to another
+ * computer finds its folder there under the same name.
+ */
+export interface FolderSetting {
+    /** What a node ticks it by. Each once, whatever the letter case. */
+    name: string;
+    /** Absolute, as this computer spells it. */
+    path: string;
+    /** The most any node may do in it. */
+    access: FolderAccess;
+}
+
+/** The folder named `name`, matched as Settings keeps names unique: whatever the letter case. */
+export const findFolder = (folders: FolderSetting[], name: string): FolderSetting | undefined =>
+    folders.find((f) => f.name.toLowerCase() === name.trim().toLowerCase());
+
+/**
+ * The folders a settings file lists, each with a name, an absolute path and a
+ * known access, and each name once: a later one of the same name is dropped.
+ */
+export function foldersOf(stored: unknown): FolderSetting[] {
+    const out: FolderSetting[] = [];
+    for (const f of Array.isArray(stored) ? stored : []) {
+        const name = typeof f?.name === 'string' ? f.name.trim() : '';
+        const path = typeof f?.path === 'string' ? f.path.trim() : '';
+        if (!name || !isAbsolutePath(path) || findFolder(out, name)) continue;
+        out.push({name, path, access: f.access === 'write' ? 'write' : 'read'});
+    }
+    return out;
+}
+
+/** Absolute on Windows or a Mac, judged without node's path, which the renderer does not have. */
+const isAbsolutePath = (path: string): boolean => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(path);
+
 /** Which releases the app updates itself to: published ones, or a build of each day's changes. */
 export type UpdateChannel = 'stable' | 'nightly';
 
@@ -192,6 +233,11 @@ export interface Settings {
     agentControl: AgentControlSettings;
     /** Unset in a settings file, a nightly build follows nightlies and any other build follows stable. */
     updateChannel: UpdateChannel;
+    /**
+     * Every folder a run's file tools may be handed, and none besides: a node
+     * ticks from these. A shell, once a node lets its run have one, is not held to them.
+     */
+    folders: FolderSetting[];
 }
 
 export function defaultSettings(): Settings {
@@ -203,6 +249,7 @@ export function defaultSettings(): Settings {
         maxConcurrentRuns: 3,
         agentControl: {enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: ''},
         updateChannel: 'stable',
+        folders: [],
     };
 }
 

@@ -10,6 +10,10 @@ import {
     type AgentId,
     type AgentKeySource,
     CONCURRENT_RUNS_RANGE,
+    findFolder,
+    FOLDER_ACCESS,
+    type FolderAccess,
+    type FolderSetting,
     type Settings,
     UPDATE_CHANNELS,
     type UpdateChannel,
@@ -39,14 +43,38 @@ interface Props {
 
 /** The settings window's content: a rail of pages and the current page, each saved as it is edited. */
 
-type Page = 'agents' | 'runs' | 'agent' | 'updates';
+type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'updates';
 
 const PAGES: { id: Page; label: string }[] = [
     {id: 'agents', label: 'Agents'},
     {id: 'runs', label: 'Runs'},
+    {id: 'folders', label: 'Folders'},
     {id: 'agent', label: 'Agent control'},
     {id: 'updates', label: 'Updates'},
 ];
+
+const ACCESS_LABELS: Record<FolderAccess, string> = {read: 'Read only', write: 'Read and write'};
+
+/** The folders as they are saved: each name trimmed. */
+const trimmedFolders = (folders: FolderSetting[]): FolderSetting[] => folders.map((f) => ({...f, name: f.name.trim()}));
+
+/** Why the folder at `i` cannot be saved as it is named, if it cannot: no name, or one an earlier folder has. */
+function folderNameProblem(folders: FolderSetting[], i: number): string | null {
+    const name = folders[i]!.name.trim();
+    if (!name) return 'Give it a name: a node ticks it by that. Until then the folders stay as they were saved.';
+    if (findFolder(folders.slice(0, i), name)) {
+        return 'Another folder already has this name. Until it has its own, the folders stay as they were saved.';
+    }
+    return null;
+}
+
+/** A name for a folder just picked: its own, or that with a number after it, so no other folder has it. */
+function newFolderName(folders: FolderSetting[], path: string): string {
+    const wanted = path.split(/[\\/]/).filter(Boolean).at(-1)?.replace(/:$/, '') || 'Folder';
+    let name = wanted;
+    for (let n = 2; findFolder(folders, name); n++) name = `${wanted} ${n}`;
+    return name;
+}
 
 /**
  * What the pages edit, each saved as it changes. The token is left out: main
@@ -61,10 +89,16 @@ const edits = (s: Settings): unknown => [
     s.agentControl.enabled,
     s.agentControl.port,
     s.updateChannel,
+    s.folders,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
-const typed = (s: Settings): unknown => [s.claudeExecutablePath, s.agyExecutablePath, s.agentControl.port];
+const typed = (s: Settings): unknown => [
+    s.claudeExecutablePath,
+    s.agyExecutablePath,
+    s.agentControl.port,
+    s.folders.map((f) => f.name),
+];
 
 /** How long typing has to pause before what was typed is saved; a switch, a move or a choice is saved at once. */
 const TYPING_PAUSE_MS = 600;
@@ -372,10 +406,16 @@ export function SettingsPanel({
     // Every edit is saved: a switch, a move or a choice at once, what is typed once
     // typing pauses. A newer edit replaces one still waiting. A port the server
     // cannot take, as one is while it is retyped, is not saved; the rest still is.
+    // So with the folders while one has no name, or another's.
     useEffect(() => {
-        const next = usablePort(draft.agentControl.port)
-            ? draft
-            : {...draft, agentControl: {...draft.agentControl, port: settings.agentControl.port}};
+        const folders = trimmedFolders(draft.folders);
+        const next = {
+            ...draft,
+            agentControl: usablePort(draft.agentControl.port)
+                ? draft.agentControl
+                : {...draft.agentControl, port: settings.agentControl.port},
+            folders: folders.every((_, i) => folderNameProblem(folders, i) === null) ? folders : settings.folders,
+        };
         if (same(edits(next), edits(settings))) return;
         waiting.current = next;
         const timer = setTimeout(() => {
@@ -452,6 +492,33 @@ export function SettingsPanel({
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({...d, agentControl: {...d.agentControl, ...partial}}));
 
+    const patchFolder = (index: number, partial: Partial<FolderSetting>): void =>
+        setDraft((d) => ({...d, folders: d.folders.map((f, j) => (j === index ? {...f, ...partial} : f))}));
+
+    /** Why picking a folder failed: the dialog is main's, and this window is the only place to say it. */
+    const [pickError, setPickError] = useState<string | null>(null);
+    const pickFolder = async (current: string): Promise<string | null> => {
+        setPickError(null);
+        try {
+            return await window.api.settings.pickFolder(current);
+        } catch (e) {
+            setPickError(errorMessage(e));
+            return null;
+        }
+    };
+    const addFolder = async (): Promise<void> => {
+        const path = await pickFolder('');
+        if (!path) return;
+        setDraft((d) => ({
+            ...d,
+            folders: [...d.folders, {name: newFolderName(d.folders, path), path, access: 'read'}]
+        }));
+    };
+    const moveFolder = async (index: number): Promise<void> => {
+        const path = await pickFolder(draft.folders[index]?.path ?? '');
+        if (path) patchFolder(index, {path});
+    };
+
     const copy = (what: string, text: string): void => {
         void window.api.copyText(text).then(() => {
             setCopied(what);
@@ -462,6 +529,7 @@ export function SettingsPanel({
     /** What the rail says about a page besides its name. */
     const meta = (p: Page): ReactNode => {
         if (p === 'runs' && !draft.pollingEnabled) return <span className="meta">Off</span>;
+        if (p === 'folders' && draft.folders.length > 0) return <span className="meta">{draft.folders.length}</span>;
         if (p === 'agent' && agentControl?.running) {
             return (
                 <span className="meta on">
@@ -667,6 +735,110 @@ export function SettingsPanel({
                                         }
                                     />
                                 </div>
+                            </>
+                        )}
+
+                        {page === 'folders' && (
+                            <>
+                                <PageHead title="Folders">
+                                    The folders on this computer that a Processor's run may be handed, and the most
+                                    it may do in each. A node ticks the ones it needs; its run's file tools reach
+                                    those and its own run folder, and nothing else — not the workspace either, unless
+                                    it is listed here.
+                                </PageHead>
+                                {draft.folders.length > 0 ? (
+                                    <div className="agent-list" role="list" aria-label="Folders">
+                                        {draft.folders.map((folder, i) => {
+                                            const problem = folderNameProblem(draft.folders, i);
+                                            return (
+                                                <div key={i} role="listitem" className="set-group">
+                                                    <Row
+                                                        label={
+                                                            <input
+                                                                className="set-folder-name"
+                                                                aria-label="Folder name"
+                                                                value={folder.name}
+                                                                placeholder="Name"
+                                                                onChange={(e) => patchFolder(i, {name: e.target.value})}
+                                                            />
+                                                        }
+                                                        control={
+                                                            <>
+                                                                <div
+                                                                    className="segmented"
+                                                                    role="radiogroup"
+                                                                    aria-label={`What a run may do in ${folder.name || 'this folder'}`}
+                                                                >
+                                                                    {FOLDER_ACCESS.map((access) => (
+                                                                        <button
+                                                                            key={access}
+                                                                            role="radio"
+                                                                            aria-checked={folder.access === access}
+                                                                            onClick={() => patchFolder(i, {access})}
+                                                                        >
+                                                                            {ACCESS_LABELS[access]}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                                <button
+                                                                    title="Point this name at another folder"
+                                                                    onClick={() => void moveFolder(i)}
+                                                                >
+                                                                    Change…
+                                                                </button>
+                                                                <button
+                                                                    className="danger"
+                                                                    onClick={() =>
+                                                                        setDraft((d) => ({
+                                                                            ...d,
+                                                                            folders: d.folders.filter((_, j) => j !== i)
+                                                                        }))
+                                                                    }
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </>
+                                                        }
+                                                        below={
+                                                            <>
+                                                                <span className="set-from">{folder.path}</span>
+                                                                {problem && (
+                                                                    <div className="agent-state bad">
+                                                                        <span className="dot"/>
+                                                                        <div>{problem}</div>
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        }
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="set-group">
+                                        <Row
+                                            label="No folders yet"
+                                            description="A Processor's run reads its own run folder, where it saves attachments, and nothing else, until one is added here and ticked on the node."
+                                        />
+                                    </div>
+                                )}
+                                {pickError && (
+                                    <div className="agent-state bad">
+                                        <span className="dot"/>
+                                        <div>{pickError}</div>
+                                    </div>
+                                )}
+                                <div className="set-actions">
+                                    <button onClick={() => void addFolder()}>Add folder…</button>
+                                </div>
+                                <p className="set-note">
+                                    A flow names a folder, not its path, so a flow copied to another computer finds
+                                    its folder there by the same name. Renaming or removing one here leaves the nodes
+                                    that tick it asking for it, and their runs stop with an error until it is back.
+                                    Read and write lets a node choose either; Read only holds every node to reading.
+                                    A node that may run commands is not held to any of this.
+                                </p>
                             </>
                         )}
 

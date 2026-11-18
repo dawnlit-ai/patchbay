@@ -115,12 +115,21 @@ rather than a fan-out. The nine node kinds:
                     schema, its result fills that slot on "done" — how one
                     step hands its work to the next.
                     It gets only the MCP server tools \`mcpTools\` names;
-                    list_server_tools gives a server's. It drafts, sends
-                    and moves no mail: a create-email, send or move-email
-                    after it does. One from an older flow may still list
-                    "draft_reply" or "move_email" in \`retiredTools\`; the
-                    run does not get them, and the node is flagged until
-                    each is taken out, once the node doing that is in place.
+                    list_server_tools gives a server's. Its file tools
+                    reach its run folder and the \`folders\` it ticks, as
+                    [{folder, access}]: \`folder\` is a name from the
+                    person's Settings → Folders (get_settings lists them)
+                    and \`access\` "read" or "write", held to read where
+                    Settings says so; a name Settings does not list stops
+                    the run. \`allowShell\` gives it Bash, which no folder
+                    holds. It drafts, sends and moves no mail: a
+                    create-email, send or move-email after it does. One
+                    from an older flow may still list "draft_reply" or
+                    "move_email" in \`retiredTools\`; the run does not get
+                    them, and the node is flagged until each is taken out,
+                    once the node doing that is in place. One may also have
+                    \`filesAnywhere\`, which still gives its run files
+                    anywhere and is flagged until set to false.
 - create-email    — drafts an email from a template email in the mailbox's
                     Templates folder, \`template\` being its subject and
                     \`section\` the [[SECTION]] it drafts ("" for a
@@ -1059,7 +1068,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read settings',
             description:
-                'App settings and the MCP servers found in the open workspace, with the agent-control token withheld and each server’s env and headers named but not given. A run is handed only the workspace’s servers. There is no tool that writes these or allows a workspace server: the executables and MCP servers handed to a Processor decide what code a run can execute, so they stay with the person at the window.',
+                'App settings and the MCP servers found in the open workspace, with the agent-control token withheld and each server’s env and headers named but not given. A run is handed only the workspace’s servers. `folders` are the only folders a Processor’s file tools can be handed: a node ticks one by its `name`. There is no tool that writes these or allows a workspace server: the executables, MCP servers and folders handed to a Processor decide what code a run can execute and what it can reach, so they stay with the person at the window.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },

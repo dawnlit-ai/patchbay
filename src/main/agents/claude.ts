@@ -13,6 +13,7 @@ import type {
 import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
 import { type LiveText, now, truncate } from '@shared/trace';
 import { errorMessage } from '@shared/util';
+import { folderHook, writeRules } from './folderPolicy';
 import { listCache } from './listCache';
 import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
@@ -332,8 +333,15 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     if (request.skillPlugins?.length) {
         options.plugins = request.skillPlugins.map((path) => ({type: 'local', path, skipMcpDiscovery: true}));
     }
-    if (request.additionalDirectories?.length) {
-        options.additionalDirectories = request.additionalDirectories;
+    const directories = [
+        ...new Set([...(request.additionalDirectories ?? []), ...(request.folders?.read ?? []), ...(request.folders?.write ?? [])]),
+    ];
+    if (directories.length > 0) options.additionalDirectories = directories;
+    if (request.folders) {
+        // The hook refuses whatever reaches outside the folders; the rules let an
+        // edit into a write folder, which the hook alone cannot under `dontAsk`.
+        options.hooks = {PreToolUse: [{hooks: [folderHook(request.folders, request.skillPlugins ?? [])]}]};
+        options.allowedTools = [...request.allowedTools, ...writeRules(request.folders)];
     }
     if (request.tools) options.tools = request.tools;
     if (request.disallowedTools?.length) options.disallowedTools = request.disallowedTools;

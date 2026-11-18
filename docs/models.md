@@ -57,7 +57,8 @@ calls an MCP tool only when its own settings allow it, so **each tool a node use
 mcp(patchbay_<server>/<tool>)
 ```
 
-A run that is refused one says which rules to add. A Processor with file-system access cannot run on agy.
+A run that is refused one says which rules to add. agy reads the folders a Processor ticks, but writes in none, so a
+Processor that runs commands, writes in a folder, or still reads and writes files anywhere cannot run on agy.
 
 ## Jev
 

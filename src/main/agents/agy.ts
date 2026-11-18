@@ -506,7 +506,13 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
     if (request.allowedTools.some((t) => FILE_SYSTEM_TOOLS.includes(t))) {
         return fail(
             `${model} runs through agy, which this app gives no shell and no file writes. ` +
-            'Untick file-system access, or pick a Claude model for this node.',
+            'Untick Run commands, and files anywhere if it is ticked, or pick a Claude model for this node.',
+        );
+    }
+    if (request.folders && request.folders.write.length > 0) {
+        return fail(
+            `${model} runs through agy, which this app gives no file writes. ` +
+            'Make each of the node’s folders read only, or pick a Claude model for this node.',
         );
     }
 
@@ -519,7 +525,10 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
         const skills = await copySkills(request, workspace);
         const follow = (request.followSkills ?? []).map((ref) => skillRef(ref).name).filter((name) => skills.includes(name));
         const pluginNames = [...new Set((request.skills ?? []).flatMap((ref) => skillRef(ref).plugin ?? []))];
-        const folders = [...new Set([request.cwd, ...(request.additionalDirectories ?? [])])];
+        // A step held to its folders reads those alone, not the folder it was started from.
+        const folders = request.folders
+            ? [...new Set(request.folders.read)]
+            : [...new Set([request.cwd, ...(request.additionalDirectories ?? [])])];
         // A Categorizer's one judgement reads nothing, so it is given no folder to read.
         const readable = request.tools?.length === 0 && serverNames.length === 0 ? [] : folders;
         const agyHome = join(homedir(), '.gemini', 'antigravity-cli');

@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { settingsFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
-import { agentsInOrder, defaultSettings, type Settings } from '@shared/settings';
+import { agentsInOrder, defaultSettings, foldersOf, type Settings } from '@shared/settings';
 import { isObject } from '@shared/util';
 
 let cached: Settings | null = null;
@@ -17,14 +17,24 @@ export function getSettings(): Settings {
     if (cached) return cached;
     // Over the defaults, so a field the file leaves out is never undefined.
     const stored = known(readJson<unknown>(settingsFile(), {}));
-    cached = {...defaultSettings(), ...stored, agents: agentsInOrder(stored.agents)};
+    cached = {
+        ...defaultSettings(),
+        ...stored,
+        agents: agentsInOrder(stored.agents),
+        folders: foldersOf(stored.folders),
+    };
     // Someone who downloaded a nightly wants the next one, until they choose otherwise.
     if (!stored.updateChannel && app.getVersion().includes('-nightly')) cached.updateChannel = 'nightly';
     return cached;
 }
 
 export function saveSettings(settings: Settings): Settings {
-    cached = {...defaultSettings(), ...known(settings), agents: agentsInOrder(settings.agents)};
+    cached = {
+        ...defaultSettings(),
+        ...known(settings),
+        agents: agentsInOrder(settings.agents),
+        folders: foldersOf(settings.folders),
+    };
     writeJson(settingsFile(), cached);
     return cached;
 }

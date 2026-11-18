@@ -214,6 +214,8 @@ export interface Api {
     settings: {
         get(): Promise<Settings>;
         save(settings: Settings): Promise<Settings>;
+        /** Ask for a folder for Settings → Folders, starting from `current`. Null if cancelled. */
+        pickFolder(current: string): Promise<string | null>;
     };
     /** The MCP servers the open workspace defines in its own files, which its nodes can tick tools from. */
     mcp: {
@@ -383,6 +385,8 @@ export interface Api {
         updateStatus(cb: (status: UpdateStatus) => void): () => void;
         /** An agent wrote to the workspace; what is on screen is now behind it. */
         workspaceChanged(cb: (change: WorkspaceChange) => void): () => void;
+        /** Settings were saved, from the settings window: what they are now. */
+        settings(cb: (settings: Settings) => void): () => void;
         logged(cb: (entry: LogEntry) => void): () => void;
     };
 
@@ -428,6 +432,7 @@ export const IPC = {
 
     settingsGet: 'settings:get',
     settingsSave: 'settings:save',
+    settingsPickFolder: 'settings:pickFolder',
 
     mcpServers: 'mcp:servers',
     mcpServerTools: 'mcp:serverTools',
@@ -506,4 +511,5 @@ export const IPC = {
     evtUpdateStatus: 'evt:updateStatus',
     evtWorkspaceChanged: 'evt:workspaceChanged',
     evtLogged: 'evt:logged',
+    evtSettings: 'evt:settings',
 } as const;

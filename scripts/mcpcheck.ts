@@ -187,8 +187,9 @@ async function main(): Promise<void> {
 
     const step = await call('add_node', {flowId, kind: 'processor'});
     check(
-        'a new processor starts with no server tools and no file-system access',
-        step.includes('"mcpTools": []') && step.includes('"allowFileSystem": false'),
+        'a new processor starts with no server tools, no folders and no shell',
+        step.includes('"mcpTools": []') && step.includes('"folders": []') && step.includes('"allowShell": false') &&
+        !step.includes('filesAnywhere'),
     );
     const widened = await call('update_node', {
         flowId,
@@ -1721,6 +1722,58 @@ async function main(): Promise<void> {
     const unticked = await call('update_node', {flowId: thanks, nodeId: retiring, config: {retiredTools: []}});
     check('unticking the last clears the flag, and the node no longer carries the list',
         (await issuesOf(retiring)).length === 0 && !unticked.includes('retiredTools'));
+
+    // Before Settings → Folders, one box gave a Processor files anywhere and the shell.
+    const oldAccess = await call('update_node', {flowId: thanks, nodeId: retiring, config: {allowFileSystem: true}});
+    check(
+        'a processor’s old file-system box, ticked, becomes files anywhere and the shell, and is not written back',
+        oldAccess.includes('"filesAnywhere": true') && oldAccess.includes('"allowShell": true') &&
+        !oldAccess.includes('allowFileSystem'),
+    );
+    check('a processor with files anywhere is warned about, pointing to Settings → Folders',
+        flaggedWith(await issuesOf(retiring), 'warning', '“Read and write files anywhere” ticked, from before a node picked its folders. Add the folders it needs in Settings → Folders'));
+    const narrowed = await call('update_node', {
+        flowId: thanks,
+        nodeId: retiring,
+        config: {filesAnywhere: false, allowShell: false, folders: [{folder: 'Invoices', access: 'write'}]},
+    });
+    check(
+        'unticking files anywhere clears the warning, and the node keeps the folders it ticks instead',
+        (await issuesOf(retiring)).length === 0 && !narrowed.includes('filesAnywhere') &&
+        narrowed.includes('"allowShell": false') && narrowed.includes('"folder": "Invoices"') &&
+        narrowed.includes('"access": "write"'),
+    );
+    const folderFile = parseFlow(
+        {
+            nodes: [
+                {
+                    id: 'p1',
+                    kind: 'processor',
+                    config: {
+                        folders: ['Invoices', {folder: 'INVOICES', access: 'write'}, {
+                            folder: ' Prices ',
+                            access: 'write'
+                        },
+                            {folder: 'Notes', access: 'admin'}, {folder: ''}, 7],
+                    },
+                },
+                {id: 'p2', kind: 'processor', config: {allowFileSystem: false}},
+            ],
+        },
+        'folders',
+        'Folders',
+    );
+    const [f1, f2] = folderFile.nodes.map((n) => (n.config.kind === 'processor' ? n.config : null));
+    check(
+        'a flow file’s folders keep each name once, trimmed, with read for an access it does not know',
+        JSON.stringify(f1?.folders) ===
+        JSON.stringify([{folder: 'Invoices', access: 'read'}, {folder: 'Prices', access: 'write'}, {
+            folder: 'Notes',
+            access: 'read'
+        }]),
+    );
+    check('an old file-system box left unticked gives neither files anywhere nor the shell',
+        f2 !== null && f2 !== undefined && !('filesAnywhere' in f2) && f2.allowShell === false && f2.folders.length === 0);
     const oldFile = parseFlow(
         {
             nodes: [
