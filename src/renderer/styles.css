@@ -1997,6 +1997,11 @@ button.add-field:hover:not(:disabled) {
     width: auto;
 }
 
+/* Part of the box above it, set in to line up with that box's text. */
+.check.sub {
+    margin-left: 24px;
+}
+
 .card {
     display: flex;
     flex-direction: column;

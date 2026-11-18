@@ -870,7 +870,15 @@ function ExtractorFields({
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
-            <InputsField config={config} patch={patch} available={available}/>
+            <InputsField
+                config={config}
+                patch={patch}
+                available={available}
+                attachments={{
+                    checked: config.includeAttachments,
+                    onChange: (includeAttachments) => patch({includeAttachments}),
+                }}
+            />
 
             <OutputFields
                 config={config}
@@ -887,15 +895,6 @@ function ExtractorFields({
                     onChange={(e) => patch({instruction: e.target.value})}
                 />
             </Field>
-
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.includeAttachments}
-                    onChange={(e) => patch({includeAttachments: e.target.checked})}
-                />
-                Read the attachments too, not just the body
-            </label>
 
             <ModelsField kind="extractor" value={config.models} onChange={(models) => patch({models})}/>
 
@@ -942,7 +941,15 @@ function ProcessorFields({
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
-            <InputsField config={config} patch={patch} available={available}/>
+            <InputsField
+                config={config}
+                patch={patch}
+                available={available}
+                attachments={{
+                    checked: config.allowSaveAttachments,
+                    onChange: (allowSaveAttachments) => patch({allowSaveAttachments}),
+                }}
+            />
 
             <Field label="Instruction" hint="Prepended to the email. Say what a good outcome looks like.">
                 <textarea
@@ -963,15 +970,6 @@ function ProcessorFields({
             <ModelsField kind="processor" value={config.models} onChange={(models) => patch({models})}/>
 
             <div className="section-title">What this node may do</div>
-            <label className="check" title={config.readEmail ? undefined : 'Needs the email ticked under Reads.'}>
-                <input
-                    type="checkbox"
-                    disabled={!config.readEmail}
-                    checked={config.readEmail && config.allowSaveAttachments}
-                    onChange={(e) => patch({allowSaveAttachments: e.target.checked})}
-                />
-                Save attachments to the run folder
-            </label>
             <label className="check">
                 <input
                     type="checkbox"
@@ -1264,15 +1262,19 @@ function McpToolsField({
 
 /**
  * What goes into the prompt: the email, slots an earlier node filled, or both.
- * A node without `readEmail` always reads the email.
+ * A node without `readEmail` always reads the email. Its attachments are
+ * ticked under the email, as part of reading it.
  */
 function InputsField({
                          config,
                          patch,
                          available,
+                         attachments,
                      }: Section<{ inputs: string[]; readEmail?: boolean }> & {
-    available: Available | undefined
+    available: Available | undefined;
+    attachments: { checked: boolean; onChange(checked: boolean): void };
 }): JSX.Element {
+    const emailRead = config.readEmail ?? true;
     const offered = [...(available?.keys() ?? [])].filter((name) => name !== EMAIL_SLOT.name);
 
     let hint: string;
@@ -1288,10 +1290,19 @@ function InputsField({
                 <input
                     type="checkbox"
                     disabled={config.readEmail === undefined}
-                    checked={config.readEmail ?? true}
+                    checked={emailRead}
                     onChange={(e) => patch({readEmail: e.target.checked})}
                 />
-                The email — its body, and its attachments if allowed below
+                The email — its body
+            </label>
+            <label className="check sub" title={emailRead ? undefined : 'Needs the email ticked.'}>
+                <input
+                    type="checkbox"
+                    disabled={!emailRead}
+                    checked={emailRead && attachments.checked}
+                    onChange={(e) => attachments.onChange(e.target.checked)}
+                />
+                Its attachments, saved to the run folder to read
             </label>
             <SlotTicks
                 offered={offered}

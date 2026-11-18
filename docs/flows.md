@@ -163,9 +163,11 @@ schema leaves by *Error* instead. A node adds slots and never takes one away, so
 step replies to it or files it.
 
 A Processor ticks what it reads: the email, any slots earlier nodes filled (each goes into its prompt as JSON), or
-both. Without the email it gets none of the email's content, and works from those slots alone — so an Extractor can
+both. Under the email, *Its attachments* lets it save them into the run folder to read; unticked, it works from the body
+alone. Without the email it gets none of the email's content, and works from those slots alone — so an Extractor can
 pull the fields, and a Processor work from them without the email's wording to steer it. An Extractor always
-reads the email, and any slots it ticks besides, and a Switch the slots its rules name. The inspector's *Reads* list names the schema each slot carries
+reads the email, with its attachments when *Its attachments* is ticked under it, and any slots it ticks besides, and a
+Switch the slots its rules name. The inspector's *Reads* list names the schema each slot carries
 beside it, such as `order` · `Shipment`, or *No schema yet* when the node that fills it has not picked one.
 
 Each card lists the slots it **reads** under its title, and each port shows the slot it **adds**, if any; hover one
