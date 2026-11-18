@@ -148,6 +148,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
                 node,
                 schemas,
                 email,
+                trigger,
                 data,
                 scratchDir,
                 signal,

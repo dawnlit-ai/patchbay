@@ -132,17 +132,32 @@ rather than a fan-out. The seven node kinds:
                     nodes, a new email by this one) and "error"; the first
                     two fill \`output\` with {drafted, section, to,
                     draftEntryId, why}. It only drafts.
+- send            — sends drafts a create-email made earlier in the same
+                    run, picked by the draft slots its \`drafts\` lists,
+                    with no model. \`sending\` is false by default: while
+                    off, and on every test run, it sends nothing and leaves
+                    by "held", saying who each draft would have gone to, so
+                    the drafts wait in Outlook for a person. A slot whose
+                    create-email left by "skipped" holds no draft of this
+                    run's and is passed over, so an earlier run's draft is
+                    never sent by a later one, and each send is recorded so
+                    the same draft is never sent twice. Ports: "sent",
+                    "held" and "error"; every port fills \`output\` with
+                    {sent, held, failed, why}, where \`sent\` and \`held\`
+                    list recipients and \`failed\` is [{to, why}].
 - terminal        — ends the path and records how the email came out, as
                     its \`disposition\`. It does nothing to the email: a
                     step that files it or saves its attachments does so
                     with its own tools.
 
 A later node reads a slot by listing it in \`inputs\` (a processor or an
-extractor), or by naming one of its fields: in a rule's \`field\` (a switch), or
+extractor) or in \`drafts\` (a send, where each slot must be a create-email's
+draft), or by naming one of its fields: in a rule's \`field\` (a switch), or
 in a placeholder or in braces in To, Cc or Subject (a create-email);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
 slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
-and a switch's rule that leads to no route it has.
+a slot in \`drafts\` that is not a draft, and a switch's rule that leads to no
+route it has.
 
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as

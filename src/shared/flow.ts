@@ -10,6 +10,7 @@ export type NodeKind =
     | 'extractor'
     | 'processor'
     | 'create-email'
+    | 'send'
     | 'terminal';
 
 export type Disposition = 'done' | 'needs-review' | 'ignored' | 'failed';
@@ -22,6 +23,7 @@ export const NODE_KINDS: NodeKind[] = [
     'extractor',
     'processor',
     'create-email',
+    'send',
     'terminal',
 ];
 export const DISPOSITIONS: Disposition[] = ['done', 'needs-review', 'ignored', 'failed'];
@@ -240,6 +242,23 @@ export interface CreateEmailConfig {
     output: string;
 }
 
+/**
+ * Sends drafts a Create email made earlier in the same run, picked by the draft
+ * slots it names, with no model. Off by default, a test run never sends, and it
+ * never sends a draft an earlier run made.
+ */
+export interface SendConfig {
+    /** Create emails' output slots, by name: the drafts in them are the ones it sends. */
+    drafts: string[];
+    /**
+     * Off by default: it sends nothing and leaves by Held, saying who each draft
+     * would have gone to, while the drafts wait in Outlook for a person.
+     */
+    sending: boolean;
+    /** The slot later nodes read what it sent, held back and could not send by: filled whichever way it leaves. */
+    output: string;
+}
+
 /** Ends a path and records how the email came out. It does nothing to the email: the steps before it do. */
 export interface TerminalConfig {
     disposition: Disposition;
@@ -252,6 +271,7 @@ export type NodeConfig =
     | ({ kind: 'extractor' } & ExtractorConfig)
     | ({ kind: 'processor' } & ProcessorConfig)
     | ({ kind: 'create-email' } & CreateEmailConfig)
+    | ({ kind: 'send' } & SendConfig)
     | ({ kind: 'terminal' } & TerminalConfig);
 
 export interface FlowNode {
@@ -301,6 +321,10 @@ export const routePort = (routeId: string): string => `route:${routeId}`;
 export const DRAFTED_PORT = 'drafted';
 export const SKIPPED_PORT = 'skipped';
 
+/** A Send's ports: it sent this run's drafts, or held them back. */
+export const SENT_PORT = 'sent';
+export const HELD_PORT = 'held';
+
 export function outputPorts(node: FlowNode): Port[] {
     switch (node.config.kind) {
         case 'trigger.outlook':
@@ -335,6 +359,12 @@ export function outputPorts(node: FlowNode): Port[] {
             return [
                 {id: DRAFTED_PORT, label: 'Drafted', tone: 'flow'},
                 {id: SKIPPED_PORT, label: 'Already drafted', tone: 'fallback'},
+                {id: 'error', label: 'Error', tone: 'error'},
+            ];
+        case 'send':
+            return [
+                {id: SENT_PORT, label: 'Sent', tone: 'flow'},
+                {id: HELD_PORT, label: 'Held', tone: 'fallback'},
                 {id: 'error', label: 'Error', tone: 'error'},
             ];
         case 'terminal':
@@ -594,6 +624,9 @@ export function provides(node: FlowNode, port: string): Slot[] {
             return port === DRAFTED_PORT || port === SKIPPED_PORT
                 ? [{name: node.config.output, type: {kind: 'json', schema: DRAFT_SCHEMA}}]
                 : [];
+        case 'send':
+            // Every way out, Error too: a send that went partly wrong says which went.
+            return [{name: node.config.output, type: {kind: 'json', schema: SEND_SCHEMA}}];
         default:
             return [];
     }
@@ -613,6 +646,9 @@ export function requires(node: FlowNode): string[] {
         case 'switch':
             // Its rules are all it reads: the email goes on past it untouched.
             return fieldSlots(node.config.rules.map((rule) => rule.field));
+        case 'send':
+            // The email for its mailbox, which the drafts sit in.
+            return [EMAIL_SLOT.name, ...node.config.drafts];
         case 'categorizer':
             return [EMAIL_SLOT.name];
         case 'terminal':
@@ -656,6 +692,80 @@ export const DRAFT_SCHEMA: JsonSchema = {
     },
     required: ['drafted', 'section', 'to', 'draftEntryId', 'why'],
 };
+
+/** Whether a slot holds a Create email's draft, as a Send reads one. */
+const isDraftType = (type: SlotType | undefined): boolean =>
+    type?.kind === 'json' && JSON.stringify(type.schema) === JSON.stringify(DRAFT_SCHEMA);
+
+/** The slots reaching a node that hold a Create email's draft: what a Send can tick. */
+export const draftSlots = (held: Available | undefined): string[] =>
+    [...(held ?? new Map<string, SlotType>())].filter(([, type]) => isDraftType(type)).map(([name]) => name);
+
+// ── Sending ──────────────────────────────────────────────────────────────
+
+/** One draft a Send could not send, and why. */
+export interface SendFailure {
+    to: string;
+    why: string;
+}
+
+/** What a Send fills its output slot with. Each draft is named by who it is to. */
+export interface SendOutcome {
+    sent: string[];
+    held: string[];
+    failed: SendFailure[];
+    why: string;
+}
+
+/** The shape of a Send's output slot: the app's own. */
+export const SEND_SCHEMA: JsonSchema = {
+    type: 'object',
+    title: 'Sending',
+    properties: {
+        sent: {
+            type: 'array',
+            items: {type: 'string'},
+            description: 'Who each draft this run sent was to.',
+        },
+        held: {
+            type: 'array',
+            items: {type: 'string'},
+            description: 'Who each draft it held back was to: sending is off, or this is a test run. They wait in Drafts.',
+        },
+        failed: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {to: {type: 'string'}, why: {type: 'string'}},
+                required: ['to', 'why'],
+            },
+            description: 'Each draft it could not send, who it was to, and why.',
+        },
+        why: {type: 'string', description: 'What it sent, or why it sent nothing.'},
+    },
+    required: ['sent', 'held', 'failed', 'why'],
+};
+
+/**
+ * Why a Send cannot run whatever reaches it, said as sentences: what the
+ * canvas flags and a run stops on, before Outlook is asked for anything.
+ */
+export function sendProblems(node: FlowNode, config: SendConfig): string[] {
+    if (config.drafts.length > 0) return [];
+    return [`${node.name} sends nothing: tick the draft slots, each filled by a Create email, whose drafts it sends.`];
+}
+
+/** What is wrong with a Send, said as sentences, given the slots that reach it. */
+function sendIssues(node: FlowNode, config: SendConfig, held: Available): string[] {
+    const issues = sendProblems(node, config);
+    for (const slot of config.drafts) {
+        const type = held.get(slot);
+        // A slot not filled on every path is flagged as a read, once, by checkSlots.
+        if (!type || isDraftType(type)) continue;
+        issues.push(`${node.name} sends the draft in ${slot}, but ${slot} holds a ${slotTypeLabel(type)}, not a Create email’s draft.`);
+    }
+    return issues;
+}
 
 // ── Rules ────────────────────────────────────────────────────────────────
 // A Switch decides with no model: its rules are a table over what earlier nodes
@@ -1083,6 +1193,11 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
             }
         }
         if (node.config.kind === 'switch') issues.push(...switchIssues(node, node.config, schemas, held));
+        if (node.config.kind === 'send') {
+            for (const message of sendIssues(node, node.config, held)) {
+                issues.push({nodeId: node.id, severity: 'error', message});
+            }
+        }
         // Put there by a flow file or an agent: the inspector offers Jev to a Categorizer alone.
         if ('models' in node.config && !takesJev(node.kind)) {
             const on = modelsInTurn(node.config.models);
@@ -1257,6 +1372,8 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 subject: '',
                 output: 'draft',
             };
+        case 'send':
+            return {kind, drafts: [], sending: false, output: 'sent'};
         case 'terminal':
             return {kind, disposition: 'done'};
     }
@@ -1276,6 +1393,8 @@ function defaultNodeName(kind: NodeKind): string {
             return 'Process';
         case 'create-email':
             return 'Create email';
+        case 'send':
+            return 'Send';
         case 'terminal':
             return 'Done';
     }
@@ -1312,6 +1431,11 @@ export const NODE_KIND_META: Record<NodeKind, { label: string; blurb: string; to
         label: 'Create email',
         blurb: 'Drafts a reply, or a new email, from a template email in the mailbox, and never the same one twice. Runs no model.',
         token: 'create-email',
+    },
+    send: {
+        label: 'Send',
+        blurb: 'Sends the drafts a Create email made earlier in this run. Off until you turn it on, and a test run never sends.',
+        token: 'send',
     },
     terminal: {
         label: 'Terminal',
@@ -1559,6 +1683,16 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 to: str(from.to, base.to),
                 cc: str(from.cc, base.cc),
                 subject: str(from.subject, base.subject),
+                output: outputName(from.output, base.output),
+            };
+        case 'send':
+            return {
+                ...base,
+                // Each once, and only names a slot can have.
+                drafts: [...new Set(strings(from.drafts, base.drafts).map((s) => s.trim()))].filter(
+                    (s) => SLOT_NAME.test(s) && s !== EMAIL_SLOT.name,
+                ),
+                sending: bool(from.sending, base.sending),
                 output: outputName(from.output, base.output),
             };
         case 'terminal':

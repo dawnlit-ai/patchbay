@@ -32,6 +32,8 @@ of concurrent activity.
 - **Create email** — drafts a [reply](#create-email) to the email, or a new email, from a template email in the
   mailbox, its placeholders filled from what earlier steps found. It runs no model, and drafts nothing an earlier run
   already drafted. It leaves by *Drafted*, by *Already drafted*, or by *Error*.
+- **Send** — [sends](#sending) the drafts a Create email made earlier in the same run, picked by the draft slots it
+  ticks. Its sending is off by default, and a test run never sends. It leaves by *Sent*, by *Held*, or by *Error*.
 - **Terminal** — ends a path and records a disposition. It does nothing to the email: whatever a flow files or
   saves, one of its steps does, with its own tools.
 
@@ -105,7 +107,8 @@ have — leaves by *Error*, drafting nothing, and every email fails the same way
 It fills its **output slot** with what happened — `drafted`, the `section`, who it went `to`, the draft's Outlook id
 and `why` — so the steps after it can say so.
 
-**It only drafts, and never twice.** The email waits in the mailbox's Drafts folder for a person to send. Patchbay
+**It only drafts, and never twice.** The email waits in the mailbox's Drafts folder for a person, or a [Send](#sending)
+node after it, to send. Patchbay
 records each draft, by the id Outlook gave it, in the app's data rather than the workspace. An email gets one reply
 from a flow: a second run over it — a re-run, or one after a later step failed — finds the reply already drafted, by
 whichever of the flow's Create email nodes, and leaves by *Already drafted* without drafting another, even when this
@@ -115,6 +118,30 @@ a flow can tell the office and the trucker each, once.
 A Reply node, as the 1.1.1 nightly had, is read as a Create email. One that replied the same way to every email that
 reached it becomes one exactly. One whose rules could hold the reply back comes in with no template, so that it drafts
 nothing, and is flagged until its choice is moved into a Switch before it.
+
+## Sending
+
+While you are setting a flow up, a Create email's drafts wait in Outlook for you to read and send by hand. Once you
+trust what it writes, a **Send** after it sends them, with no model.
+
+Under *Sends*, tick the draft slots whose drafts it sends — one for a reply, or several when a run drafts both a reply
+and a new email to the office. Only slots every path into the node fills with a Create email's *Draft* are offered; one
+that holds anything else, or none at all, is flagged on the canvas.
+
+**It sends only what this run drafted.** Each draft is sent by the id Outlook gave it when the Create email earlier in
+this run made it. A Create email that left by *Already drafted* puts no id in its slot, so an earlier run's draft is
+passed over and never sent by a later run. Patchbay records each send in the app's data as well, so the same draft is
+never sent twice. A draft Outlook can no longer find in Drafts — sent or deleted by hand since — or one Outlook could
+not give an id to, leaves by *Error* rather than going unnoticed; if other drafts in the same step did go out, the
+output slot lists both what was `sent` and what `failed`.
+
+**Sending starts off, and test runs never send.** New Send nodes have *Send the drafts when a watched flow runs*
+unticked, and the card on the canvas shows `Sending: off` or `Sending: on` at a glance. While it is off — and on every
+test run, whether started by **Run** or by dragging an email onto the trigger — the step sends nothing and leaves by
+*Held*, recording in the trace and in its output slot's `held` list who each draft would have gone to. Those drafts stay
+in Outlook's Drafts to be sent by hand: turning sending on later does not reach back to send them on a re-run.
+
+Every way out — *Sent*, *Held* and *Error* — fills its **output slot** with `sent`, `held`, `failed` and `why`.
 
 ## Data on the wire
 

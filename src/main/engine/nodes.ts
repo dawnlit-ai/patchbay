@@ -19,6 +19,12 @@ import {
     type ProcessorConfig,
     resolveNode,
     type Schemas,
+    type SendConfig,
+    type SendFailure,
+    type SendOutcome,
+    sendProblems,
+    SENT_PORT,
+    HELD_PORT,
     SKIPPED_PORT,
     type SwitchConfig,
     type SwitchOutcome,
@@ -32,6 +38,7 @@ import { agents } from '../agentHost';
 import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EMAIL_TOOLS } from '../tools/emailTools';
 import { requireServer, usableServers } from '../store/mcpStore';
 import { findNewEmail, findReply, recordReply, repliedEmail, type ReplyRecord } from '../store/replyStore';
+import { findSend, recordSend } from '../store/sendStore';
 import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
@@ -44,6 +51,8 @@ export interface NodeContext {
     /** The workspace's named schemas, which the node's schema may refer to. */
     schemas: Schemas;
     email: EmailEnvelope;
+    /** How the run started: a poll of a watched flow, or a person or agent handing it one email to test with. */
+    trigger: 'poll' | 'manual';
     /** Slots earlier nodes on this path filled, by name. */
     data: Readonly<Record<string, unknown>>;
     scratchDir: string;
@@ -621,7 +630,7 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
 // ── Create email ─────────────────────────────────────────────────────────
 // No model: Outlook fills the template, and the draft waits in Drafts for a
-// person. Nothing here sends.
+// person, or for a Send later in the run. Nothing here sends.
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -790,6 +799,150 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     };
 }
 
+// ── Send ─────────────────────────────────────────────────────────────────
+// The one step that sends mail, and only the drafts a Create email made earlier
+// in this run, by the ids in the draft slots it names. A Create email that found
+// its draft already made hands on no id, so an earlier run's draft is never sent
+// by a later one. Held back while its sending is off, and on every test run.
+
+/** A draft this run made, as a Send finds it in a slot. */
+interface ReadyDraft {
+    slot: string;
+    to: string;
+    id: string;
+}
+
+/** Whether a slot holds what a Create email fills one with. */
+const isDraftOutcome = (value: unknown): value is DraftOutcome =>
+    typeof value === 'object' && value !== null &&
+    typeof (value as DraftOutcome).drafted === 'boolean' &&
+    typeof (value as DraftOutcome).draftEntryId === 'string' &&
+    typeof (value as DraftOutcome).to === 'string';
+
+/** Who drafts are to, in a few words. */
+const whoTo = (drafts: { to: string }[]): string => drafts.map((d) => d.to || '(no one named)').join('; ');
+
+async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcome> {
+    const handOn = (outcome: Pick<SendOutcome, 'why'> & Partial<SendOutcome>): Record<string, unknown> => ({
+        [config.output]: {sent: [], held: [], failed: [], ...outcome} satisfies SendOutcome,
+    });
+
+    const [problem] = sendProblems(ctx.node, config);
+    if (problem) return {outPort: 'error', summary: problem, error: problem, provided: handOn({why: problem})};
+
+    // What this run drafted, slot by slot, and what of it cannot be sent whatever the setting.
+    const account = ctx.email.ref.account;
+    const ready: ReadyDraft[] = [];
+    const failed: SendFailure[] = [];
+    const passed: string[] = [];
+    for (const slot of config.drafts) {
+        const draft = ctx.data[slot];
+        if (!isDraftOutcome(draft)) {
+            failed.push({to: '', why: `${slot} holds no Create email’s draft`});
+        } else if (!draft.drafted) {
+            passed.push(`${slot}: drafted by an earlier run, so not this run’s to send`);
+        } else if (!draft.draftEntryId) {
+            failed.push({
+                to: draft.to,
+                why: `Outlook gave the draft in ${slot} no id it could be told apart by, so it waits in Drafts for a person to send`,
+            });
+        } else if (ready.some((r) => r.id === draft.draftEntryId)) {
+            passed.push(`${slot}: the same draft as one named before it`);
+        } else {
+            const earlier = findSend(account, draft.draftEntryId);
+            if (earlier) {
+                failed.push({
+                    to: draft.to,
+                    why: `the draft in ${slot} was already sent, ${earlier.at} (run ${earlier.runId}), and is not sent twice`,
+                });
+            } else {
+                ready.push({slot, to: draft.to, id: draft.draftEntryId});
+            }
+        }
+    }
+    const notes = [...passed, ...failed.map((f) => `Cannot send to ${f.to || '(no one named)'}: ${f.why}`)];
+
+    // Held back: the drafts wait in Outlook, and the trace says where they would have gone.
+    const holding = ctx.trigger === 'manual' ? 'a test run never sends' : config.sending ? null : 'sending is off on this node';
+    if (holding) {
+        const would = ready.length > 0 ? `would have sent to ${whoTo(ready)}` : 'this run drafted nothing to send';
+        const why = `Held: ${holding}; ${would}`;
+        ctx.onEvent({
+            at: now(),
+            type: 'note',
+            label: why,
+            detail: [...ready.map((r) => `Would send to ${r.to} (${r.slot}, draft ${r.id})`), ...notes].join('\n') || undefined,
+        });
+        return {outPort: HELD_PORT, summary: why, provided: handOn({held: ready.map((r) => r.to), failed, why})};
+    }
+
+    if (ready.length === 0) {
+        if (failed.length > 0) {
+            const message = `Sent nothing: ${failed.map((f) => f.why).join('; ')}.`;
+            return {outPort: 'error', summary: message, error: message, provided: handOn({failed, why: message})};
+        }
+        const why = 'Sent nothing: this run drafted nothing to send';
+        if (notes.length > 0) ctx.onEvent({at: now(), type: 'note', label: why, detail: notes.join('\n')});
+        return {outPort: HELD_PORT, summary: why, provided: handOn({why})};
+    }
+
+    let result: { sent: number; failed: { entryId: string; error: string }[] };
+    try {
+        result = await outlook.sendDrafts(account, ready.map((r) => r.id));
+    } catch (e) {
+        // Outlook may have sent some before it stopped: the Sent Items folder says which.
+        const message = `Outlook stopped while sending: ${errorText(e)}. Check Sent Items before sending the rest by hand.`;
+        const all = [...failed, ...ready.map((r) => ({to: r.to, why: message}))];
+        return {outPort: 'error', summary: message, error: message, provided: handOn({failed: all, why: message})};
+    }
+
+    const refused = new Map(result.failed.map((f) => [f.entryId, f.error]));
+    const sent = ready.filter((r) => !refused.has(r.id));
+    for (const r of ready) {
+        const error = refused.get(r.id);
+        if (error !== undefined) failed.push({to: r.to, why: `Outlook did not send it: ${error}`});
+    }
+    ctx.onEvent({
+        at: now(),
+        type: 'outlook',
+        label: `send_drafts → ${sent.length > 0 ? whoTo(sent) : 'nothing sent'}`,
+        detail: [
+            ...sent.map((r) => `Sent to ${r.to} (${r.slot}, draft ${r.id})`),
+            ...notes,
+            ...ready.filter((r) => refused.has(r.id)).map((r) => `Not sent to ${r.to}: ${refused.get(r.id)}`),
+            ...(result.sent === sent.length ? [] : [`Outlook counted ${result.sent} sent`]),
+        ].join('\n'),
+    });
+
+    for (const r of sent) {
+        try {
+            recordSend({
+                at: now(),
+                runId: ctx.runId,
+                flowId: ctx.flowId,
+                nodeId: ctx.node.id,
+                account,
+                draftEntryId: r.id,
+                slot: r.slot,
+                to: r.to,
+                email: repliedEmail(ctx.email),
+            });
+        } catch (e) {
+            // It went: failing the step would say otherwise.
+            ctx.onEvent({at: now(), type: 'error', label: `Sent to ${r.to}, but could not record it`, detail: errorText(e)});
+        }
+    }
+
+    const tos = sent.map((r) => r.to);
+    if (failed.length > 0) {
+        const went = sent.length > 0 ? `Sent to ${whoTo(sent)}, but not` : 'Sent nothing';
+        const message = `${went}: ${failed.map((f) => `${f.to || '(no one named)'} — ${f.why}`).join('; ')}.`;
+        return {outPort: 'error', summary: message, error: message, provided: handOn({sent: tos, failed, why: message})};
+    }
+    const why = `Sent to ${whoTo(sent)}`;
+    return {outPort: SENT_PORT, summary: why, provided: handOn({sent: tos, why})};
+}
+
 // ── Terminal ─────────────────────────────────────────────────────────────
 
 function runTerminal(config: TerminalConfig): NodeOutcome {
@@ -816,6 +969,8 @@ export async function executeNode(ctx: NodeContext): Promise<NodeOutcome> {
             return runProcessor(ctx, config);
         case 'create-email':
             return runCreateEmail(ctx, config);
+        case 'send':
+            return runSend(ctx, config);
         case 'terminal':
             return runTerminal(config);
     }

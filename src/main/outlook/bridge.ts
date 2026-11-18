@@ -7,6 +7,7 @@ import type {
     ReplyEmailResult,
     SavedAttachment,
     SelectedEmail,
+    SendDraftsResult,
     SendEmailParams,
     SendEmailResult,
 } from '@dawnlit/outlook-bridge';
@@ -336,7 +337,8 @@ export type DraftContent = Omit<
 
 /**
  * Always a draft: `sendImmediately` is hard-wired false, and no code path sets it
- * true. A flow can propose a reply; a person sends it.
+ * true. A flow proposes a reply; it is sent by a person, or by a Send node later
+ * in the same run, through `sendDrafts` below, by the id this gives back.
  */
 export async function draftReply(ref: EmailRef, content: DraftContent): Promise<ReplyEmailResult> {
     const b = await bridge();
@@ -372,4 +374,17 @@ export async function draftEmail(account: string, content: NewEmailContent): Pro
             openDraftWindow: false,
         }),
     );
+}
+
+/**
+ * The one call here that sends mail: drafts in `account`, each by the id Outlook
+ * gave it when this app drafted it. Only a Send node calls it, with the ids of
+ * drafts made earlier in the same run, once a person has turned its sending on;
+ * nothing calls the bridge's `sendAllDrafts`. An id Outlook cannot find — sent
+ * or deleted by hand since — comes back in `failed`, saying so.
+ */
+export async function sendDrafts(account: string, entryIds: readonly string[]): Promise<SendDraftsResult> {
+    if (entryIds.length === 0) return {sent: 0, failed: []};
+    const b = await bridge();
+    return serialize(`Send ${entryIds.length} draft(s) from ${account}`, () => b.sendDrafts(account, entryIds));
 }

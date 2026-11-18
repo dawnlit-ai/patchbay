@@ -6,6 +6,7 @@ import {
     type CreateEmailConfig,
     type Disposition,
     DISPOSITIONS,
+    draftSlots,
     EMAIL_SLOT,
     type EmailMode,
     type ExtractorConfig,
@@ -30,6 +31,7 @@ import {
     ruleFields,
     schemaRef,
     type Schemas,
+    type SendConfig,
     shortId,
     SLOT_NAME,
     slotTypeLabel,
@@ -1738,8 +1740,80 @@ function CreateEmailFields({
 
             <div className="hint">
                 {fresh
-                    ? 'It only drafts: the email waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of each draft, so this node drafts one new email per email that reaches it: a later run leaves by Already drafted.'
-                    : 'It only drafts: the reply waits in Outlook’s Drafts for a person to send. Patchbay keeps a record of each draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches: that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a Switch.'}
+                    ? 'It only drafts: the email waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so this node drafts one new email per email that reaches it: a later run leaves by Already drafted.'
+                    : 'It only drafts: the reply waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches: that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a Switch.'}
+            </div>
+            <div className="gap"/>
+        </>
+    );
+}
+
+function SendFields({
+                        config,
+                        patch,
+                        available,
+                    }: Section<SendConfig> & {
+    available: Available | undefined;
+}): JSX.Element {
+    const offered = draftSlots(available);
+    // Ticked, but not a Draft slot that every path into the node fills: shown so the tick can be taken off.
+    const stranded = config.drafts.filter((name) => !offered.includes(name));
+    const toggle = (name: string, on: boolean): void =>
+        patch({drafts: on ? [...config.drafts, name] : config.drafts.filter((n) => n !== name)});
+
+    let hint: string;
+    if (!available) hint = 'Connect this node to a trigger to see which drafts reach it.';
+    else if (offered.length === 0)
+        hint = 'No drafts from earlier nodes yet — put a Create email before this node.';
+    else hint = 'Only Draft slots every path here fills are offered. A slot whose Create email left by Already drafted holds no draft of this run’s and is passed over.';
+
+    return (
+        <>
+            <Legend label="Sends" hint={hint}/>
+            {[...offered, ...stranded].map((name) => {
+                const type = available?.get(name);
+                return (
+                    <label className="check" key={name}>
+                        <input
+                            type="checkbox"
+                            checked={config.drafts.includes(name)}
+                            onChange={(e) => toggle(name, e.target.checked)}
+                        />
+                        {name}
+                        {type ? (
+                            <span className="slot-type">{slotTypeLabel(type)}</span>
+                        ) : (
+                            <span className="hint"> — not filled on every path here</span>
+                        )}
+                    </label>
+                );
+            })}
+            <div className="gap"/>
+
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.sending}
+                    onChange={(e) => patch({sending: e.target.checked})}
+                />
+                Send the drafts when a watched flow runs
+            </label>
+            <div className="hint">
+                {config.sending
+                    ? 'On: a polled run sends the drafts this run made, and leaves by Sent. A test run still holds them back and leaves by Held.'
+                    : 'Off: the drafts wait in Outlook’s Drafts for a person, and the run leaves by Held, saying who each would have gone to.'}
+            </div>
+
+            <SlotField
+                value={config.output}
+                onChange={(output) => patch({output})}
+                hint="Later nodes read who it sent to, who it held back and what failed by this name."
+            />
+
+            <div className="hint">
+                It sends only the drafts this run made, by the ids in the slots ticked above, and records each send so
+                the same draft is never sent twice. A draft held back by an earlier run is not sent by a later one: send
+                it by hand in Outlook.
             </div>
             <div className="gap"/>
         </>
@@ -1907,6 +1981,9 @@ export function Inspector({
             {config.kind === 'create-email' && (
                 <CreateEmailFields key={node.id} nodeId={node.id} config={config} patch={patch}
                                    available={available} shelf={shelf}/>
+            )}
+            {config.kind === 'send' && (
+                <SendFields key={node.id} config={config} patch={patch} available={available}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 

@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { DraftOutcome, FlowNode, SwitchConfig, SwitchOutcome } from '../src/shared/flow';
+import type { DraftOutcome, FlowNode, SendOutcome, SwitchConfig, SwitchOutcome } from '../src/shared/flow';
 import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
 import type { EmailEnvelope } from '../src/shared/trace';
@@ -1249,13 +1249,14 @@ async function main(): Promise<void> {
         bodyPreview: '',
         attachmentNames: [],
     };
-    const runNode = (node: FlowNode, slots: Record<string, unknown>) =>
+    const runNode = (node: FlowNode, slots: Record<string, unknown>, trigger: 'poll' | 'manual' = 'poll') =>
         executeNode({
             runId: 'check-run',
             flowId: thanks,
             node,
             schemas: {},
             email: answered,
+            trigger,
             data: slots,
             scratchDir: join(data, 'node-check'),
             signal: new AbortController().signal,
@@ -1432,6 +1433,131 @@ async function main(): Promise<void> {
     } else {
         check('a placeholder whose field holds nothing leaves by error, drafting nothing', false,
             'the create email was not saved');
+    }
+
+    // A Send node: picks draft slots, starts with sending off, never sends on a
+    // test run or an earlier run's draft, and never sends the same draft twice.
+    const {checkSlots, draftSlots} = await import('../src/shared/flow');
+    const {findSend, recordSend} = await import('../src/main/store/sendStore');
+    await call('update_node', {flowId: thanks, nodeId: notifier, config: {output: 'notice'}});
+    const sendAdded = await addNode('send');
+    const sender = sendAdded.id;
+    check(
+        'a new send node has sent, held and error ports, starts with sending off, and fills its slot on every port',
+        sendAdded.text.includes('"port": "sent"') && sendAdded.text.includes('"port": "held"') &&
+        sendAdded.text.includes('"sending": false') && sendAdded.text.includes('"output": "sent"'),
+    );
+    await wire(notifier, 'drafted', sender);
+    await wire(notifier, 'skipped', sender);
+    check('a send node with no draft slots ticked is flagged',
+        flaggedWith(await issuesOf(sender), 'error', 'sends nothing: tick the draft slots'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: sender,
+        config: {drafts: ['verdict', 'unfilled']},
+    });
+    const sendFlagged = await issuesOf(sender);
+    check('a ticked slot that holds something other than a draft is flagged',
+        flaggedWith(sendFlagged, 'error', 'verdict holds a Verdict, not a Create email’s draft'));
+    check('and a ticked slot not every path fills is flagged as any read is',
+        flaggedWith(sendFlagged, 'error', 'reads "unfilled", but not every path here fills it'));
+    await call('update_node', {
+        flowId: thanks,
+        nodeId: sender,
+        config: {drafts: ['notice']},
+    });
+    check('a send node whose ticked slots are drafts on every path is not flagged',
+        (await issuesOf(sender)).length === 0);
+    const flowNow = getFlow(thanks);
+    const arrivingAtSend = flowNow ? checkSlots(flowNow, {}).available.get(sender) : undefined;
+    check('draftSlots offers only the draft slots that reach the node',
+        draftSlots(arrivingAtSend).join(',') === 'notice');
+
+    const senderNode = saved(sender);
+    if (senderNode?.config.kind === 'send') {
+        const freshDraft: DraftOutcome = {
+            drafted: true,
+            section: '',
+            to: 'ops@example.com',
+            draftEntryId: 'N1',
+            why: 'drafted from template Notice',
+        };
+        const skippedDraft: DraftOutcome = {
+            drafted: false,
+            section: '',
+            to: '',
+            draftEntryId: '',
+            why: 'already drafted by an earlier run',
+        };
+        const unconfigured = await runNode({...senderNode, config: {...senderNode.config, drafts: []}}, {notice: freshDraft});
+        check('a send node with no draft slots leaves by error and still fills its output slot',
+            unconfigured.outPort === 'error' &&
+            (unconfigured.provided?.sent as SendOutcome | undefined)?.why.includes('sends nothing') === true);
+
+        const heldOff = await runNode(senderNode, {notice: freshDraft}, 'poll');
+        const heldOffSlot = heldOff.provided?.sent as SendOutcome | undefined;
+        check(
+            'with sending off, a polled run leaves by held and lists who it would have sent to',
+            heldOff.outPort === 'held' &&
+            heldOffSlot?.held.join(',') === 'ops@example.com' &&
+            heldOffSlot.sent.length === 0 &&
+            heldOffSlot.why.includes('sending is off on this node; would have sent to ops@example.com'),
+        );
+
+        const liveSender: FlowNode = {...senderNode, config: {...senderNode.config, sending: true}};
+        const heldManual = await runNode(liveSender, {notice: freshDraft}, 'manual');
+        const heldManualSlot = heldManual.provided?.sent as SendOutcome | undefined;
+        check(
+            'a test run never sends, even when sending is on',
+            heldManual.outPort === 'held' &&
+            heldManualSlot?.held.join(',') === 'ops@example.com' &&
+            heldManualSlot.why.includes('a test run never sends; would have sent to ops@example.com'),
+        );
+
+        const nothingFromEarlier = await runNode(liveSender, {notice: skippedDraft}, 'poll');
+        const nothingSlot = nothingFromEarlier.provided?.sent as SendOutcome | undefined;
+        check(
+            'a slot whose create email left by already drafted is passed over, leaving by held',
+            nothingFromEarlier.outPort === 'held' &&
+            nothingSlot?.sent.length === 0 &&
+            nothingSlot?.held.length === 0 &&
+            nothingSlot?.why === 'Sent nothing: this run drafted nothing to send',
+        );
+
+        const idless = await runNode(liveSender, {notice: {...freshDraft, draftEntryId: ''}}, 'poll');
+        const idlessSlot = idless.provided?.sent as SendOutcome | undefined;
+        check(
+            'a draft Outlook gave no id leaves by error rather than going unnoticed',
+            idless.outPort === 'error' &&
+            idlessSlot?.failed[0]?.to === 'ops@example.com' &&
+            idlessSlot.failed[0].why.includes('no id it could be told apart by'),
+        );
+
+        recordSend({
+            at: '2026-11-14T15:33:00.000Z',
+            runId: 'earlier-send-run',
+            flowId: thanks,
+            nodeId: sender,
+            account: answered.ref.account,
+            draftEntryId: 'N1',
+            slot: 'notice',
+            to: 'ops@example.com',
+            email: sameEmail,
+        });
+        check('a recorded send is found again by its mailbox and draft id, case-insensitively',
+            findSend('NOBODY@example.invalid', 'N1')?.runId === 'earlier-send-run' &&
+            findSend('other@example.invalid', 'N1') === undefined);
+        const alreadySent = await runNode(liveSender, {notice: freshDraft}, 'poll');
+        const alreadySentSlot = alreadySent.provided?.sent as SendOutcome | undefined;
+        check(
+            'a draft already sent is refused rather than sent a second time',
+            alreadySent.outPort === 'error' &&
+            alreadySentSlot?.failed[0]?.why.includes('was already sent') === true &&
+            alreadySentSlot.failed[0].why.includes('earlier-send-run'),
+        );
+    } else {
+        check('with sending off, a polled run leaves by held and lists who it would have sent to', false,
+            'the send node was not saved');
     }
 
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,

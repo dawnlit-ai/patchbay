@@ -31,14 +31,17 @@ Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (s
   scoped to this one email.
 - **Create email** — drafts a reply, or a new email, from a template email in the mailbox, filled in from what
   earlier steps found, a Switch before it picking whether, and which. No model runs, and nothing is drafted twice.
+- **Send** — sends the drafts a Create email made earlier in the same run, picked by the draft slots it ticks. Its
+  sending is off by default, and a test run never sends.
 - **Terminal** — ends a path and records a disposition.
 
 Each node hands the email out of exactly **one** output port, so a run is a readable path rather than a cloud of
 concurrent activity. Every run records the prompt each node sent, every tool call and result, and every change to the
 mailbox; select one and the canvas lights up the path that email took.
 
-**Nothing sends mail.** A Processor or a Create email can leave an unsent draft in Outlook for a person; no tool in
-the app sends one.
+**Nothing sends mail on its own.** A Processor or a Create email leaves an unsent draft in Outlook for a person. Only a
+Send node can send, only the drafts a Create email made in that same run, only once you switch its sending on, and
+never on a test run.
 
 ## Download
 

@@ -57,6 +57,7 @@
     --k-extractor: #0d9488;
     --k-processor: #7c3aed;
     --k-create-email: #db2777;
+    --k-send: #ea580c;
     --k-terminal: #64748b;
 
     /*
@@ -127,6 +128,7 @@
     --k-extractor: #2dd4bf;
     --k-processor: #c084fc;
     --k-create-email: #f472b6;
+    --k-send: #fb923c;
     --k-terminal: #9aa0a6;
 
     --data-email: #38bdf8;
@@ -177,6 +179,10 @@ body {
 
 .kind-create-email {
     --k: var(--k-create-email);
+}
+
+.kind-send {
+    --k: var(--k-send);
 }
 
 .kind-terminal {

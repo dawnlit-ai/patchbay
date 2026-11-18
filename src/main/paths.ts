@@ -196,6 +196,11 @@ export const runsDir = (): string => ensure('runs', workspaceKey());
  * which emails already have a reply.
  */
 export const repliesFile = (): string => join(ensure('replies'), `${workspaceKey()}.jsonl`);
+/**
+ * The drafts each workspace's Send nodes sent, one JSONL file a workspace, kept
+ * beside the replies for the same reason: clearing the runs must not forget them.
+ */
+export const sendsFile = (): string => join(ensure('sends'), `${workspaceKey()}.jsonl`);
 /** Per-run scratch space — saved attachments, files a skill writes. */
 export const runScratchDir = (runId: string): string => ensureAt(join(runsDir(), safeSegment(runId) + '.files'));
 export const settingsFile = (): string => join(dataRoot(), 'settings.json');

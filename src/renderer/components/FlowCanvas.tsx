@@ -202,6 +202,8 @@ function describe(node: FlowNode): string {
             const from = `${c.template.trim()}${c.section.trim() ? ` [${c.section.trim()}]` : ''}`;
             return c.mode === 'new' ? `New email to ${c.to.trim() || 'no one yet'} · ${from} · drafts only` : `${from} · drafts only`;
         }
+        case 'send':
+            return `Sending: ${c.sending ? 'on' : 'off'} · ${c.drafts.length > 0 ? c.drafts.join(', ') : 'no drafts ticked'}`;
         case 'terminal':
             return c.disposition;
     }
