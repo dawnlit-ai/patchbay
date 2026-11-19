@@ -13,16 +13,27 @@ model; one agent always stays on.
 
 ## Fallback models
 
-A Categorizer, Extractor or Processor lists its **Models**, each with its own effort level, in the order its step
-tries them: it runs on the first one that is on, and the others are its fallbacks — agy's Sonnet, say, then agy's
-Gemini Pro, then Claude's own Sonnet. Drag a model up or down the list to change its turn, or switch one off to pass it
-over without losing it; one is always on.
+A Categorizer, Extractor or Processor runs on one **Model**, at the effort level set beside it. What it goes on to when
+that model cannot take the step is set once for every step, under **Fallback models** in **Settings → Agents**: agy's
+Sonnet, say, then agy's Gemini Pro, then Claude's own Sonnet, each at its own level. Drag a model up or down the list to
+change its turn, or switch one off to pass it over without losing it. Jev's models are not offered there: Jev answers a
+Categorizer's question and nothing else. The list starts empty, so until you fill it in a step waits for its own model,
+as before.
+
+A node's **Fall back to the models in Settings → Agents** box is ticked unless you untick it. Untick it for a step a
+weaker model should not take: it then waits for its own model's limit to lift, whatever Settings lists. The inspector
+says under the box what the step would go on to now, in turn. A model the step has already tried is not tried again from
+the list, at another level either: it is the same quota.
 
 A step moves on only when the model before is at its usage limit, or its agent is switched off, not installed or cannot
 be reached — and never once the step has changed something: a Processor that drafted a reply before its quota ran out is
 not run again. A model known to be at its limit is passed over until the reset its agent named, and the run's trace says
-each time a step moved on and why. The last model waits for its limit to reset rather than failing, as a node with one
-model does.
+each time a step moved on and why. The last model waits for its limit to reset rather than failing, as a step with no
+fallbacks does.
+
+A node made before Settings had fallback models may list several models of its own. It keeps them, shown under *Its own
+fallbacks*, and tries them in turn before Settings' list. Remove one to leave it to Settings: a node's own fallbacks can
+no longer be added.
 
 ## Claude Code
 

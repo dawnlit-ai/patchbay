@@ -1144,6 +1144,17 @@ button.wide {
     letter-spacing: 0.2px;
 }
 
+/* A second heading on a page, for a part of it with its own say. */
+.set-subhead {
+    margin-top: 30px;
+}
+
+.set-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+}
+
 .set-head p {
     max-width: 62ch;
     margin: 4px 0 18px;
@@ -1624,6 +1635,44 @@ button.wide {
     background: var(--panel-2);
     padding: 4px 6px 4px 8px;
     margin-bottom: 8px;
+}
+
+/* A step's access, folded to a line saying what it comes to, as a section title reads. */
+.access-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: 100%;
+    margin: 14px 0 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.access-head:hover:not(:disabled) {
+    background: transparent;
+}
+
+.access-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: var(--dim);
+}
+
+.access-head:hover .access-title {
+    color: var(--text);
+}
+
+/* Wrapped rather than cut: the whole line is what the fold is for. */
+.access-summary {
+    flex: 1;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.45;
 }
 
 .pick-group-head {

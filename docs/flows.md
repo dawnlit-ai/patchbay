@@ -42,8 +42,14 @@ of concurrent activity.
 The trigger does not process mail already sitting in a folder when you start watching — switching a flow on shouldn't
 fire fifty runs for last week's inbox.
 
-A Categorizer, Extractor or Processor can run on more than one model, each a fallback for the one before. See
-[Models and agents](models.md).
+A Categorizer, Extractor or Processor runs on one model, and goes on to the fallback models listed in Settings → Agents
+when that one is at its limit or out of reach, unless it is set to wait for its own. See [Models and agents](models.md).
+
+A Processor's or an Extractor's **Access**, below its model, is folded to a line saying what its run may reach beyond the
+email: its server tools, and a Processor's folders and whether it runs commands — `6 server tools from its skills · run
+folder only · no commands`. Click it to open it. It opens on its own when the node has more than that: a folder, the
+shell, a tool ticked on the node itself, a box left from before, or a server its tools need that is not allowed yet or
+cannot start.
 
 ## Switches
 

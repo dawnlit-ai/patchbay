@@ -1,5 +1,7 @@
 /** App-level settings, stored once per install rather than per flow. */
 
+import type { ModelChoice } from './flow';
+
 /**
  * How a server is reached: a command started on this computer, or an address.
  * `http` is MCP's Streamable HTTP; `sse` the older HTTP+SSE, which agy does not speak.
@@ -238,6 +240,12 @@ export interface Settings {
      * ticks from these. A shell, once a node lets its run have one, is not held to them.
      */
     folders: FolderSetting[];
+    /**
+     * The models every Categorizer, Extractor and Processor goes on to, in turn,
+     * when its own are at their usage limit or out of reach, unless the node waits
+     * for its own instead. Empty, a step waits for its own model's limit to lift.
+     */
+    fallbacks: ModelChoice[];
 }
 
 export function defaultSettings(): Settings {
@@ -250,6 +258,7 @@ export function defaultSettings(): Settings {
         agentControl: {enabled: false, port: DEFAULT_AGENT_CONTROL_PORT, token: ''},
         updateChannel: 'stable',
         folders: [],
+        fallbacks: [],
     };
 }
 

@@ -1,5 +1,5 @@
-import type { JSX } from 'react';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import type { JSX, ReactNode } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
     type Available,
     type CategorizerConfig,
@@ -15,9 +15,6 @@ import {
     type FlowNode,
     type FolderGrant,
     hasInput,
-    isAgyModel,
-    isClaudeModel,
-    isJevModel,
     type JsonSchema,
     type ModelChoice,
     type MoveEmailConfig,
@@ -39,7 +36,7 @@ import {
     shortId,
     SLOT_NAME,
     slotTypeLabel,
-    startingModel,
+    stepModels,
     type SwitchConfig,
     type SwitchRoute,
     type SwitchRule,
@@ -47,10 +44,8 @@ import {
     type TerminalConfig,
     type TriggerConfig,
 } from '@shared/flow';
-import type { InboxFolderOption, ModelOption } from '@shared/ipc';
+import type { InboxFolderOption } from '@shared/ipc';
 import {
-    AGENT_NAMES,
-    type AgentId,
     findFolder,
     type FolderAccess,
     type FolderSetting,
@@ -58,9 +53,11 @@ import {
     type McpServerEntry,
     type McpServerTool,
     type McpVariable,
+    nodeTools,
     skillGrants,
 } from '@shared/settings';
 import { FolderTree } from './FolderTree';
+import { EffortField, effortAfter, Field, findModel, ModelField, modelName, useModels } from './ModelPickers';
 import { SchemaDialog } from './SchemaDialog';
 import { SecretDialog } from './SecretDialog';
 import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
@@ -69,25 +66,6 @@ import { type DataTokens, tint } from '../slotColors';
 import { fieldsOf } from '../schemaShape';
 
 /** Configures the selected node: one section per kind, each handed its narrowed config. */
-
-/** A labelled control. */
-function Field({
-                   label,
-                   hint,
-                   children,
-               }: {
-    label: string;
-    hint?: string;
-    children: React.ReactNode;
-}): JSX.Element {
-    return (
-        <label className="field">
-            <span>{label}</span>
-            {children}
-            {hint && <div className="hint">{hint}</div>}
-        </label>
-    );
-}
 
 /** The same heading, for a group of controls that is not one input. */
 function Legend({label, hint}: { label: string; hint?: string }): JSX.Element {
@@ -99,349 +77,111 @@ function Legend({label, hint}: { label: string; hint?: string }): JSX.Element {
     );
 }
 
-interface Models {
-    /** Null until the agents have answered. */
-    models: ModelOption[] | null;
-    error: string | null;
-    /** The agents switched off in Settings, whose models are left out of the list. */
-    off: AgentId[];
-}
-
-/**
- * The models Claude Code, agy and Jev offer, and the effort levels each takes —
- * asked of them, so a model released after this build is offered without a new one.
- */
-function useModels(): Models {
-    const [models, setModels] = useState<ModelOption[] | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [off, setOff] = useState<AgentId[]>([]);
-
-    useEffect(() => {
-        let cancelled = false;
-        window.api.agents
-            .models()
-            .then((list) => {
-                if (!cancelled) setModels(list);
-            })
-            .catch((e: Error) => {
-                if (!cancelled) setError(e.message);
-            });
-        void window.api.settings.get().then((settings) => {
-            if (!cancelled) setOff(settings.agents.filter((a) => !a.enabled).map((a) => a.id));
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    return {models, error, off};
-}
-
-/** The list's entry for a node's model: by its own name, or a pinned id an alias stands for today. */
-function findModel(models: ModelOption[] | null, value: string): ModelOption | undefined {
-    return models?.find((m) => m.value === value) ?? models?.find((m) => m.resolvedModel === value);
-}
-
-/** A node keeps a model the list does not name, and says so, rather than showing another in its place. */
-function ModelField({
-                        label = 'Model',
-                        value,
-                        models,
-                        error,
-                        off,
-                        jev,
-                        onChange,
-                    }: Models & {
-    label?: string;
-    value: string;
-    /** Whether the step is one Jev can take, a Categorizer's: no other is offered its models. */
-    jev: boolean;
-    onChange(model: string): void;
-}): JSX.Element {
-    const listed = models?.find((m) => m.value === value);
-    const sameToday = models?.find((m) => m.resolvedModel === value);
-    const agent: AgentId = isAgyModel(value) ? 'agy' : isJevModel(value) ? 'jev' : 'claude';
-    let hint: string;
-    if (error) hint = `Could not ask Claude which models it offers: ${error}`;
-    else if (!models) hint = 'Asking Claude…';
-    else if (agent === 'jev' && !jev) {
-        hint = `Jev answers a Categorizer's question and nothing else, so this step passes ${value} over. Pick another model.`;
-    } else if (listed) hint = listed.description;
-    else if (sameToday) hint = `Pinned to ${value}. ${sameToday.displayName} is that model today, and moves on to each new one.`;
-    else if (off.includes(agent)) {
-        hint = `${AGENT_NAMES[agent]} is switched off in Settings → Agents, so the step passes ${value} over. The node keeps it meanwhile.`;
-    } else if (agent === 'jev') {
-        hint = `${value} is not among the models Jev lists now. They are listed once a TypeSafe API key is set in Settings → Agents, and a pinned version once it has answered since Patchbay started. The node keeps ${value} meanwhile.`;
-    }
-    // Claude lists nothing at all while Claude Code is missing; any model no other agent claims is its.
-    else if (models.every((m) => !isClaudeModel(m.value))) {
-        hint = `Claude Code was not found on this computer, so its models cannot be listed: Settings → Agents says how to install it. The node keeps ${value} meanwhile.`;
-    } else hint = `${value} is not among the models your Claude account offers. The node keeps it until you pick another.`;
-
-    return (
-        <Field label={label} hint={hint}>
-            <select value={value} onChange={(e) => onChange(e.target.value)}>
-                {!listed && <option value={value}>{value}</option>}
-                {models?.map((m) => (
-                    <option key={m.value} value={m.value} title={m.description}>
-                        {m.displayName}
-                    </option>
-                ))}
-            </select>
-        </Field>
-    );
-}
-
-/**
- * A node's level once its model changes. A level the new model does not take goes
- * back to that model's default, or to its top level where it has none. A model
- * that takes none leaves the level alone, for the next one that does.
- */
-function effortAfter(models: ModelOption[] | null, model: string, effort: string): string {
-    const picked = findModel(models, model);
-    const levels = picked?.effortLevels ?? [];
-    if (levels.length === 0 || levels.includes(effort)) return effort;
-    return picked?.effortRequired ? (levels.at(-1) ?? '') : '';
-}
-
-/** The chosen model's effort levels. A saved level it doesn't take is kept, with a note. */
-function EffortField({
-                         value,
-                         model,
-                         loading,
-                         onChange,
-                     }: {
-    value: string;
-    /** Undefined while the list is on its way, or when the node's model is not in it. */
-    model: ModelOption | undefined;
-    loading: boolean;
-    onChange(effort: string): void;
-}): JSX.Element {
-    if (model && model.effortLevels.length === 0) {
-        return (
-            <Field label="Effort" hint={`${model.displayName} takes no effort level.`}>
-                <select disabled>
-                    <option>—</option>
-                </select>
-            </Field>
-        );
-    }
-
-    const levels = model?.effortLevels ?? [];
-    const required = model?.effortRequired ?? false;
-    const offered = (value === '' && !required) || levels.includes(value);
-    let hint: string | undefined;
-    if (!model && !loading) hint = 'The levels come from the chosen model, which is not in the list above.';
-    else if (model && !offered) {
-        hint = value === ''
-            ? `${model.displayName} has no default level. Pick one.`
-            : `${model.displayName} does not take ${value}. Pick one of the levels it does.`;
-    }
-
-    return (
-        <Field label="Effort" hint={hint}>
-            <select value={value} onChange={(e) => onChange(e.target.value)}>
-                {!required && <option value="">Model default</option>}
-                {!offered && <option value={value}>{value || '—'}</option>}
-                {levels.map((level) => (
-                    <option key={level}>{level}</option>
-                ))}
-            </select>
-        </Field>
-    );
-}
-
-/** What a model card carries while it is dragged into order. */
-const MODEL_DRAG_TYPE = 'application/patchbay-model';
-
-/** The list with the entry at `from` moved into the gap before `gap`, counted as the list stands. */
-function moveTo<T>(list: T[], from: number, gap: number): T[] {
-    const to = gap > from ? gap - 1 : gap;
-    if (to === from) return list;
-    const moved = [...list];
-    const [item] = moved.splice(from, 1);
-    moved.splice(to, 0, item as T);
-    return moved;
-}
-
-/**
- * The models a step runs on, in the order it tries them, each with its own level:
- * dragged into order, switched off to be passed over, removed or added. One is
- * always on, since the step needs a model to run on.
- */
-function ModelsField({
-                         kind,
-                         value,
-                         onChange,
-                     }: {
-    /** The node's kind, which decides the models it is offered: Jev's to a Categorizer alone. */
-    kind: NodeKind;
-    value: ModelChoice[];
-    onChange(models: ModelChoice[]): void;
-}): JSX.Element {
-    const offered = useModels();
-    const listing = {...offered, models: offered.models && offeredTo(kind, offered.models)};
-    // The entry being dragged, and the gap it would drop into: 0 is above the first, `value.length` below the last.
-    const [dragging, setDragging] = useState<number | null>(null);
-    const [dropAt, setDropAt] = useState<number | null>(null);
-    // Where an entry moved by the keyboard went, for its grip to keep the focus.
-    const [movedTo, setMovedTo] = useState<number | null>(null);
-    const list = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (movedTo === null) return;
-        list.current?.querySelectorAll<HTMLElement>(':scope > .model-card .grip')[movedTo]?.focus();
-        setMovedTo(null);
-    }, [movedTo]);
-
-    const replace = (index: number, choice: Partial<ModelChoice>): void =>
-        onChange(value.map((c, j) => (j === index ? {...c, ...choice} : c)));
-    const move = (from: number, gap: number): void => onChange(moveTo(value, from, gap));
-    const on = value.filter((c) => c.enabled).length;
-    let turn = 0;
-    const roles = value.map((c) => (!c.enabled ? 'Off' : turn++ === 0 ? 'Main' : `Fallback ${turn - 1}`));
-    // A drop that would leave the entry where it is shows no line.
-    const shownAt = dragging !== null && dropAt !== dragging && dropAt !== dragging + 1 ? dropAt : null;
-
-    return (
-        <>
-            <Legend
-                label="Models"
-                hint="The step runs on the first one that is on, and goes to the next in turn when the one before is at its usage limit, or its agent is switched off, not installed or out of reach — never once the step has changed something. The last one waits for Claude's limit to reset rather than failing. Drag to reorder."
-            />
-            <div
-                ref={list}
-                className="model-list"
-                onDragOver={(e) => {
-                    if (dragging === null || !e.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    const cards = [...e.currentTarget.querySelectorAll(':scope > .model-card')];
-                    const below = cards.findIndex((card) => {
-                        const box = card.getBoundingClientRect();
-                        return e.clientY < box.top + box.height / 2;
-                    });
-                    setDropAt(below === -1 ? cards.length : below);
-                }}
-                onDragLeave={(e) => {
-                    // Leaving for one of its own cards is still over it.
-                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
-                }}
-                onDrop={(e) => {
-                    if (dragging === null || dropAt === null) return;
-                    e.preventDefault();
-                    if (shownAt !== null) move(dragging, shownAt);
-                }}
-            >
-                {value.map((choice, i) => {
-                    const role = roles[i] ?? '';
-                    const last = choice.enabled && on === 1;
-                    return (
-                        <div
-                            key={i}
-                            className={[
-                                'card model-card',
-                                choice.enabled ? '' : 'off',
-                                dragging === i ? 'dragging' : '',
-                                shownAt === i ? 'drop-before' : '',
-                                shownAt === value.length && i === value.length - 1 ? 'drop-after' : '',
-                            ].filter(Boolean).join(' ')}
-                        >
-                            <div className="model-head">
-                                <span
-                                    className="grip"
-                                    role="button"
-                                    tabIndex={0}
-                                    draggable
-                                    title="Drag to reorder, or use the arrow keys"
-                                    aria-label={`Move ${choice.model}`}
-                                    onDragStart={(e) => {
-                                        e.dataTransfer.setData(MODEL_DRAG_TYPE, choice.model);
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        // The whole card goes with the pointer, not just the grip.
-                                        const card = e.currentTarget.closest('.model-card');
-                                        if (card) e.dataTransfer.setDragImage(card, 16, 16);
-                                        setDragging(i);
-                                    }}
-                                    onDragEnd={() => {
-                                        setDragging(null);
-                                        setDropAt(null);
-                                    }}
-                                    onKeyDown={(e) => {
-                                        const to = e.key === 'ArrowUp' ? i - 1 : e.key === 'ArrowDown' ? i + 1 : null;
-                                        if (to === null) return;
-                                        e.preventDefault();
-                                        if (to < 0 || to >= value.length) return;
-                                        move(i, to > i ? to + 1 : to);
-                                        setMovedTo(to);
-                                    }}
-                                >
-                                    <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true">
-                                        {[2, 7, 12].flatMap((y) => [
-                                            <circle key={`l${y}`} cx="2.5" cy={y} r="1.3"/>,
-                                            <circle key={`r${y}`} cx="7.5" cy={y} r="1.3"/>,
-                                        ])}
-                                    </svg>
-                                </span>
-                                <label
-                                    className="check"
-                                    title={
-                                        last
-                                            ? 'A step needs one model on.'
-                                            : choice.enabled
-                                                ? 'Turn it off to pass it over, keeping its place'
-                                                : 'Turn it back on'
-                                    }
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={choice.enabled}
-                                        disabled={last}
-                                        onChange={(e) => replace(i, {enabled: e.target.checked})}
-                                    />
-                                    {role}
-                                </label>
-                                <button
-                                    className="danger compact"
-                                    disabled={last}
-                                    title={last ? 'A step needs one model on.' : undefined}
-                                    onClick={() => onChange(value.filter((_, j) => j !== i))}
-                                >
-                                    Remove
-                                </button>
-                            </div>
-                            {/* Not side by side: the model's hint says which version it is, and wants the width. */}
-                            <div className="model-body">
-                                <ModelField
-                                    {...listing}
-                                    jev={takesJev(kind)}
-                                    value={choice.model}
-                                    onChange={(model) =>
-                                        replace(i, {model, effort: effortAfter(listing.models, model, choice.effort)})
-                                    }
-                                />
-                                <EffortField
-                                    value={choice.effort}
-                                    model={findModel(listing.models, choice.model)}
-                                    loading={!listing.models && !listing.error}
-                                    onChange={(effort) => replace(i, {effort})}
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-            <button onClick={() => onChange([...value, {...startingModel(listing.models, ''), enabled: true}])}>
-                + Add a model
-            </button>
-        </>
-    );
-}
-
 interface Section<C> {
     config: C;
 
     patch(partial: Partial<C>): void;
+}
+
+/** Names joined as a sentence says them: a, b and c. */
+function spoken(names: string[]): string {
+    return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/**
+ * The model a step runs on, and whether it goes on to Settings → Agents'
+ * fallback models when that one is at its limit or out of reach. Models a node
+ * listed before Settings had fallbacks stay, tried first, until each is removed:
+ * none is added here any more.
+ */
+function ModelSection({kind, config, patch}: {
+    /** The node's kind, which decides the models it is offered: Jev's to a Categorizer alone. */
+    kind: NodeKind;
+    config: { models: ModelChoice[]; useFallbacks: boolean };
+
+    patch(partial: { models?: ModelChoice[]; useFallbacks?: boolean }): void;
+}): JSX.Element {
+    const offered = useModels();
+    const listing = {...offered, models: offered.models && offeredTo(kind, offered.models)};
+    // The model it runs on is the first one on; parseFlow keeps one on.
+    const at = Math.max(0, config.models.findIndex((c) => c.enabled));
+    const main = config.models[at] ?? {model: '', effort: '', enabled: true};
+    const own = config.models.filter((_, i) => i !== at);
+    const setMain = (choice: Partial<ModelChoice>): void =>
+        patch({models: config.models.map((c, i) => (i === at ? {...c, ...choice} : c))});
+    const name = (choice: ModelChoice): string => modelName(offered.models, choice);
+
+    // What the step goes on to now, in turn, as the run would.
+    const after = stepModels(config, offered.fallbacks ?? []).slice(1);
+    const settingsHas = (offered.fallbacks ?? []).some((c) => c.enabled);
+    let hint: string;
+    if (offered.fallbacks === null) hint = 'Reading Settings…';
+    else if (after.length === 0) {
+        hint = `The step waits for ${name(main)}'s usage limit to lift.` +
+            (!config.useFallbacks
+                ? ''
+                : settingsHas
+                    ? ' Settings → Agents lists no other model to go on to.'
+                    : ' Settings → Agents lists no fallback models yet.');
+    } else {
+        hint = `When ${name(main)} is at its usage limit, or its agent is switched off or out of reach, the step goes on to ` +
+            (after.length === 1
+                ? `${name(after[0]!)} — never once it has changed something — and waits for that one's limit to lift.`
+                : `${spoken(after.map(name))} in turn — never once it has changed something. The last one waits for its limit to lift.`) +
+            (config.useFallbacks ? '' : ' It does not go on to Settings’ fallback models.');
+    }
+
+    return (
+        <>
+            <ModelField
+                {...listing}
+                jev={takesJev(kind)}
+                value={main.model}
+                onChange={(model) => setMain({model, effort: effortAfter(listing.models, model, main.effort)})}
+            />
+            <EffortField
+                value={main.effort}
+                model={findModel(listing.models, main.model)}
+                loading={!listing.models && !listing.error}
+                onChange={(effort) => setMain({effort})}
+            />
+            {own.length > 0 && (
+                <>
+                    <Legend
+                        label="Its own fallbacks"
+                        hint="Listed on this node before Settings had fallback models. The step tries them, in turn, before Settings’ list. Remove one to leave it to Settings: it cannot be added back here."
+                    />
+                    {own.map((choice, i) => (
+                        <div key={i} className="pick-row">
+                            <span className="grow">{name(choice)}{choice.enabled ? '' : ' — off, passed over'}</span>
+                            <button
+                                className="ghost compact"
+                                onClick={() => patch({models: config.models.filter((c) => c !== choice)})}
+                            >
+                                Remove
+                            </button>
+                        </div>
+                    ))}
+                    <div className="gap"/>
+                </>
+            )}
+            <label className="check">
+                <input
+                    type="checkbox"
+                    checked={config.useFallbacks}
+                    onChange={(e) => patch({useFallbacks: e.target.checked})}
+                />
+                Fall back to the models in Settings → Agents
+            </label>
+            <div className="hint">{hint}</div>
+            {config.useFallbacks && (
+                <button className="field-link" onClick={() => void window.api.window.showSettings()}>
+                    {settingsHas ? 'Change them in Settings' : 'Set them in Settings'}
+                </button>
+            )}
+            <div className="gap"/>
+        </>
+    );
 }
 
 function TriggerFields({config, patch}: Section<TriggerConfig>): JSX.Element {
@@ -619,7 +359,7 @@ function CategorizerFields({config, patch}: Section<CategorizerConfig>): JSX.Ele
 
             <div className="gap"/>
 
-            <ModelsField kind="categorizer" value={config.models} onChange={(models) => patch({models})}/>
+            <ModelSection kind="categorizer" config={config} patch={patch}/>
 
             <div className="gap"/>
             <label className="check">
@@ -873,6 +613,9 @@ function ExtractorFields({
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
+    const tools = nodeTools(config, library.skills);
+    const problems = useServerProblems(tools);
+    const own = new Set(config.mcpTools).size;
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
@@ -902,15 +645,19 @@ function ExtractorFields({
                 />
             </Field>
 
-            <ModelsField kind="extractor" value={config.models} onChange={(models) => patch({models})}/>
+            <ModelSection kind="extractor" config={config} patch={patch}/>
 
-            <div className="gap"/>
-            <McpToolsField
-                config={config}
-                patch={patch}
-                grants={grantsOf(config.skills, library)}
-                hint="The run gets what its ticked skills grant and what is ticked here, and nothing else. Give it tools that look things up: an Extractor is meant to change nothing."
-            />
+            <AccessSection
+                summary={[...(problems ?? []), toolsSummary(tools, own)].join(' · ')}
+                attention={own > 0 || (problems?.length ?? 0) > 0}
+            >
+                <McpToolsField
+                    config={config}
+                    patch={patch}
+                    grants={grantsOf(config.skills, library)}
+                    hint="The run gets what its ticked skills grant and what is ticked here, and nothing else. Give it tools that look things up: an Extractor is meant to change nothing."
+                />
+            </AccessSection>
 
             <div className="gap"/>
             <div className="hint">
@@ -945,6 +692,22 @@ function ProcessorFields({
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
+    const tools = nodeTools(config, library.skills);
+    const problems = useServerProblems(tools);
+    const own = new Set(config.mcpTools).size;
+    const retired = config.retiredTools?.length ?? 0;
+    const folders = config.folders.length;
+    // What stands in a run's way first, so a summary cut short still says it.
+    const summary = [
+        ...(problems ?? []),
+        toolsSummary(tools, own),
+        config.filesAnywhere ? 'files anywhere' : folders > 0 ? `${folders} folder${folders === 1 ? '' : 's'}` : 'run folder only',
+        config.allowShell ? 'runs commands' : 'no commands',
+        ...(retired > 0 ? [`${retired} retired box${retired === 1 ? '' : 'es'} ticked`] : []),
+    ].join(' · ');
+    // Open on its own for what a person should see: anything beyond its skills' tools and its run folder.
+    const attention =
+        config.allowShell || !!config.filesAnywhere || retired > 0 || folders > 0 || own > 0 || (problems?.length ?? 0) > 0;
     return (
         <>
             <SkillsField config={config} patch={patch} library={library}/>
@@ -974,28 +737,30 @@ function ProcessorFields({
                 hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
             />
 
-            <ModelsField kind="processor" value={config.models} onChange={(models) => patch({models})}/>
+            <ModelSection kind="processor" config={config} patch={patch}/>
 
-            <div className="section-title">What this node may do</div>
-            <FoldersField config={config} patch={patch}/>
-            <FilesAnywhereField config={config} patch={patch}/>
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.allowShell}
-                    onChange={(e) => patch({allowShell: e.target.checked})}
-                />
-                Run commands (Bash)
-            </label>
-            {config.allowShell && (
-                <div className="hint">
-                    A command reaches every folder this computer’s user can, whatever is ticked above.
-                </div>
-            )}
-            <RetiredToolsField config={config} patch={patch}/>
+            <AccessSection summary={summary} attention={attention}>
+                <Legend label="Folders"/>
+                <FoldersField config={config} patch={patch}/>
+                <FilesAnywhereField config={config} patch={patch}/>
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={config.allowShell}
+                        onChange={(e) => patch({allowShell: e.target.checked})}
+                    />
+                    Run commands (Bash)
+                </label>
+                {config.allowShell && (
+                    <div className="hint">
+                        A command reaches every folder this computer’s user can, whatever is ticked above.
+                    </div>
+                )}
+                <RetiredToolsField config={config} patch={patch}/>
 
-            <div className="gap"/>
-            <McpToolsField config={config} patch={patch} grants={grantsOf(config.skills, library)}/>
+                <div className="gap"/>
+                <McpToolsField config={config} patch={patch} grants={grantsOf(config.skills, library)}/>
+            </AccessSection>
         </>
     );
 }
@@ -1155,6 +920,82 @@ function RetiredToolsField({config, patch}: Section<ProcessorConfig>): JSX.Eleme
             </div>
         </>
     );
+}
+
+/**
+ * What a step may reach beyond the email — its server tools, and a Processor's
+ * folders and shell — folded to a line that says what that comes to. It opens on
+ * its own when there is something a person should see, and never closes on its own.
+ */
+function AccessSection({summary, attention, children}: {
+    summary: string;
+    /** Something beyond its skills' tools and its run folder is granted, or stands in a run's way. */
+    attention: boolean;
+    children: ReactNode;
+}): JSX.Element {
+    const [open, setOpen] = useState(attention);
+    // A server's state is read after the section first shows, so what needs a look can come later.
+    useEffect(() => {
+        if (attention) setOpen(true);
+    }, [attention]);
+    return (
+        <div className="access">
+            <button className="access-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+                <span className="dim">{open ? '▾' : '▸'}</span>
+                <span className="access-title">Access</span>
+                <span className="access-summary">{summary}</span>
+            </button>
+            {open && <div className="access-body">{children}</div>}
+        </div>
+    );
+}
+
+/** A node's server tools in a few words: how many, all of which servers, and where they come from. */
+function toolsSummary(tools: string[], own: number): string {
+    if (tools.length === 0) return 'no server tools';
+    const servers = tools.filter((t) => !t.slice('mcp__'.length).includes('__')).map((t) => `all of ${t.slice('mcp__'.length)}`);
+    const singles = tools.length - servers.length;
+    const what = spoken([...(singles > 0 ? [`${singles} server tool${singles === 1 ? '' : 's'}`] : []), ...servers]);
+    if (own === 0) return `${what} from its skills`;
+    return own >= tools.length ? `${what} ticked here` : `${what}, ${own} ticked here`;
+}
+
+/**
+ * What stands in the way of the servers a node's tools come from, one entry a
+ * server: not allowed yet, blocked, missing a value, or defined nowhere. Read
+ * without starting any of them. Null until the workspace's servers are read.
+ */
+function useServerProblems(tools: string[]): string[] | null {
+    const [servers, setServers] = useState<McpServerEntry[] | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        const refresh = (): void => {
+            void window.api.mcp.servers().then((listing) => {
+                if (!cancelled) setServers(listing.servers.filter((s) => s.state !== 'shadowed'));
+            });
+        };
+        refresh();
+        const off = window.api.on.workspaceChanged((change) => {
+            if (change.mcp) refresh();
+        });
+        return () => {
+            cancelled = true;
+            off();
+        };
+    }, []);
+    if (!servers) return null;
+    const problems = new Map<string, string>();
+    for (const tool of tools) {
+        const entry = servers.find((s) => tool === `mcp__${s.name}` || tool.startsWith(`mcp__${s.name}__`));
+        const name = entry?.name ?? tool.slice('mcp__'.length).split('__')[0] ?? tool;
+        if (problems.has(name)) continue;
+        if (!entry) problems.set(name, `no server ${name} here`);
+        else if (entry.state === 'new' || entry.state === 'changed') problems.set(name, `${name} not allowed yet`);
+        else if (entry.state === 'blocked') problems.set(name, `${name} blocked`);
+        else if (entry.state === 'invalid') problems.set(name, `${name} cannot start`);
+        else if (entry.variables.some((v) => v.source === 'missing')) problems.set(name, `${name} needs a value`);
+    }
+    return [...problems.values()];
 }
 
 /** What a node's ticked skills grant it: each tool with the skills that do, and what they name that no skill can. */

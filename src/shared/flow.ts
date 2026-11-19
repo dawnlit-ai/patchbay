@@ -96,10 +96,28 @@ export interface ModelChoice {
 /** The models a step tries, in the order it tries them. A node always has at least one. */
 export const modelsInTurn = (models: ModelChoice[]): ModelChoice[] => models.filter((m) => m.enabled);
 
+/**
+ * Every model a step tries, in turn: the node's own that are on, then Settings'
+ * fallbacks that are on, unless the node waits for its own. A model already
+ * tried is not tried again, at another level either: it is the same quota.
+ */
+export function stepModels(
+    node: { models: ModelChoice[]; useFallbacks: boolean },
+    fallbacks: readonly ModelChoice[],
+): ModelChoice[] {
+    const out: ModelChoice[] = [];
+    for (const choice of [...modelsInTurn(node.models), ...(node.useFallbacks ? modelsInTurn([...fallbacks]) : [])]) {
+        if (!out.some((tried) => tried.model === choice.model)) out.push(choice);
+    }
+    return out;
+}
+
 export interface CategorizerConfig {
     categories: Category[];
     /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
     models: ModelChoice[];
+    /** Whether it goes on to Settings' fallback models after its own, rather than wait for its own to lift. */
+    useFallbacks: boolean;
     /** Fetch the full body before classifying. Off = subject and preview only. */
     includeBody: boolean;
     bodyMaxChars: number;
@@ -157,6 +175,8 @@ export interface ExtractorConfig {
     inputs: string[];
     /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
     models: ModelChoice[];
+    /** Whether it goes on to Settings' fallback models after its own, rather than wait for its own to lift. */
+    useFallbacks: boolean;
     /** Let it save the attachments and read them, not just the body. */
     includeAttachments: boolean;
     /** Tools from the workspace's MCP servers, spelled as a Processor's are. Meant for lookups only. */
@@ -187,6 +207,8 @@ export interface ProcessorConfig {
     schema: JsonSchema;
     /** The models the step runs on: the first one on, then each one on after it while the one before cannot take it. */
     models: ModelChoice[];
+    /** Whether it goes on to Settings' fallback models after its own, rather than wait for its own to lift. */
+    useFallbacks: boolean;
     /** Adds `save_attachment` to the run-scoped MCP server, while the node reads the email. */
     allowSaveAttachments: boolean;
     /**
@@ -1466,6 +1488,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                     {id: 'b', label: 'Category B', description: 'Describe the emails that belong here.'},
                 ],
                 models: models(''),
+                useFallbacks: true,
                 includeBody: true,
                 bodyMaxChars: 8_000,
             };
@@ -1489,6 +1512,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 skills: [],
                 inputs: [],
                 models: models(''),
+                useFallbacks: true,
                 includeAttachments: false,
                 mcpTools: [],
             };
@@ -1502,6 +1526,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 output: '',
                 schema: {},
                 models: models('high'),
+                useFallbacks: true,
                 allowSaveAttachments: true,
                 folders: [],
                 allowShell: false,
@@ -1767,6 +1792,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 ...base,
                 categories: categories.length > 0 ? categories : base.categories,
                 models: modelsOf(from.models, base.models),
+                useFallbacks: bool(from.useFallbacks, base.useFallbacks),
                 includeBody: bool(from.includeBody, base.includeBody),
                 bodyMaxChars: num(from.bodyMaxChars, base.bodyMaxChars),
             };
@@ -1801,6 +1827,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 skills: skillTicks(from.skills, base.skills),
                 inputs: strings(from.inputs, base.inputs),
                 models: modelsOf(from.models, base.models),
+                useFallbacks: bool(from.useFallbacks, base.useFallbacks),
                 includeAttachments: bool(from.includeAttachments, base.includeAttachments),
                 mcpTools: strings(from.mcpTools, base.mcpTools),
             };
@@ -1823,6 +1850,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 output: outputName(from.output, base.output),
                 schema: schemaOf(from.schema),
                 models: modelsOf(from.models, base.models),
+                useFallbacks: bool(from.useFallbacks, base.useFallbacks),
                 allowSaveAttachments: bool(from.allowSaveAttachments, base.allowSaveAttachments),
                 folders: folderGrants(from.folders),
                 allowShell: from.allowFileSystem === true || bool(from.allowShell, base.allowShell),

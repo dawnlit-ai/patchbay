@@ -22,6 +22,7 @@ import {
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { errorMessage } from '@shared/util';
 import { ahead, time } from '../format';
+import { FallbackList } from './ModelPickers';
 import { SecretPrompt } from './SecretDialog';
 
 interface Props {
@@ -90,6 +91,7 @@ const edits = (s: Settings): unknown => [
     s.agentControl.port,
     s.updateChannel,
     s.folders,
+    s.fallbacks,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
@@ -696,6 +698,19 @@ export function SettingsPanel({
                                     typing, an API key as soon as it is entered. Each agent is checked again once
                                     its change is saved.
                                 </p>
+
+                                <header className="set-head set-subhead">
+                                    <h2>Fallback models</h2>
+                                    <p>
+                                        When a step's own model is at its usage limit, or its agent is switched off,
+                                        not installed or out of reach, the step goes on to these in turn — never once
+                                        it has changed something. The last one waits for its limit to lift. With none
+                                        listed, a step waits for its own model. A node can be set to wait for its own
+                                        whatever is listed here; Jev's models are not offered, since Jev answers a
+                                        Categorizer's question and nothing else.
+                                    </p>
+                                </header>
+                                <FallbackList value={draft.fallbacks} onChange={(fallbacks) => patch({fallbacks})}/>
                             </>
                         )}
 

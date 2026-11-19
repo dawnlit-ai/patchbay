@@ -56,7 +56,7 @@ function check(what: string, ok: boolean, detail = ''): void {
 async function main(): Promise<void> {
     // Imported here rather than at the top, so the app data above is already
     // redirected by the time anything resolves a path inside it.
-    const {getSettings, saveSettings} = await import('../src/main/store/settingsStore');
+    const {fallbacksOf, getSettings, saveSettings} = await import('../src/main/store/settingsStore');
     const {AgentControl} = await import('../src/main/mcp/server');
     const {Watcher} = await import('../src/main/engine/watcher');
     const {duplicateFlow, getFlow, importFlowFile, saveFlowFrom, setFlowFileName} = await import(
@@ -204,6 +204,13 @@ async function main(): Promise<void> {
         config: {mcpTools: 'mcp__everything'},
     });
     check('a tool list of the wrong type narrows to nothing', widened.includes('"mcpTools": []'));
+    check('a new processor goes on to Settings’ fallback models', step.includes('"useFallbacks": true'));
+    const waiting = await call('update_node', {
+        flowId,
+        nodeId: (JSON.parse(step) as { id: string }).id,
+        config: {useFallbacks: false},
+    });
+    check('a node set to wait for its own model keeps that', waiting.includes('"useFallbacks": false'));
 
     const pull = await call('add_node', {flowId, kind: 'extractor'});
     const puller = (JSON.parse(pull) as { id: string }).id;
@@ -1171,7 +1178,7 @@ async function main(): Promise<void> {
 
     // A Switch decides with no model: each rule is checked on the canvas against
     // the schema of the slot it reads, and the first that matches picks the route.
-    const {decideSwitch, parseFlow} = await import('../src/shared/flow');
+    const {decideSwitch, parseFlow, stepModels} = await import('../src/shared/flow');
     await call('set_schema', {
         name: 'Verdict',
         schema: {
@@ -1850,6 +1857,54 @@ async function main(): Promise<void> {
     );
     check('an old file-system box left unticked gives neither files anywhere nor the shell',
         f2 !== null && f2 !== undefined && !('filesAnywhere' in f2) && f2.allowShell === false && f2.folders.length === 0);
+
+    // A step runs on its own models, then on Settings' fallbacks, unless it waits for its own.
+    const fallbackFile = parseFlow(
+        {
+            nodes: [
+                {id: 'c1', kind: 'categorizer', config: {}},
+                {id: 'e1', kind: 'extractor', config: {useFallbacks: false}},
+                {id: 'p1', kind: 'processor', config: {useFallbacks: 'no'}},
+            ],
+        },
+        'fallbacks',
+        'Fallbacks',
+    );
+    check(
+        'a flow file’s nodes go on to Settings’ fallbacks unless one says false, a value of the wrong type included',
+        JSON.stringify(fallbackFile.nodes.map((n) => 'useFallbacks' in n.config && n.config.useFallbacks)) ===
+        JSON.stringify([true, false, true]),
+    );
+    const on = (model: string, effort = '', enabled = true): { model: string; effort: string; enabled: boolean } =>
+        ({model, effort, enabled});
+    const settingsChain = [on('agy:sonnet', 'high'), on('opus', 'low'), on('agy:gemini', '', false), on('haiku')];
+    const turn = (models: ReturnType<typeof on>[], useFallbacks: boolean): string =>
+        stepModels({models, useFallbacks}, settingsChain).map((m) => `${m.model}/${m.effort}`).join(' ');
+    check(
+        'a step tries its own model, then Settings’ fallbacks that are on, each model once at the level first listed',
+        turn([on('opus', 'high')], true) === 'opus/high agy:sonnet/high haiku/',
+        turn([on('opus', 'high')], true),
+    );
+    check(
+        'a node’s own fallbacks from before come ahead of Settings’',
+        turn([on('sonnet'), on('opus', 'max', false), on('agy:gemini', 'low')], true) ===
+        'sonnet/ agy:gemini/low agy:sonnet/high opus/low haiku/',
+        turn([on('sonnet'), on('opus', 'max', false), on('agy:gemini', 'low')], true),
+    );
+    check('a step that waits for its own model tries none of Settings’', turn([on('opus', 'high')], false) === 'opus/high');
+    check('with no fallbacks in Settings a step tries its own alone',
+        stepModels({models: [on('opus')], useFallbacks: true}, []).length === 1);
+    check(
+        'Settings’ fallbacks keep each named model once, and never Jev’s',
+        JSON.stringify(fallbacksOf([{model: ' agy:sonnet ', effort: 'high'}, {model: 'agy:sonnet'}, {model: 'jev-latest'},
+            {model: ''}, {effort: 'low'}, 'opus', {model: 'opus', enabled: false}])) ===
+        JSON.stringify([on('agy:sonnet', 'high'), on('opus', '', false)]),
+    );
+    const before = getSettings();
+    saveSettings({...before, fallbacks: [on('agy:sonnet', 'high'), on('jev-latest')]});
+    check('Settings saves its fallback models as fallbacksOf reads them',
+        JSON.stringify(getSettings().fallbacks) === JSON.stringify([on('agy:sonnet', 'high')]));
+    saveSettings(before);
     const oldFile = parseFlow(
         {
             nodes: [

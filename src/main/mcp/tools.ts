@@ -187,6 +187,13 @@ slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
 a slot in \`drafts\` that is not a draft, a switch's rule that leads to no
 route it has, and a processor's \`retiredTools\`.
 
+A categorizer, extractor or processor runs on its \`models\`: give it one,
+[{model, effort, enabled: true}], from the models the person's agents offer.
+With \`useFallbacks\` (true by default) a step whose model is at its usage limit
+or out of reach goes on to the fallback models the person lists in Settings →
+Agents (get_settings' \`fallbacks\`); false, it waits for its own model's limit
+to lift. A node from before may list more models, which it tries first.
+
 Every schema is the workspace's: schemas/<name>.json, made or replaced with
 set_schema. A node never holds one of its own; its \`schema\` names one, as
 {"$ref": "#/schemas/<name>"}, and a new extractor names none until you set it.
@@ -1072,7 +1079,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Read settings',
             description:
-                'App settings and the MCP servers found in the open workspace, with the agent-control token withheld and each server’s env and headers named but not given. A run is handed only the workspace’s servers. `folders` are the only folders a Processor’s file tools can be handed: a node ticks one by its `name`. There is no tool that writes these or allows a workspace server: the executables, MCP servers and folders handed to a Processor decide what code a run can execute and what it can reach, so they stay with the person at the window.',
+                'App settings and the MCP servers found in the open workspace, with the agent-control token withheld and each server’s env and headers named but not given. A run is handed only the workspace’s servers. `folders` are the only folders a Processor’s file tools can be handed: a node ticks one by its `name`. `fallbacks` are the models every Categorizer, Extractor and Processor whose `useFallbacks` is on goes on to, in turn, when its own are at their usage limit or out of reach. There is no tool that writes these or allows a workspace server: the executables, MCP servers and folders handed to a Processor decide what code a run can execute and what it can reach, so they stay with the person at the window.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },

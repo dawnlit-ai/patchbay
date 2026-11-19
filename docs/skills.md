@@ -46,7 +46,8 @@ and a run reaching that node leaves by its error port naming the skill.
 ## MCP servers
 
 A Processor or Extractor is handed only the server tools [its ticked skills grant](#tools-a-skill-grants) and the ones
-ticked under *Tools from MCP servers* — one by one, or *All* of a server's — and a server with neither is not started
+ticked under *Tools from MCP servers*, in its [Access](flows.md#the-nodes) — one by one, or *All* of a server's — and a
+server with neither is not started
 for its run. So a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same
 server's tool that sends mail.
 
@@ -157,7 +158,7 @@ unticked.
 
 ## File access
 
-A Processor's file tools reach the folders it ticks under *What this node may do* and its own run folder, and nowhere
+A Processor's file tools reach the folders it ticks under *Folders* in its *Access* and its own run folder, and nowhere
 else. The folders come from **Settings → Folders**, which lists every folder on this computer a run may ever be handed,
 each under a name and either *Read only* or *Read and write*. A node ticks a folder by that name, and picks *Read only*
 or *Read and write* where Settings allows writing there. A flow names folders, never paths, so a flow copied to another
