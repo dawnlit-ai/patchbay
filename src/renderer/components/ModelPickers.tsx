@@ -4,19 +4,70 @@ import { isAgyModel, isClaudeModel, isJevModel, type ModelChoice, offeredTo } fr
 import type { ModelOption } from '@shared/ipc';
 import { AGENT_NAMES, type AgentId, type Settings } from '@shared/settings';
 
-/** A labelled control. */
+/**
+ * The ⓘ that shows or hides what a field or section is for. A span rather than
+ * a button, so a label around it still labels its control; a click on it is
+ * kept from reaching that control.
+ */
+export function InfoToggle({about, open, onToggle}: {
+    /** What it explains, for its accessible name. */
+    about: string;
+    open: boolean;
+
+    onToggle(): void;
+}): JSX.Element {
+    return (
+        <span
+            role="button"
+            tabIndex={0}
+            className={open ? 'info-toggle on' : 'info-toggle'}
+            aria-label={`About ${about}`}
+            aria-expanded={open}
+            title={open ? 'Hide this' : `What is ${about.toLowerCase()} for?`}
+            onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle();
+            }}
+            onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                onToggle();
+            }}
+        >
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.8" fill="none" stroke="currentColor" strokeWidth="1.4"/>
+                <rect x="7.25" y="7" width="1.5" height="4.6" rx="0.75" fill="currentColor"/>
+                <circle cx="8" cy="4.7" r="0.95" fill="currentColor"/>
+            </svg>
+        </span>
+    );
+}
+
+/**
+ * A labelled control. `hint` is said under it every time, for what depends on
+ * the moment: a problem, or what to do next. `info` is what the field is for,
+ * which a person needs once, so it waits behind an ⓘ beside the label.
+ */
 export function Field({
                           label,
                           hint,
+                          info,
                           children,
                       }: {
     label: string;
-    hint?: string;
+    hint?: ReactNode;
+    info?: ReactNode;
     children: ReactNode;
 }): JSX.Element {
+    const [about, setAbout] = useState(false);
     return (
         <label className="field">
-            <span>{label}</span>
+            <span className="field-label">
+                {label}
+                {info && <InfoToggle about={label} open={about} onToggle={() => setAbout(!about)}/>}
+            </span>
+            {about && info && <span className="info">{info}</span>}
             {children}
             {hint && <div className="hint">{hint}</div>}
         </label>

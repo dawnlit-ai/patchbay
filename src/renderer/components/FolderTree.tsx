@@ -124,11 +124,9 @@ export function FolderTree({
                     );
                 }}
             />
-            <div className="hint block">
-                {listed && choice.folders.length === 0
-                    ? 'Nothing ticked — this trigger reads no mail.'
-                    : 'A folder made later, by you or a rule, is read only once you tick it here.'}
-            </div>
+            {listed && choice.folders.length === 0 && (
+                <div className="hint block warn">Nothing ticked — this trigger reads no mail.</div>
+            )}
         </>
     );
 }

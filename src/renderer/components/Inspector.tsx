@@ -57,7 +57,16 @@ import {
     skillGrants,
 } from '@shared/settings';
 import { FolderTree } from './FolderTree';
-import { effortAfter, EffortField, Field, findModel, ModelField, modelName, useModels } from './ModelPickers';
+import {
+    effortAfter,
+    EffortField,
+    Field,
+    findModel,
+    InfoToggle,
+    ModelField,
+    modelName,
+    useModels,
+} from './ModelPickers';
 import { SchemaDialog } from './SchemaDialog';
 import { SecretDialog } from './SecretDialog';
 import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
@@ -65,19 +74,106 @@ import { type Library, SkillShelf } from './SkillLibrary';
 import { type DataTokens, tint } from '../slotColors';
 import { fieldsOf } from '../schemaShape';
 
-/** Configures the selected node: one section per kind, each handed its narrowed config. */
+/**
+ * Configures the selected node: a header saying what the node is, then its
+ * settings in sections that fold to a line saying what they hold. What a node
+ * is mostly about starts open; how it runs, what it may reach and the data it
+ * passes on start folded. What each part is for waits behind an ⓘ, so the
+ * panel says only what depends on this node, now.
+ */
 
-/** The same heading, for a group of controls that is not one input. */
-function Legend({label, hint}: { label: string; hint?: string }): JSX.Element {
+/** The same heading as a field's, for a group of controls that is not one input. */
+function Legend({label, hint, info}: { label: string; hint?: ReactNode; info?: ReactNode }): JSX.Element {
+    const [about, setAbout] = useState(false);
     return (
-        <div className="field">
-            <span>{label}</span>
+        <div className="field legend">
+            <span className="field-label">
+                {label}
+                {info && <InfoToggle about={label} open={about} onToggle={() => setAbout(!about)}/>}
+            </span>
+            {about && info && <span className="info">{info}</span>}
             {hint && <div className="hint">{hint}</div>}
         </div>
     );
 }
 
-interface Section<C> {
+/** Which sections a person has opened or folded, by title, kept for every node and every window. */
+const FOLDS_KEY = 'patchbay.inspector.folds';
+
+function readFolds(): Record<string, boolean> {
+    try {
+        const raw: unknown = JSON.parse(localStorage.getItem(FOLDS_KEY) ?? '{}');
+        return raw && typeof raw === 'object' ? (raw as Record<string, boolean>) : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeFold(title: string, open: boolean): void {
+    try {
+        localStorage.setItem(FOLDS_KEY, JSON.stringify({...readFolds(), [title]: open}));
+    } catch {
+        // Storage refused: the fold still holds while this node is open.
+    }
+}
+
+/**
+ * A titled part of a node's settings. Folded, its header says what it holds,
+ * so a node reads as a short list. Opening or folding one is remembered by its
+ * title, so a person who keeps Model open finds it open on the next node too.
+ */
+function Section({title, summary, info, open: openAtFirst = true, attention = false, children}: {
+    title: string;
+    /** What it holds, said beside the title while it is folded. */
+    summary?: ReactNode;
+    /** What it is for, behind an ⓘ in its header. */
+    info?: ReactNode;
+    /** Whether it starts open, until a person opens or folds a section of this title. */
+    open?: boolean;
+    /** Something in it a person should see: it opens on its own, and never folds on its own. */
+    attention?: boolean;
+    children: ReactNode;
+}): JSX.Element {
+    const [open, setOpen] = useState(() => attention || (readFolds()[title] ?? openAtFirst));
+    const [about, setAbout] = useState(false);
+    // What needs a look can be found after the section first shows, as a server's state is.
+    useEffect(() => {
+        if (attention) setOpen(true);
+    }, [attention]);
+
+    return (
+        <section className={open ? 'insp-section open' : 'insp-section'}>
+            <div className="insp-section-head">
+                <button
+                    className="insp-section-toggle"
+                    aria-expanded={open}
+                    title={!open && typeof summary === 'string' ? summary : undefined}
+                    onClick={() => {
+                        writeFold(title, !open);
+                        setOpen(!open);
+                    }}
+                >
+                    <svg className="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                        <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.5"
+                              strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <span className="insp-section-title">{title}</span>
+                    {!open && summary && <span className="insp-section-summary">{summary}</span>}
+                </button>
+                {open && info && <InfoToggle about={title} open={about} onToggle={() => setAbout(!about)}/>}
+            </div>
+            {open && (
+                <div className="insp-section-body">
+                    {about && info && <div className="info">{info}</div>}
+                    {children}
+                </div>
+            )}
+        </section>
+    );
+}
+
+/** A node's config, or the part of it a field edits, and the call that changes it. */
+interface Edits<C> {
     config: C;
 
     patch(partial: Partial<C>): void;
@@ -86,6 +182,16 @@ interface Section<C> {
 /** Names joined as a sentence says them: a, b and c. */
 function spoken(names: string[]): string {
     return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/** A count and its noun: 1 rule, 2 rules. */
+const counted = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** The start of a piece of writing, for a folded section's line. */
+function opening(text: string, empty: string): string {
+    const line = text.trim().split('\n')[0]?.trim() ?? '';
+    if (line === '') return empty;
+    return line.length > 60 ? `${line.slice(0, 58).trimEnd()}…` : line;
 }
 
 /**
@@ -117,22 +223,27 @@ function ModelSection({kind, config, patch}: {
     let hint: string;
     if (offered.fallbacks === null) hint = 'Reading Settings…';
     else if (after.length === 0) {
-        hint = `The step waits for ${name(main)}'s usage limit to lift.` +
-            (!config.useFallbacks
-                ? ''
-                : settingsHas
-                    ? ' Settings → Agents lists no other model to go on to.'
-                    : ' Settings → Agents lists no fallback models yet.');
+        hint = !config.useFallbacks
+            ? 'At its usage limit, the step waits for it to lift.'
+            : settingsHas
+                ? 'Settings → Agents lists no other model to go on to, so at its usage limit the step waits.'
+                : 'Settings → Agents lists no fallback models yet, so at its usage limit the step waits.';
     } else {
-        hint = `When ${name(main)} is at its usage limit, or its agent is switched off or out of reach, the step goes on to ` +
-            (after.length === 1
-                ? `${name(after[0]!)} — never once it has changed something — and waits for that one's limit to lift.`
-                : `${spoken(after.map(name))} in turn — never once it has changed something. The last one waits for its limit to lift.`) +
+        hint = `At its usage limit, or out of reach, the step goes on to ${after.map(name).join(', then ')}` +
+            ' — never once it has changed something.' +
             (config.useFallbacks ? '' : ' It does not go on to Settings’ fallback models.');
     }
+    const summary = after.length === 0
+        ? name(main)
+        : `${name(main)} · then ${after.length === 1 ? name(after[0]!) : counted(after.length, 'fallback')}`;
 
     return (
-        <>
+        <Section
+            title="Model"
+            open={false}
+            summary={summary}
+            info="The model the step runs on, and how hard it thinks. When that model is at its usage limit, or its agent is switched off or out of reach, the step can go on to the fallback models listed in Settings → Agents, in turn."
+        >
             <ModelField
                 {...listing}
                 jev={takesJev(kind)}
@@ -149,7 +260,8 @@ function ModelSection({kind, config, patch}: {
                 <>
                     <Legend
                         label="Its own fallbacks"
-                        hint="Listed on this node before Settings had fallback models. The step tries them, in turn, before Settings’ list. Remove one to leave it to Settings: it cannot be added back here."
+                        hint="From before Settings had fallback models: tried in turn before Settings’ list."
+                        info="Listed on this node before Settings had fallback models. The step tries them, in turn, before Settings’ list. Remove one to leave it to Settings: it cannot be added back here."
                     />
                     {own.map((choice, i) => (
                         <div key={i} className="pick-row">
@@ -173,18 +285,22 @@ function ModelSection({kind, config, patch}: {
                 />
                 Fall back to the models in Settings → Agents
             </label>
-            <div className="hint">{hint}</div>
-            {config.useFallbacks && (
-                <button className="field-link" onClick={() => void window.api.window.showSettings()}>
-                    {settingsHas ? 'Change them in Settings' : 'Set them in Settings'}
-                </button>
-            )}
-            <div className="gap"/>
-        </>
+            <div className="hint">
+                {hint}
+                {config.useFallbacks && (
+                    <>
+                        {' '}
+                        <button className="link" onClick={() => void window.api.window.showSettings()}>
+                            {settingsHas ? 'Change them' : 'Set them'}
+                        </button>
+                    </>
+                )}
+            </div>
+        </Section>
     );
 }
 
-function TriggerFields({config, patch}: Section<TriggerConfig>): JSX.Element {
+function TriggerFields({config, patch}: Edits<TriggerConfig>): JSX.Element {
     const [accounts, setAccounts] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -233,154 +349,186 @@ function TriggerFields({config, patch}: Section<TriggerConfig>): JSX.Element {
     const listed = folders?.account === account ? folders.list : null;
     const failed = folderError?.account === account ? folderError.message : null;
 
+    const ticked = config.folders.length;
     return (
         <>
-            {error && <div className="err-banner">{error}</div>}
-
-            <Field
-                label="Mailbox"
-                hint={loading ? 'Asking Outlook…' : 'Accounts come from the Outlook client on this machine.'}
-            >
-                <select value={config.account} onChange={(e) => patch({account: e.target.value})}>
-                    <option value="">— choose an account —</option>
-                    {accounts.map((a) => (
-                        <option key={a} value={a}>
-                            {a}
-                        </option>
-                    ))}
-                </select>
-            </Field>
-
-            <FolderTree
-                choice={config}
-                listed={listed}
-                note={
-                    !account
-                        ? 'Choose a mailbox to list its folders.'
-                        : failed
-                            ? `Could not list the folders: ${failed}`
-                            : 'Asking Outlook for the folders…'
+            <Section
+                title="Mailbox"
+                summary={
+                    !config.account
+                        ? 'none chosen'
+                        : `${config.account} · ${ticked === 0 ? 'no folders' : counted(ticked, 'folder')}`
                 }
-                onChange={patch}
-            />
-            {failed && (
-                <button className="compact" onClick={() => setReread((n) => n + 1)}>
-                    Try again
-                </button>
-            )}
+                info="The account comes from the Outlook client on this computer. A tick reads that folder alone; unticking one unticks the folders inside it too. A folder made later, by you or a rule, is read only once you tick it here."
+            >
+                {error && <div className="err-banner">{error}</div>}
 
-            <div className="row">
-                <Field label="Poll every (s)">
-                    <input
-                        type="number"
-                        min={15}
-                        value={config.pollSeconds}
-                        onChange={(e) => patch({pollSeconds: Math.max(15, Number(e.target.value) || 60)})}
-                    />
+                <Field label="Account" hint={loading ? 'Asking Outlook…' : undefined}>
+                    <select value={config.account} onChange={(e) => patch({account: e.target.value})}>
+                        <option value="">— choose an account —</option>
+                        {accounts.map((a) => (
+                            <option key={a} value={a}>
+                                {a}
+                            </option>
+                        ))}
+                    </select>
                 </Field>
-                <Field label="Look back (days)">
-                    <input
-                        type="number"
-                        min={0}
-                        value={config.lookbackDays}
-                        onChange={(e) => patch({lookbackDays: Math.max(0, Number(e.target.value) || 1)})}
-                    />
-                </Field>
-                <Field label="Max / poll">
-                    <input
-                        type="number"
-                        min={1}
-                        value={config.maxPerPoll}
-                        onChange={(e) => patch({maxPerPoll: Math.max(1, Number(e.target.value) || 10)})}
-                    />
-                </Field>
-            </div>
 
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.processBacklogOnStart}
-                    onChange={(e) => patch({processBacklogOnStart: e.target.checked})}
+                <FolderTree
+                    choice={config}
+                    listed={listed}
+                    note={
+                        !account
+                            ? 'Choose a mailbox to list its folders.'
+                            : failed
+                                ? `Could not list the folders: ${failed}`
+                                : 'Asking Outlook for the folders…'
+                    }
+                    onChange={patch}
                 />
-                Process mail already in its folders when watching starts
-            </label>
+                {failed && (
+                    <button className="compact" onClick={() => setReread((n) => n + 1)}>
+                        Try again
+                    </button>
+                )}
+            </Section>
+
+            <Section
+                title="Polling"
+                open={false}
+                summary={
+                    `every ${config.pollSeconds} s · ${counted(config.lookbackDays, 'day')} back · ${config.maxPerPoll} a poll` +
+                    (config.processBacklogOnStart ? ' · backlog too' : '')
+                }
+                info="How often the trigger asks Outlook for new mail, how far back it looks, and how many emails it takes each time."
+            >
+                <div className="row">
+                    <Field label="Poll every (s)">
+                        <input
+                            type="number"
+                            min={15}
+                            value={config.pollSeconds}
+                            onChange={(e) => patch({pollSeconds: Math.max(15, Number(e.target.value) || 60)})}
+                        />
+                    </Field>
+                    <Field label="Look back (days)">
+                        <input
+                            type="number"
+                            min={0}
+                            value={config.lookbackDays}
+                            onChange={(e) => patch({lookbackDays: Math.max(0, Number(e.target.value) || 1)})}
+                        />
+                    </Field>
+                    <Field label="Max / poll">
+                        <input
+                            type="number"
+                            min={1}
+                            value={config.maxPerPoll}
+                            onChange={(e) => patch({maxPerPoll: Math.max(1, Number(e.target.value) || 10)})}
+                        />
+                    </Field>
+                </div>
+
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={config.processBacklogOnStart}
+                        onChange={(e) => patch({processBacklogOnStart: e.target.checked})}
+                    />
+                    Process mail already in its folders when watching starts
+                </label>
+            </Section>
         </>
     );
 }
 
-function CategorizerFields({config, patch}: Section<CategorizerConfig>): JSX.Element {
+function CategorizerFields({config, patch}: Edits<CategorizerConfig>): JSX.Element {
     const {categories} = config;
     const replace = (index: number, category: Partial<CategorizerConfig['categories'][number]>): void =>
         patch({categories: categories.map((c, j) => (j === index ? {...c, ...category} : c))});
 
     return (
         <>
-            <Legend
-                label="Categories"
-                hint="The model picks one branch by matching the email against these descriptions. Write them the way you would explain the difference to a new colleague."
-            />
-
-            {categories.map((cat, i) => (
-                <div key={cat.id} className="card">
-                    <div className="row">
-                        <input
-                            value={cat.label}
-                            placeholder="Label"
-                            onChange={(e) => replace(i, {label: e.target.value})}
-                        />
-                        <button
-                            className="danger fixed"
-                            onClick={() => patch({categories: categories.filter((_, j) => j !== i)})}
-                        >
-                            Remove
-                        </button>
-                    </div>
-                    <textarea
-                        rows={3}
-                        placeholder="Which emails belong in this branch?"
-                        value={cat.description}
-                        onChange={(e) => replace(i, {description: e.target.value})}
-                    />
-                </div>
-            ))}
-
-            <button
-                onClick={() =>
-                    patch({
-                        categories: [
-                            ...categories,
-                            {id: shortId(), label: 'New category', description: ''},
-                        ],
-                    })
-                }
+            <Section
+                title="Categories"
+                summary={categories.length === 0 ? 'none yet' : spoken(categories.map((c) => c.label))}
+                info="Each category is a branch, and a port of its own. The model picks one by matching the email against these descriptions: write them the way you would explain the difference to a new colleague."
             >
-                + Add category
-            </button>
+                {categories.map((cat, i) => (
+                    <div key={cat.id} className="card">
+                        <div className="row">
+                            <input
+                                value={cat.label}
+                                placeholder="Label"
+                                aria-label={`Category ${i + 1}`}
+                                onChange={(e) => replace(i, {label: e.target.value})}
+                            />
+                            <span className="field-tools fixed">
+                                <button
+                                    className="ghost icon remove"
+                                    title={`Remove ${cat.label || `category ${i + 1}`}`}
+                                    onClick={() => patch({categories: categories.filter((_, j) => j !== i)})}
+                                >
+                                    ✕
+                                </button>
+                            </span>
+                        </div>
+                        <textarea
+                            rows={3}
+                            placeholder="Which emails belong in this branch?"
+                            aria-label={`What belongs in ${cat.label || `category ${i + 1}`}`}
+                            value={cat.description}
+                            onChange={(e) => replace(i, {description: e.target.value})}
+                        />
+                    </div>
+                ))}
 
-            <div className="gap"/>
+                <button
+                    className="add"
+                    onClick={() =>
+                        patch({
+                            categories: [
+                                ...categories,
+                                {id: shortId(), label: 'New category', description: ''},
+                            ],
+                        })
+                    }
+                >
+                    + Add category
+                </button>
+            </Section>
+
+            <Section
+                title="Reads"
+                summary={
+                    config.includeBody
+                        ? `the full body, up to ${config.bodyMaxChars.toLocaleString()} characters`
+                        : 'the sender, subject and a preview'
+                }
+                info="Without the full body, the model classifies on the sender, the subject and Outlook’s preview of the text, which is quicker and cheaper."
+            >
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={config.includeBody}
+                        onChange={(e) => patch({includeBody: e.target.checked})}
+                    />
+                    Read the full body before classifying
+                </label>
+
+                {config.includeBody && (
+                    <Field label="Body characters">
+                        <input
+                            type="number"
+                            min={500}
+                            value={config.bodyMaxChars}
+                            onChange={(e) => patch({bodyMaxChars: Math.max(500, Number(e.target.value) || 8_000)})}
+                        />
+                    </Field>
+                )}
+            </Section>
 
             <ModelSection kind="categorizer" config={config} patch={patch}/>
-
-            <div className="gap"/>
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.includeBody}
-                    onChange={(e) => patch({includeBody: e.target.checked})}
-                />
-                Read the full body before classifying
-            </label>
-
-            {config.includeBody && (
-                <Field label="Body characters">
-                    <input
-                        type="number"
-                        min={500}
-                        value={config.bodyMaxChars}
-                        onChange={(e) => patch({bodyMaxChars: Math.max(500, Number(e.target.value) || 8_000)})}
-                    />
-                </Field>
-            )}
         </>
     );
 }
@@ -421,19 +569,25 @@ interface SchemaProps {
  * The slot a node fills and the schema of what goes in it. `optional` lets the
  * name be left blank, for a node that hands nothing on.
  */
-function OutputFields({
-                          config,
-                          patch,
-                          hint,
-                          optional = false,
-                          shelf,
-                      }: Section<{ output: string; schema: JsonSchema }> & SchemaProps & {
-    hint: string;
+function OutputSection({
+                           config,
+                           patch,
+                           info,
+                           optional = false,
+                           shelf,
+                       }: Edits<{ output: string; schema: JsonSchema }> & SchemaProps & {
+    /** When the slot is filled, and what reads it. */
+    info: string;
     optional?: boolean
 }): JSX.Element {
+    const named = refName(config.schema);
     return (
-        <>
-            <SlotField value={config.output} optional={optional} hint={hint} onChange={(output) => patch({output})}/>
+        <Section
+            title="Output"
+            summary={config.output === '' ? 'hands nothing on' : named ? `${config.output} · ${named}` : config.output}
+            info={info}
+        >
+            <SlotField value={config.output} optional={optional} onChange={(output) => patch({output})}/>
 
             {config.output !== '' && (
                 <SchemaField
@@ -443,7 +597,7 @@ function OutputFields({
                     shelf={shelf}
                 />
             )}
-        </>
+        </Section>
     );
 }
 
@@ -531,10 +685,14 @@ function SchemaField({
         <>
             <Legend
                 label="Schema"
-                hint="Every schema is the workspace’s: pick one, or make one with New…. Each node that picks the same fills the same shape, and its ports say so."
+                info="The shape of what goes in the slot. Every schema is the workspace’s: pick one, or make one with New…. Each node that picks the same fills the same shape, and its ports say so; a change to the schema reaches every one of them."
             />
             <div className="row schema-pick">
-                <select value={named ?? ''} onChange={(e) => patch({schema: schemaRef(e.target.value)})}>
+                <select
+                    aria-label="Schema"
+                    value={named ?? ''}
+                    onChange={(e) => patch({schema: schemaRef(e.target.value)})}
+                >
                     {named === null && (
                         <option value="" disabled>
                             Pick a schema…
@@ -547,6 +705,15 @@ function SchemaField({
                         </option>
                     ))}
                 </select>
+                {named !== null && shown && (
+                    <button
+                        className="fixed"
+                        onClick={() => setEditing({name: named, viewing: true})}
+                        title={`See ${named}’s fields, and edit or rename it from there`}
+                    >
+                        Open…
+                    </button>
+                )}
                 <button
                     className="fixed"
                     onClick={() => setEditing({name: null, viewing: false})}
@@ -559,21 +726,10 @@ function SchemaField({
                     New…
                 </button>
             </div>
-            {named !== null && shown && (
-                <div className="row schema-pick">
-                    <button onClick={() => setEditing({name: named, viewing: true})} title={`See ${named}’s fields`}>
-                        View…
-                    </button>
-                    <button onClick={() => setEditing({name: named, viewing: false})}
-                            title={`Change ${named}’s fields, or rename it`}>
-                        Edit…
-                    </button>
-                </div>
-            )}
 
             <div className="hint block">
                 {named !== null && shown
-                    ? `${fieldCount(shown)}. ${sharedWith(shelf.users(named))}.`
+                    ? `${fieldCount(shown)} · ${sharedWith(shelf.users(named))}`
                     : named !== null
                         ? `The workspace has no schema called ${named}. Pick another, or make one with New….`
                         : names.length > 0
@@ -609,7 +765,7 @@ function ExtractorFields({
                              library,
                              available,
                              shelf,
-                         }: Section<ExtractorConfig> & SchemaProps & {
+                         }: Edits<ExtractorConfig> & SchemaProps & {
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
@@ -618,8 +774,16 @@ function ExtractorFields({
     const own = new Set(config.mcpTools).size;
     return (
         <>
-            <SkillsField config={config} patch={patch} library={library}/>
-            <InputsField
+            <InstructionSection
+                value={config.instruction}
+                onChange={(instruction) => patch({instruction})}
+                rows={3}
+                empty="none: the schema says it all"
+                placeholder="Anything the schema’s descriptions leave out, like where in the email to look."
+                info="Added to what the schema’s field descriptions already ask for. Say anything they leave out, like where in the email to look."
+            />
+            <SkillsSection config={config} patch={patch} library={library}/>
+            <InputsSection
                 config={config}
                 patch={patch}
                 available={available}
@@ -629,56 +793,61 @@ function ExtractorFields({
                 }}
             />
 
-            <OutputFields
+            <OutputSection
                 config={config}
                 patch={patch}
                 shelf={shelf}
-                hint="Later nodes read the result by this name. It is filled only on Valid."
+                info="Later nodes read the result by this slot’s name. The step leaves by Valid, and fills the slot, when every required field is in the email and the result matches the schema; by Incomplete, filling nothing, when something is missing or wrong."
             />
-
-            <Field label="Instruction"
-                   hint="Anything the schema's descriptions leave out, like where in the email to look.">
-                <textarea
-                    rows={3}
-                    value={config.instruction}
-                    onChange={(e) => patch({instruction: e.target.value})}
-                />
-            </Field>
 
             <ModelSection kind="extractor" config={config} patch={patch}/>
 
-            <AccessSection
+            <Section
+                title="Access"
+                open={false}
                 summary={[...(problems ?? []), toolsSummary(tools, own)].join(' · ')}
                 attention={own > 0 || (problems?.length ?? 0) > 0}
+                info="What the run may reach beyond the email: tools from the workspace’s MCP servers. Give it tools that look things up: an Extractor is meant to change nothing."
             >
-                <McpToolsField
-                    config={config}
-                    patch={patch}
-                    grants={grantsOf(config.skills, library)}
-                    hint="The run gets what its ticked skills grant and what is ticked here, and nothing else. Give it tools that look things up: an Extractor is meant to change nothing."
-                />
-            </AccessSection>
-
-            <div className="gap"/>
-            <div className="hint">
-                Leaves by Valid when every required field is in the email and the result matches the schema, and by
-                Incomplete when something is missing or wrong. Nothing is filled on Incomplete.
-            </div>
+                <McpToolsField config={config} patch={patch} grants={grantsOf(config.skills, library)}/>
+            </Section>
         </>
     );
 }
 
-/** The skills a node loads first, ticked from the workspace's library — and the library itself, kept from here. */
-function SkillsField({config, patch, library}: Section<{ skills: string[] }> & { library: Library }): JSX.Element {
+/** What a step is asked to do, as a section that folds to its first line. */
+function InstructionSection({value, onChange, rows, empty, placeholder, info}: {
+    value: string;
+    onChange(value: string): void;
+    rows: number;
+    /** Said while folded with nothing written. */
+    empty: string;
+    placeholder: string;
+    info: string;
+}): JSX.Element {
     return (
-        <>
-            <Legend
-                label="Skills"
-                hint="Every skill in the workspace is this step’s to use, and none from anywhere else. The ones you tick it loads before anything else."
+        <Section title="Instruction" summary={opening(value, empty)} info={info}>
+            <textarea
+                rows={rows}
+                aria-label="Instruction"
+                placeholder={placeholder}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
             />
+        </Section>
+    );
+}
+
+/** The skills a node loads first, ticked from the workspace's library — and the library itself, kept from here. */
+function SkillsSection({config, patch, library}: Edits<{ skills: string[] }> & { library: Library }): JSX.Element {
+    return (
+        <Section
+            title="Skills"
+            summary={config.skills.length === 0 ? 'none ticked' : spoken(config.skills)}
+            info="Every skill in the workspace is this step’s to use, and none from anywhere else. The ones you tick it loads before anything else. A skill is shared by every flow here: Edit changes it for all of them."
+        >
             <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({skills})}/>
-            <div className="gap"/>
-        </>
+        </Section>
     );
 }
 
@@ -688,7 +857,7 @@ function ProcessorFields({
                              library,
                              available,
                              shelf,
-                         }: Section<ProcessorConfig> & SchemaProps & {
+                         }: Edits<ProcessorConfig> & SchemaProps & {
     library: Library;
     available: Available | undefined;
 }): JSX.Element {
@@ -710,8 +879,16 @@ function ProcessorFields({
         config.allowShell || !!config.filesAnywhere || retired > 0 || folders > 0 || own > 0 || (problems?.length ?? 0) > 0;
     return (
         <>
-            <SkillsField config={config} patch={patch} library={library}/>
-            <InputsField
+            <InstructionSection
+                value={config.instruction}
+                onChange={(instruction) => patch({instruction})}
+                rows={5}
+                empty="none yet"
+                placeholder="What should this step do with the email? Say what a good outcome looks like."
+                info="Put before the email in the prompt. Say what the step should do, and what a good outcome looks like."
+            />
+            <SkillsSection config={config} patch={patch} library={library}/>
+            <InputsSection
                 config={config}
                 patch={patch}
                 available={available}
@@ -721,25 +898,23 @@ function ProcessorFields({
                 }}
             />
 
-            <Field label="Instruction" hint="Prepended to the email. Say what a good outcome looks like.">
-                <textarea
-                    rows={5}
-                    value={config.instruction}
-                    onChange={(e) => patch({instruction: e.target.value})}
-                />
-            </Field>
-
-            <OutputFields
+            <OutputSection
                 config={config}
                 patch={patch}
                 shelf={shelf}
                 optional
-                hint="Later nodes read this node's result by this name, filled only on Done. Leave it blank to hand nothing on."
+                info="Later nodes read this node’s result by this slot’s name. It is filled only when the step leaves by Done. Leave the name blank to hand nothing on."
             />
 
             <ModelSection kind="processor" config={config} patch={patch}/>
 
-            <AccessSection summary={summary} attention={attention}>
+            <Section
+                title="Access"
+                open={false}
+                summary={summary}
+                attention={attention}
+                info="What the run may reach beyond the email: folders on this computer, commands, and tools from the workspace’s MCP servers. It opens on its own when anything beyond its skills’ tools and its run folder is granted, or something stands in a run’s way."
+            >
                 <Legend label="Folders"/>
                 <FoldersField config={config} patch={patch}/>
                 <FilesAnywhereField config={config} patch={patch}/>
@@ -760,7 +935,7 @@ function ProcessorFields({
 
                 <div className="gap"/>
                 <McpToolsField config={config} patch={patch} grants={grantsOf(config.skills, library)}/>
-            </AccessSection>
+            </Section>
         </>
     );
 }
@@ -787,7 +962,7 @@ function useSettingsFolders(): FolderSetting[] | null {
  * Settings → Folders, each read or also written in up to what Settings allows
  * there. A tick naming a folder Settings no longer lists stays, flagged, to be unticked.
  */
-function FoldersField({config, patch}: Section<ProcessorConfig>): JSX.Element {
+function FoldersField({config, patch}: Edits<ProcessorConfig>): JSX.Element {
     const folders = useSettingsFolders();
     const named = (name: string) => (grant: FolderGrant): boolean => grant.folder.toLowerCase() === name.toLowerCase();
     const set = (name: string, access: FolderAccess | null): void => {
@@ -871,7 +1046,7 @@ function FoldersField({config, patch}: Section<ProcessorConfig>): JSX.Element {
  * A Processor's box from before folders were picked in Settings, which gave its
  * run files anywhere. It still does, until it is unticked, which is for good.
  */
-function FilesAnywhereField({config, patch}: Section<ProcessorConfig>): JSX.Element | null {
+function FilesAnywhereField({config, patch}: Edits<ProcessorConfig>): JSX.Element | null {
     if (!config.filesAnywhere) return null;
     return (
         <>
@@ -893,7 +1068,7 @@ function FilesAnywhereField({config, patch}: Section<ProcessorConfig>): JSX.Elem
  * longer does, each to be unticked once the node that does it now is in place.
  * Unticked, a box is gone for good: there is nothing to tick it back for.
  */
-function RetiredToolsField({config, patch}: Section<ProcessorConfig>): JSX.Element | null {
+function RetiredToolsField({config, patch}: Edits<ProcessorConfig>): JSX.Element | null {
     const retired = config.retiredTools ?? [];
     if (retired.length === 0) return null;
     const one = retired.length === 1;
@@ -919,34 +1094,6 @@ function RetiredToolsField({config, patch}: Section<ProcessorConfig>): JSX.Eleme
                     `${one ? 'it' : 'them'} out of the instruction, then untick ${one ? 'it' : 'each'} here.`}
             </div>
         </>
-    );
-}
-
-/**
- * What a step may reach beyond the email — its server tools, and a Processor's
- * folders and shell — folded to a line that says what that comes to. It opens on
- * its own when there is something a person should see, and never closes on its own.
- */
-function AccessSection({summary, attention, children}: {
-    summary: string;
-    /** Something beyond its skills' tools and its run folder is granted, or stands in a run's way. */
-    attention: boolean;
-    children: ReactNode;
-}): JSX.Element {
-    const [open, setOpen] = useState(attention);
-    // A server's state is read after the section first shows, so what needs a look can come later.
-    useEffect(() => {
-        if (attention) setOpen(true);
-    }, [attention]);
-    return (
-        <div className="access">
-            <button className="access-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-                <span className="dim">{open ? '▾' : '▸'}</span>
-                <span className="access-title">Access</span>
-                <span className="access-summary">{summary}</span>
-            </button>
-            {open && <div className="access-body">{children}</div>}
-        </div>
     );
 }
 
@@ -1031,12 +1178,9 @@ interface ServerListing {
  * list only while such a node is open here; one that has not been allowed yet
  * waits on its button first, and one missing a value it looks up waits on that.
  */
-function McpToolsField({
-                           config,
-                           patch,
-                           grants,
-                           hint = 'The run gets what its ticked skills grant and what is ticked here, and nothing else. A server with neither is not started for it.',
-                       }: Section<{ mcpTools: string[] }> & { grants: SkillToolGrants; hint?: string }): JSX.Element {
+function McpToolsField({config, patch, grants}: Edits<{ mcpTools: string[] }> & {
+    grants: SkillToolGrants
+}): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
     const [unreadable, setUnreadable] = useState<McpListing['unreadable']>([]);
     /** Why allowing a server, or setting a value for one, failed: this window has no banner to say it in. */
@@ -1123,8 +1267,9 @@ function McpToolsField({
                 hint={
                     servers?.length === 0 && unreadable.length === 0
                         ? 'No MCP servers in this workspace. Add them to .mcp.json at the top of its folder.'
-                        : hint
+                        : undefined
                 }
+                info="The run gets what its ticked skills grant and what is ticked here, and nothing else. A server with neither is not started for it."
             />
             {unreadable.map((u) => (
                 <p key={u.source} className="hint err">
@@ -1288,27 +1433,32 @@ function McpToolsField({
  * A node without `readEmail` always reads the email. Its attachments are
  * ticked under the email, as part of reading it.
  */
-function InputsField({
-                         config,
-                         patch,
-                         available,
-                         attachments,
-                     }: Section<{ inputs: string[]; readEmail?: boolean }> & {
+function InputsSection({
+                           config,
+                           patch,
+                           available,
+                           attachments,
+                       }: Edits<{ inputs: string[]; readEmail?: boolean }> & {
     available: Available | undefined;
     attachments: { checked: boolean; onChange(checked: boolean): void };
 }): JSX.Element {
     const emailRead = config.readEmail ?? true;
     const offered = [...(available?.keys() ?? [])].filter((name) => name !== EMAIL_SLOT.name);
 
-    let hint: string;
+    let hint: string | undefined;
     if (!available) hint = 'Connect this node to a trigger to see which data reaches it.';
-    else if (offered.length === 0)
-        hint = 'No data from earlier nodes yet — an Extractor, or a Processor with an output slot, before this one fills one.';
-    else hint = 'Data goes into the prompt as JSON. Only slots every path here fills are offered.';
+    else if (offered.length === 0) hint = 'No earlier node fills any data yet.';
 
+    const read = [
+        ...(emailRead ? [attachments.checked ? 'the email and its attachments' : 'the email'] : []),
+        ...config.inputs,
+    ];
     return (
-        <>
-            <Legend label="Reads" hint={hint}/>
+        <Section
+            title="Reads"
+            summary={read.length === 0 ? 'nothing' : spoken(read)}
+            info="What goes into the prompt. Data an earlier node filled goes in as JSON, and only the slots every path here fills are offered: an Extractor, or a Processor with an output slot, fills one."
+        >
             <label className="check">
                 <input
                     type="checkbox"
@@ -1333,8 +1483,8 @@ function InputsField({
                 available={available}
                 onChange={(inputs) => patch({inputs})}
             />
-            <div className="gap"/>
-        </>
+            {hint && <div className="hint">{hint}</div>}
+        </Section>
     );
 }
 
@@ -1394,23 +1544,22 @@ function FieldOptions({id, available, schemas}: {
 const NO_FIELDS_YET = 'Connect this node to a trigger to see which fields reach it.';
 
 /**
- * The slot a node fills with a shape of the app's own, by its name. `optional`
- * lets it be left blank, for a node that hands nothing on.
+ * The slot a node fills, by its name. `optional` lets it be left blank, for a
+ * node that hands nothing on. What reads it is said by the section it sits in.
  */
-function SlotField({value, onChange, hint, optional = false}: {
+function SlotField({value, onChange, optional = false}: {
     value: string;
     onChange(name: string): void;
-    hint: string;
     optional?: boolean;
 }): JSX.Element {
     // A draft, so a half-typed name is never saved in place of the last good one.
     const [draft, setDraft] = useState(value);
     const problem = (name: string): string | null => (optional && name === '' ? null : slotNameProblem(name));
     return (
-        <Field label="Output slot" hint={problem(draft) ?? hint}>
+        <Field label="Slot name" hint={problem(draft) ?? undefined}>
             <input
                 value={draft}
-                placeholder={optional ? '(hands nothing on)' : undefined}
+                placeholder={optional ? '(blank: hands nothing on)' : undefined}
                 spellCheck={false}
                 onChange={(e) => {
                     setDraft(e.target.value);
@@ -1493,7 +1642,7 @@ function RuleTable({
                                 </button>
                             </span>
                         </div>
-                        <div className="row">
+                        <div className="row rule-match">
                             <span className="rule-word fixed">is</span>
                             <input
                                 value={rule.equals}
@@ -1510,8 +1659,6 @@ function RuleTable({
                                     ))}
                                 </datalist>
                             )}
-                        </div>
-                        <div className="row">
                             <span className="rule-word fixed">→</span>
                             <select
                                 value={rule.route}
@@ -1531,7 +1678,10 @@ function RuleTable({
                     </div>
                 );
             })}
-            <button onClick={() => onChange([...rules, {field: '', equals: '', route: routes[0]?.id ?? ''}])}>
+            <button
+                className="add"
+                onClick={() => onChange([...rules, {field: '', equals: '', route: routes[0]?.id ?? ''}])}
+            >
                 + Add rule
             </button>
         </>
@@ -1544,7 +1694,7 @@ function SwitchFields({
                           patch,
                           available,
                           shelf,
-                      }: Section<SwitchConfig> & SchemaProps & {
+                      }: Edits<SwitchConfig> & SchemaProps & {
     nodeId: string;
     available: Available | undefined;
 }): JSX.Element {
@@ -1563,65 +1713,76 @@ function SwitchFields({
 
     return (
         <>
-            <Legend
-                label="Routes"
-                hint="Each route is a port of its own. The email leaves by the route of the first rule that matches, or by Otherwise when none does."
-            />
-            {routes.map((route, i) => (
-                <div key={route.id} className="row">
-                    <input
-                        value={route.label}
-                        placeholder="Route name"
-                        aria-label={`Route ${i + 1}`}
-                        onChange={(e) => rename(i, e.target.value)}
-                    />
-                    <span className="field-tools fixed">
-                        <button
-                            className="ghost icon remove"
-                            title={`Remove ${routeLabel(route)}`}
-                            onClick={() => remove(i)}
-                        >
-                            ✕
-                        </button>
-                    </span>
+            <Section
+                title="Routes"
+                summary={spoken([...routes.map(routeLabel), 'Otherwise'])}
+                info="Each route is a port of its own. The email leaves by the route of the first rule that matches, or by Otherwise when none does."
+            >
+                <div className="route-list">
+                    {routes.map((route, i) => (
+                        <div key={route.id} className="row">
+                            <input
+                                value={route.label}
+                                placeholder="Route name"
+                                aria-label={`Route ${i + 1}`}
+                                onChange={(e) => rename(i, e.target.value)}
+                            />
+                            <span className="field-tools fixed">
+                                <button
+                                    className="ghost icon remove"
+                                    title={`Remove ${routeLabel(route)}`}
+                                    onClick={() => remove(i)}
+                                >
+                                    ✕
+                                </button>
+                            </span>
+                        </div>
+                    ))}
                 </div>
-            ))}
-            <button onClick={() => patch({routes: [...routes, {id: shortId(), label: 'New route'}]})}>
-                + Add route
-            </button>
+                <button className="add"
+                        onClick={() => patch({routes: [...routes, {id: shortId(), label: 'New route'}]})}>
+                    + Add route
+                </button>
+            </Section>
 
-            <div className="gap"/>
-            <Legend
-                label="Rules"
-                hint={
-                    available
-                        ? 'Read top to bottom: the first rule whose field holds its value decides. A field is a slot an earlier node filled and the path into it, such as quote.reply.'
-                        : NO_FIELDS_YET
-                }
-            />
-            <RuleTable
-                nodeId={nodeId}
-                rules={rules}
-                routes={routes}
-                onChange={(next) => patch({rules: next})}
-                available={available}
-                schemas={shelf.schemas}
-            />
+            <Section
+                title="Rules"
+                summary={rules.length === 0 ? 'none: every email leaves by Otherwise' : counted(rules.length, 'rule')}
+                info="Read top to bottom: the first rule whose field holds its value decides, and the email leaves by Otherwise when none does. A field is a slot an earlier node filled and the path into it, such as quote.reply."
+            >
+                {!available && <div className="hint block">{NO_FIELDS_YET}</div>}
+                <RuleTable
+                    nodeId={nodeId}
+                    rules={rules}
+                    routes={routes}
+                    onChange={(next) => patch({rules: next})}
+                    available={available}
+                    schemas={shelf.schemas}
+                />
+            </Section>
 
-            <div className="gap"/>
-            <SlotField
+            <SlotSection
                 value={config.output}
                 optional
                 onChange={(output) => patch({output})}
-                hint="Later nodes read which route it took, and why, by this name: filled whichever way the email leaves, so a step where the routes meet again can read it. Blank fills nothing."
+                info="Later nodes read which route it took, and why, by this slot’s name. It is filled whichever way the email leaves, so a step where the routes meet again can read it. Leave it blank to fill nothing."
             />
-
-            <div className="hint">
-                It runs no model and does nothing to the email: it only picks the way on. When no rule matches,
-                the email leaves by Otherwise.
-            </div>
-            <div className="gap"/>
         </>
+    );
+}
+
+/** The slot a node with a shape of the app's own fills, as its Output section. */
+function SlotSection({value, onChange, optional = false, info}: {
+    value: string;
+    onChange(name: string): void;
+    optional?: boolean;
+    /** What it holds, and what reads it. */
+    info: string;
+}): JSX.Element {
+    return (
+        <Section title="Output" summary={value === '' ? 'hands nothing on' : value} info={info}>
+            <SlotField value={value} optional={optional} onChange={onChange}/>
+        </Section>
     );
 }
 
@@ -1640,7 +1801,7 @@ function PlaceholderTable({nodeId, placeholders, onChange, available, schemas}: 
         <>
             <FieldOptions id={fieldList} available={available} schemas={schemas}/>
             {placeholders.map((placeholder, i) => (
-                <div key={i} className="row">
+                <div key={i} className="row placeholder-row">
                     <input
                         value={placeholder.name}
                         placeholder="NAME"
@@ -1668,7 +1829,9 @@ function PlaceholderTable({nodeId, placeholders, onChange, available, schemas}: 
                     </span>
                 </div>
             ))}
-            <button onClick={() => onChange([...placeholders, {name: '', field: ''}])}>+ Add placeholder</button>
+            <button className="add" onClick={() => onChange([...placeholders, {name: '', field: ''}])}>
+                + Add placeholder
+            </button>
         </>
     );
 }
@@ -1679,122 +1842,131 @@ function CreateEmailFields({
                                patch,
                                available,
                                shelf,
-                           }: Section<CreateEmailConfig> & SchemaProps & {
+                           }: Edits<CreateEmailConfig> & SchemaProps & {
     nodeId: string;
     available: Available | undefined;
 }): JSX.Element {
     const fresh = config.mode === 'new';
-    const fieldsHint = 'A field an earlier node filled, in braces, is written in by the run: {{shipment.agent_email}}.';
+    const fieldsInfo = 'A field an earlier node filled, in braces, is written in by the run: {{shipment.agent_email}}.';
+    const template = config.template.trim();
     return (
         <>
-            <Field label="Drafts">
-                <select value={config.mode} onChange={(e) => patch({mode: e.target.value as EmailMode})}>
-                    <option value="reply">A reply to this email</option>
-                    <option value="new">A new email</option>
-                </select>
-            </Field>
-
-            {fresh && (
-                <>
-                    <Field label="To" hint={`Addresses separated by ; or ,. ${fieldsHint}`}>
-                        <input
-                            value={config.to}
-                            placeholder="ops@example.com; {{shipment.agent_email}}"
-                            spellCheck={false}
-                            onChange={(e) => patch({to: e.target.value})}
-                        />
-                    </Field>
-                    <Field label="Cc">
-                        <input
-                            value={config.cc}
-                            placeholder="(none)"
-                            spellCheck={false}
-                            onChange={(e) => patch({cc: e.target.value})}
-                        />
-                    </Field>
-                    <Field label="Subject" hint={fieldsHint}>
-                        <input
-                            value={config.subject}
-                            placeholder="Pre-alert received: B/L {{shipment.bl_no}}"
-                            onChange={(e) => patch({subject: e.target.value})}
-                        />
-                    </Field>
-                </>
-            )}
-
-            <Field
-                label="Template"
-                hint="The subject of a template email in this mailbox’s Templates folder."
-            >
-                <input
-                    value={config.template}
-                    placeholder="RateReply"
-                    spellCheck={false}
-                    onChange={(e) => patch({template: e.target.value})}
-                />
-            </Field>
-            <Field
-                label="Section"
-                hint="One template can hold several emails, each between [[SECTION]] and [[/SECTION]]: the one this node drafts. Blank for a template with none."
-            >
-                <input
-                    value={config.section}
-                    placeholder="(the whole template)"
-                    spellCheck={false}
-                    onChange={(e) => patch({section: e.target.value})}
-                />
-            </Field>
-
-            <Legend
-                label="Placeholders"
-                hint={
-                    available
-                        ? 'Each {{NAME}} in the template, filled from a field an earlier node filled, such as quote.total.'
-                        : NO_FIELDS_YET
+            <Section
+                title="Email"
+                summary={
+                    fresh
+                        ? `a new email to ${config.to.trim() || '…'}`
+                        : config.replyAll
+                            ? 'a reply to everyone on it'
+                            : 'a reply to its sender'
                 }
-            />
-            <PlaceholderTable
-                nodeId={nodeId}
-                placeholders={config.placeholders}
-                onChange={(placeholders) => patch({placeholders})}
-                available={available}
-                schemas={shelf.schemas}
-            />
-
-            <div className="gap"/>
-            <Field
-                label="Signature"
-                hint="An Outlook signature by its name, put in the template’s {{SIGNATURE}}, or below its text. Blank for none."
+                info={
+                    fresh
+                        ? 'It only drafts: the email waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so this node drafts one new email per email that reaches it: a later run leaves by Already drafted.'
+                        : 'It only drafts: the reply waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches: that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a Switch.'
+                }
             >
-                <input
-                    value={config.signature}
-                    placeholder="(none)"
-                    onChange={(e) => patch({signature: e.target.value})}
-                />
-            </Field>
-            {!fresh && (
-                <label className="check">
-                    <input
-                        type="checkbox"
-                        checked={config.replyAll}
-                        onChange={(e) => patch({replyAll: e.target.checked})}
-                    />
-                    Reply to everyone on the email, not only its sender
-                </label>
-            )}
+                <Field label="Drafts">
+                    <select value={config.mode} onChange={(e) => patch({mode: e.target.value as EmailMode})}>
+                        <option value="reply">A reply to this email</option>
+                        <option value="new">A new email</option>
+                    </select>
+                </Field>
 
-            <SlotField
+                {fresh ? (
+                    <>
+                        <Field label="To" info={`Addresses separated by ; or ,. ${fieldsInfo}`}>
+                            <input
+                                value={config.to}
+                                placeholder="ops@example.com; {{shipment.agent_email}}"
+                                spellCheck={false}
+                                onChange={(e) => patch({to: e.target.value})}
+                            />
+                        </Field>
+                        <Field label="Cc">
+                            <input
+                                value={config.cc}
+                                placeholder="(none)"
+                                spellCheck={false}
+                                onChange={(e) => patch({cc: e.target.value})}
+                            />
+                        </Field>
+                        <Field label="Subject" info={fieldsInfo}>
+                            <input
+                                value={config.subject}
+                                placeholder="Pre-alert received: B/L {{shipment.bl_no}}"
+                                onChange={(e) => patch({subject: e.target.value})}
+                            />
+                        </Field>
+                    </>
+                ) : (
+                    <label className="check">
+                        <input
+                            type="checkbox"
+                            checked={config.replyAll}
+                            onChange={(e) => patch({replyAll: e.target.checked})}
+                        />
+                        Reply to everyone on the email, not only its sender
+                    </label>
+                )}
+            </Section>
+
+            <Section
+                title="Template"
+                summary={template === '' ? 'none chosen' : config.section.trim() ? `${template} › ${config.section.trim()}` : template}
+                info="The text comes from a template email in this mailbox’s Templates folder, with its placeholders filled from what earlier nodes found."
+            >
+                <Field label="Template" info="The subject of a template email in this mailbox’s Templates folder.">
+                    <input
+                        value={config.template}
+                        placeholder="RateReply"
+                        spellCheck={false}
+                        onChange={(e) => patch({template: e.target.value})}
+                    />
+                </Field>
+                <Field
+                    label="Section"
+                    info="One template can hold several emails, each between [[SECTION]] and [[/SECTION]]: the one this node drafts. Blank for a template with none."
+                >
+                    <input
+                        value={config.section}
+                        placeholder="(the whole template)"
+                        spellCheck={false}
+                        onChange={(e) => patch({section: e.target.value})}
+                    />
+                </Field>
+
+                <Legend
+                    label="Placeholders"
+                    hint={available ? undefined : NO_FIELDS_YET}
+                    info="Each {{NAME}} in the template, filled from a field an earlier node filled, such as quote.total."
+                />
+                <PlaceholderTable
+                    nodeId={nodeId}
+                    placeholders={config.placeholders}
+                    onChange={(placeholders) => patch({placeholders})}
+                    available={available}
+                    schemas={shelf.schemas}
+                />
+
+                <div className="gap"/>
+                <Field
+                    label="Signature"
+                    info="An Outlook signature by its name, put in the template’s {{SIGNATURE}}, or below its text. Blank for none."
+                >
+                    <input
+                        value={config.signature}
+                        placeholder="(none)"
+                        onChange={(e) => patch({signature: e.target.value})}
+                    />
+                </Field>
+            </Section>
+
+            <SlotSection
                 value={config.output}
                 onChange={(output) => patch({output})}
-                hint="Later nodes read whether this run drafted it, and the draft’s id, by this name."
+                info="Later nodes read whether this run drafted it, and the draft’s id, by this slot’s name."
             />
-
-            <div className="hint">
-                {fresh
-                    ? 'It only drafts: the email waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so this node drafts one new email per email that reaches it: a later run leaves by Already drafted.'
-                    : 'It only drafts: the reply waits in Outlook’s Drafts for a person, or a Send node after it, to send. Patchbay keeps a record of each draft, so an email gets one reply from a flow, whichever of its Create email nodes a later run reaches: that one leaves by Already drafted. Which reply an email gets, if any, is decided before it, by a Switch.'}
-            </div>
-            <div className="gap"/>
         </>
     );
 }
@@ -1803,54 +1975,54 @@ function SendFields({
                         config,
                         patch,
                         available,
-                    }: Section<SendConfig> & {
+                    }: Edits<SendConfig> & {
     available: Available | undefined;
 }): JSX.Element {
     const offered = draftSlots(available);
 
-    let hint: string;
+    let hint: string | undefined;
     if (!available) hint = 'Connect this node to a trigger to see which drafts reach it.';
-    else if (offered.length === 0)
-        hint = 'No drafts from earlier nodes yet — put a Create email before this node.';
-    else hint = 'Only Draft slots every path here fills are offered. A slot whose Create email left by Already drafted holds no draft of this run’s and is passed over.';
+    else if (offered.length === 0) hint = 'No drafts from earlier nodes yet — put a Create email before this node.';
 
     return (
         <>
-            <Legend label="Sends" hint={hint}/>
-            <SlotTicks
-                offered={offered}
-                ticked={config.drafts}
-                available={available}
-                onChange={(drafts) => patch({drafts})}
-            />
-            <div className="gap"/>
-
-            <label className="check">
-                <input
-                    type="checkbox"
-                    checked={config.sending}
-                    onChange={(e) => patch({sending: e.target.checked})}
+            <Section
+                title="Sends"
+                summary={
+                    `${config.drafts.length === 0 ? 'no drafts' : spoken(config.drafts)} · ` +
+                    (config.sending ? 'sending on' : 'sending off')
+                }
+                info="It sends only the drafts this run made, by the ids in the slots ticked here, and records each send so the same draft is never sent twice. Only Draft slots every path here fills are offered; a slot whose Create email left by Already drafted holds no draft of this run’s and is passed over. A draft held back by an earlier run is not sent by a later one: send it by hand in Outlook."
+            >
+                <SlotTicks
+                    offered={offered}
+                    ticked={config.drafts}
+                    available={available}
+                    onChange={(drafts) => patch({drafts})}
                 />
-                Send the drafts when a watched flow runs
-            </label>
-            <div className="hint">
-                {config.sending
-                    ? 'On: a polled run sends the drafts this run made, and leaves by Sent. A test run still holds them back and leaves by Held.'
-                    : 'Off: the drafts wait in Outlook’s Drafts for a person, and the run leaves by Held, saying who each would have gone to.'}
-            </div>
+                {hint && <div className="hint block">{hint}</div>}
 
-            <SlotField
+                <div className="gap"/>
+                <label className="check">
+                    <input
+                        type="checkbox"
+                        checked={config.sending}
+                        onChange={(e) => patch({sending: e.target.checked})}
+                    />
+                    Send the drafts when a watched flow runs
+                </label>
+                <div className={config.sending ? 'hint warn' : 'hint'}>
+                    {config.sending
+                        ? 'On: a polled run sends the drafts this run made, and leaves by Sent. A test run still holds them back and leaves by Held.'
+                        : 'Off: the drafts wait in Outlook’s Drafts for a person, and the run leaves by Held, saying who each would have gone to.'}
+                </div>
+            </Section>
+
+            <SlotSection
                 value={config.output}
                 onChange={(output) => patch({output})}
-                hint="Later nodes read who it sent to, who it held back and what failed by this name."
+                info="Later nodes read who it sent to, who it held back and what failed by this slot’s name."
             />
-
-            <div className="hint">
-                It sends only the drafts this run made, by the ids in the slots ticked above, and records each send so
-                the same draft is never sent twice. A draft held back by an earlier run is not sent by a later one: send
-                it by hand in Outlook.
-            </div>
-            <div className="gap"/>
         </>
     );
 }
@@ -1862,7 +2034,7 @@ function MoveEmailFields({
                              available,
                              shelf,
                              accounts,
-                         }: Section<MoveEmailConfig> & SchemaProps & {
+                         }: Edits<MoveEmailConfig> & SchemaProps & {
     nodeId: string;
     available: Available | undefined;
     accounts: string[];
@@ -1892,13 +2064,15 @@ function MoveEmailFields({
 
     return (
         <>
-            <Field
-                label="Folder"
-                hint="A folder under the Inbox, such as Processed or Clients\Acme; Outlook creates it if it is not there yet. A field an earlier node filled, in braces, is written in by the run: Processed\{{shipment.client}}."
+            <Section
+                title="Folder"
+                summary={config.folder.trim() || 'none yet'}
+                info="A folder under the Inbox, such as Processed or Clients\Acme; Outlook creates it if it is not there yet. A field an earlier node filled, in braces, is written in by the run: Processed\{{shipment.client}}. Moving an email gives it a new id, but a trigger watching more than one folder knows an email by sender, time and subject, so filing it from one watched folder into another does not run it a second time."
             >
                 <input
                     value={config.folder}
                     list={folderList}
+                    aria-label="Folder"
                     placeholder="Processed"
                     spellCheck={false}
                     onChange={(e) => patch({folder: e.target.value})}
@@ -1908,29 +2082,24 @@ function MoveEmailFields({
                         <option key={value} value={value}/>
                     ))}
                 </datalist>
-            </Field>
+            </Section>
 
-            <SlotField
+            <SlotSection
                 value={config.output}
                 optional
                 onChange={(output) => patch({output})}
-                hint="Later nodes read whether it moved the email, and which folder Outlook put it in, by this name. Blank fills nothing."
+                info="Later nodes read whether it moved the email, and which folder Outlook put it in, by this slot’s name. Leave it blank to fill nothing."
             />
-
-            <div className="hint">
-                It runs no model. Moving an email in Outlook gives it a new id; a trigger watching more than one folder
-                knows an email by sender, time and subject, so filing it from one watched folder into another does not
-                run it a second time.
-            </div>
-            <div className="gap"/>
         </>
     );
 }
 
-function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
+function TerminalFields({config, patch}: Edits<TerminalConfig>): JSX.Element {
     return (
-        <Field label="Disposition" hint="Recorded on the run, and shown in the runs list.">
+        <Section title="Disposition" summary={config.disposition}
+                 info="Recorded on the run, and shown in the runs list.">
             <select
+                aria-label="Disposition"
                 value={config.disposition}
                 onChange={(e) => patch({disposition: e.target.value as Disposition})}
             >
@@ -1938,17 +2107,7 @@ function TerminalFields({config, patch}: Section<TerminalConfig>): JSX.Element {
                     <option key={v}>{v}</option>
                 ))}
             </select>
-        </Field>
-    );
-}
-
-/** One slot as a row: its name in its colour, and its type. */
-function SlotRow({name, token, type}: { name: string; token?: string; type: string }): JSX.Element {
-    return (
-        <div className="slot-row">
-            <span className={`slot-chip ${tint(token)}`}>{name}</span>
-            <span className="slot-type">{type}</span>
-        </div>
+        </Section>
     );
 }
 
@@ -1960,49 +2119,53 @@ function DataSection({node, available, tokens}: {
 }): JSX.Element {
     const ports = outputPorts(node);
     const arriving = [...(available ?? new Map())];
+    const added = [...new Set(ports.flatMap((port) => provides(node, port.id).map((slot) => slot.name)))];
 
     return (
-        <>
-            <div className="section-title">Data</div>
-
+        <Section
+            title="Data"
+            open={false}
+            summary={ports.length === 0 ? 'the path ends here' : added.length === 0 ? 'adds nothing new' : `adds ${spoken(added)}`}
+            info="The slots every path into this node fills, and what leaves by each of its ports: everything it arrived with, plus what that port adds."
+        >
             {hasInput(node.kind) && (
-                <>
-                    <Legend
-                        label="Arrives with"
-                        hint={available ? 'Every path here fills these.' : 'No trigger reaches this node yet.'}
-                    />
-                    {arriving.map(([name, type]) => (
-                        <SlotRow key={name} name={name} token={tokens.get(name)} type={slotTypeLabel(type)}/>
-                    ))}
-                </>
+                <div className="data-block">
+                    <div className="data-label">Arrives with</div>
+                    {available ? (
+                        <div className="chip-list">
+                            {arriving.map(([name, type]) => (
+                                <span key={name} className={`slot-chip ${tint(tokens.get(name))}`}
+                                      title={slotTypeLabel(type)}>
+                                    {name}
+                                </span>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="hint">No trigger reaches this node yet.</div>
+                    )}
+                </div>
             )}
 
-            <Legend
-                label="Leaves with"
-                hint={
-                    ports.length === 0
-                        ? 'Nothing: the path ends here.'
-                        : hasInput(node.kind)
-                            ? 'Everything it arrived with, plus what a port adds.'
-                            : undefined
-                }
-            />
-            {ports.map((port) => {
-                const added = provides(node, port.id);
-                return (
-                    <div key={port.id} className="slot-row">
-                        <span className={`port-name ${port.tone}`}>{port.label}</span>
-                        {added.length === 0 && <span className="slot-type">nothing new</span>}
-                        {added.map((slot) => (
-                            <Fragment key={slot.name}>
-                                <span className={`slot-chip ${tint(tokens.get(slot.name))}`}>+ {slot.name}</span>
-                                <span className="slot-type">{slotTypeLabel(slot.type)}</span>
-                            </Fragment>
-                        ))}
-                    </div>
-                );
-            })}
-        </>
+            <div className="data-block">
+                <div className="data-label">Leaves by</div>
+                {ports.length === 0 && <div className="hint">Nothing: the path ends here.</div>}
+                {ports.map((port) => {
+                    const adds = provides(node, port.id);
+                    return (
+                        <div key={port.id} className="slot-row">
+                            <span className={`port-name ${port.tone}`}>{port.label}</span>
+                            {adds.length === 0 && <span className="slot-type">nothing new</span>}
+                            {adds.map((slot) => (
+                                <Fragment key={slot.name}>
+                                    <span className={`slot-chip ${tint(tokens.get(slot.name))}`}>+ {slot.name}</span>
+                                    <span className="slot-type">{slotTypeLabel(slot.type)}</span>
+                                </Fragment>
+                            ))}
+                        </div>
+                    );
+                })}
+            </div>
+        </Section>
     );
 }
 
@@ -2038,18 +2201,18 @@ export function Inspector({
                           }: Props): JSX.Element {
     if (!node) {
         return (
-            <div>
+            <div className="inspector">
                 <div className="empty">
                     Select a node to configure it, or drag one in from the palette on the left.
                 </div>
-                <div className="section-title">Skills</div>
-                <div className="hint block">
-                    Every flow in the workspace shares these, and every Processor and Extractor can use any of them. A
-                    node’s ticks are the ones it loads first.
-                </div>
-                <div className="library-alone">
-                    <SkillShelf library={library}/>
-                </div>
+                <Section
+                    title="Workspace skills"
+                    info="Every flow in the workspace shares these, and every Processor and Extractor can use any of them. A node’s ticks are the ones it loads first."
+                >
+                    <div className="library-alone">
+                        <SkillShelf library={library}/>
+                    </div>
+                </Section>
             </div>
         );
     }
@@ -2059,54 +2222,63 @@ export function Inspector({
     const patch = (partial: Partial<NodeConfig>): void =>
         onChange({...node, config: {...config, ...partial} as NodeConfig});
 
+    // Keyed by the node, so moving to another one starts its fields afresh rather than from the last one's drafts.
     return (
-        <div>
-            <div className={`section-title accented kind-${meta.token}`}>{meta.label}</div>
+        <div key={node.id} className="inspector">
+            <header className={`insp-head kind-${meta.token}`}>
+                <div className="insp-kind">{meta.label}</div>
+                <input
+                    className="insp-name"
+                    aria-label="Node name"
+                    value={node.name}
+                    placeholder={meta.label}
+                    onChange={(e) => onChange({...node, name: e.target.value})}
+                />
+                <p className="insp-blurb">{meta.blurb}</p>
+            </header>
 
-            {issues.map((issue) => (
-                <div key={issue.message} className={issue.severity === 'error' ? 'err-banner' : 'warn-banner'}>
-                    {issue.message}
-                    {issue.severity === 'error' && ' The flow cannot be watched until it is fixed.'}
+            {issues.length > 0 && (
+                <div className="insp-issues">
+                    {issues.map((issue) => (
+                        <div key={issue.message} className={issue.severity === 'error' ? 'err-banner' : 'warn-banner'}>
+                            {issue.message}
+                            {issue.severity === 'error' && ' The flow cannot be watched until it is fixed.'}
+                        </div>
+                    ))}
                 </div>
-            ))}
+            )}
 
-            <Field label="Name">
-                <input value={node.name} onChange={(e) => onChange({...node, name: e.target.value})}/>
-            </Field>
-
-            {config.kind === 'trigger.outlook' && <TriggerFields key={node.id} config={config} patch={patch}/>}
+            {config.kind === 'trigger.outlook' && <TriggerFields config={config} patch={patch}/>}
             {config.kind === 'categorizer' && <CategorizerFields config={config} patch={patch}/>}
             {config.kind === 'switch' && (
-                <SwitchFields key={node.id} nodeId={node.id} config={config} patch={patch}
-                              available={available} shelf={shelf}/>
+                <SwitchFields nodeId={node.id} config={config} patch={patch} available={available} shelf={shelf}/>
             )}
             {config.kind === 'extractor' && (
-                <ExtractorFields key={node.id} config={config} patch={patch} library={library}
-                                 available={available} shelf={shelf}/>
+                <ExtractorFields config={config} patch={patch} library={library} available={available}
+                                 shelf={shelf}/>
             )}
             {config.kind === 'processor' && (
-                <ProcessorFields key={node.id} config={config} patch={patch} library={library}
-                                 available={available} shelf={shelf}/>
+                <ProcessorFields config={config} patch={patch} library={library} available={available}
+                                 shelf={shelf}/>
             )}
             {config.kind === 'create-email' && (
-                <CreateEmailFields key={node.id} nodeId={node.id} config={config} patch={patch}
-                                   available={available} shelf={shelf}/>
+                <CreateEmailFields nodeId={node.id} config={config} patch={patch} available={available}
+                                   shelf={shelf}/>
             )}
-            {config.kind === 'send' && (
-                <SendFields key={node.id} config={config} patch={patch} available={available}/>
-            )}
+            {config.kind === 'send' && <SendFields config={config} patch={patch} available={available}/>}
             {config.kind === 'move-email' && (
-                <MoveEmailFields key={node.id} nodeId={node.id} config={config} patch={patch}
-                                 available={available} shelf={shelf} accounts={accounts}/>
+                <MoveEmailFields nodeId={node.id} config={config} patch={patch} available={available}
+                                 shelf={shelf} accounts={accounts}/>
             )}
             {config.kind === 'terminal' && <TerminalFields config={config} patch={patch}/>}
 
             <DataSection node={node} available={available} tokens={tokens}/>
 
-            <div className="gap"/>
-            <button className="danger" onClick={() => onDelete(node.id)}>
-                Delete node
-            </button>
+            <footer className="insp-foot">
+                <button className="danger compact" onClick={() => onDelete(node.id)}>
+                    Delete node
+                </button>
+            </footer>
         </div>
     );
 }

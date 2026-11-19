@@ -1637,42 +1637,231 @@ button.wide {
     margin-bottom: 8px;
 }
 
-/* A step's access, folded to a line saying what it comes to, as a section title reads. */
-.access-head {
+/* ── Inspector ──────────────────────────────────────────────────────────── */
+/* The selected node: a header saying what it is, then its settings in sections
+   that fold, each a hairline from the next. Edge to edge: every part pads itself. */
+
+.inspector {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+/* The kind's colour down its edge, as the palette marks the same kind. */
+.insp-head {
+    padding: 14px 14px 12px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    box-shadow: inset 3px 0 0 var(--k);
+}
+
+.insp-kind {
+    color: var(--k);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+/* The node's name, as the panel's title: an input that looks like one only when pointed at or typed in. */
+.insp-name {
+    width: calc(100% + 14px);
+    margin: 3px -7px 0;
+    padding: 3px 6px;
+    font-size: 15px;
+    font-weight: 600;
+    background: transparent;
+    border-color: transparent;
+}
+
+.insp-name:hover {
+    border-color: var(--line);
+}
+
+.insp-name:focus {
+    background: var(--input-bg);
+}
+
+.insp-blurb {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.insp-issues {
+    padding: 12px 14px 2px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.insp-section {
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.insp-section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-right: 12px;
+}
+
+.insp-section-head:hover {
+    background: var(--panel-2);
+}
+
+/* The whole header folds it; the ⓘ beside it stays its own control. */
+.insp-section-toggle {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    width: 100%;
-    margin: 14px 0 6px;
-    padding: 0;
+    gap: 8px;
+    padding: 10px 0 10px 14px;
     border: none;
+    border-radius: 0;
     background: transparent;
-    color: inherit;
     text-align: left;
 }
 
-.access-head:hover:not(:disabled) {
+.insp-section-toggle:hover:not(:disabled) {
     background: transparent;
 }
 
-.access-title {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.9px;
-    color: var(--dim);
+.insp-section-toggle:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--accent-soft);
 }
 
-.access-head:hover .access-title {
+.insp-section-toggle .chevron {
+    flex: none;
+    align-self: center;
+    color: var(--dim);
+    transition: transform 0.12s ease;
+}
+
+.insp-section.open .chevron {
+    transform: rotate(90deg);
+}
+
+.insp-section-title {
+    flex: none;
+    font-size: 12.5px;
+    font-weight: 600;
     color: var(--text);
 }
 
-/* Wrapped rather than cut: the whole line is what the fold is for. */
-.access-summary {
+/* Folded, what it holds, cut to the one line; the header's tooltip has the whole of it. */
+.insp-section-summary {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.insp-section-body {
+    padding: 2px 14px 16px;
+}
+
+/* The last control rests on the section's own padding, not its margin and the padding both. */
+.insp-section-body > :last-child {
+    margin-bottom: 0;
+}
+
+/* Another of what is listed above it: a category, a route, a rule, a placeholder. */
+.insp-section button.add {
+    width: 100%;
+    border-style: dashed;
+    background: transparent;
+    color: var(--muted);
+}
+
+.insp-section button.add:hover:not(:disabled) {
+    background: var(--panel-2);
+    color: var(--text);
+}
+
+.route-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.placeholder-row {
+    margin-bottom: 6px;
+}
+
+.insp-foot {
+    margin-top: auto;
+    padding: 16px 14px;
+}
+
+/* The ⓘ beside a label or a section's title. */
+.info-toggle {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--dim);
+    cursor: pointer;
+}
+
+.info-toggle:hover,
+.info-toggle.on {
+    color: var(--accent);
+}
+
+.info-toggle:focus-visible {
+    outline: none;
+    color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* What it opens: what the field or section is for. */
+.info,
+.field > .info {
+    display: block;
+    margin: 0 0 8px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--text);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+
+/* The inspector's Data section: what arrives, then each port and what it adds. */
+.data-block + .data-block {
+    margin-top: 10px;
+}
+
+.data-label {
+    margin-bottom: 4px;
     color: var(--muted);
     font-size: 11.5px;
-    line-height: 1.45;
+}
+
+.chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+/* A word in a line of text that takes you somewhere, like Settings. */
+button.link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font-size: inherit;
+}
+
+button.link:hover:not(:disabled) {
+    background: none;
+    text-decoration: underline;
 }
 
 .pick-group-head {
@@ -1822,8 +2011,8 @@ button.wide {
     font-size: 11px;
 }
 
+/* The inspector pads each of its own parts, so its sections can run edge to edge. */
 .side-body {
-    padding: 12px;
     overflow-y: auto;
     flex: 1;
 }
@@ -1839,6 +2028,13 @@ button.wide {
     margin-bottom: 4px;
 }
 
+/* A label with its ⓘ beside it. */
+.field > .field-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .hint {
     color: var(--dim);
     font-size: 11px;
@@ -1848,6 +2044,11 @@ button.wide {
 /* A hint that introduces or closes a block instead of trailing one field. */
 .hint.block {
     margin-bottom: 8px;
+}
+
+/* One that asks for a look: nothing will happen, or something will go out. */
+.hint.warn {
+    color: var(--warn);
 }
 
 .row {
