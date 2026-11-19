@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { skillsDir, skillsDirAt } from '../paths';
-import type { SkillDetail, SkillSummary } from '@shared/settings';
+import { EMAIL_SERVER_NAME, type SkillDetail, type SkillSummary } from '@shared/settings';
 
 /**
  * The open workspace's library: `skills/<name>/SKILL.md` folders, shared by
@@ -75,6 +75,12 @@ export function workspaceSkillPlugin(): { path: string; names: string[]; dispose
     for (const name of names) {
         // Dereferenced, so a link inside a skill is copied as content, not as a way back into the folder.
         cpSync(join(skillsDirAt(), name), join(root, 'skills', name), {recursive: true, dereference: true});
+        // The agent would grant a skill's `allowed-tools` itself on loading it, ticked
+        // or not, and built-in tools too. Patchbay grants them, from ticked skills alone.
+        const file = join(root, 'skills', name, 'SKILL.md');
+        const content = readFileSync(file, 'utf8');
+        const stripped = withoutAllowedTools(content);
+        if (stripped !== content) writeFileSync(file, stripped, 'utf8');
     }
     const dispose = (): void => {
         try {
@@ -112,6 +118,101 @@ export function parseFrontmatter(content: string): Frontmatter {
     return out;
 }
 
+const ALLOWED_TOOLS_KEY = 'allowed-tools:';
+
+/** The frontmatter between its `---` lines, and where it sits in the file. */
+function frontmatterBlock(content: string): { start: number; text: string } | null {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+    if (match?.[1] === undefined) return null;
+    // Anchored at the opening `---`, so the block starts on the line after it.
+    return {start: content.indexOf('\n') + 1, text: match[1]};
+}
+
+/**
+ * The lines `allowed-tools` takes up in the frontmatter's: its own, and the
+ * indented or blank ones after it that a list goes on in. Null without one.
+ */
+function allowedToolsLines(lines: string[]): { at: number; end: number } | null {
+    const at = lines.findIndex((line) => line.startsWith(ALLOWED_TOOLS_KEY));
+    if (at < 0) return null;
+    let end = at + 1;
+    while (end < lines.length && (lines[end]!.trim() === '' || /^\s/.test(lines[end]!))) end++;
+    return {at, end};
+}
+
+/** One list's entries, split at commas and spaces outside brackets, so `Bash(git add:*)` stays whole. */
+function toolEntries(text: string): string[] {
+    const out: string[] = [];
+    let entry = '';
+    let depth = 0;
+    const flush = (): void => {
+        const bare = entry.trim().replace(/^(["'])(.*)\1$/, '$2');
+        if (bare) out.push(bare);
+        entry = '';
+    };
+    for (const ch of text) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth = Math.max(0, depth - 1);
+        if (depth === 0 && (ch === ',' || /\s/.test(ch))) flush();
+        else entry += ch;
+    }
+    flush();
+    return out;
+}
+
+/**
+ * What `allowed-tools` lists, written as Claude Code takes it: on its own line
+ * with commas or spaces between, in `[…]`, or one per `- ` line under it.
+ */
+function allowedToolsEntries(frontmatter: string): string[] {
+    const lines = frontmatter.split(/\r?\n/);
+    const span = allowedToolsLines(lines);
+    if (!span) return [];
+    let inline = lines[span.at]!.slice(ALLOWED_TOOLS_KEY.length).trim();
+    if (inline.startsWith('[') && inline.endsWith(']')) inline = inline.slice(1, -1);
+    if (inline !== '') return toolEntries(inline);
+    return lines
+        .slice(span.at + 1, span.end)
+        .flatMap((line) => {
+            const item = /^\s+-\s*(.*)$/.exec(line);
+            return item ? toolEntries(item[1] ?? '') : [];
+        });
+}
+
+/** A workspace server's tool, or all of one's, as a node ticks it: `mcp__crm__lookup`, `mcp__crm`. */
+const SERVER_TOOL = /^mcp__[A-Za-z0-9_-]+$/;
+
+/**
+ * A skill's `allowed-tools`, split into the workspace server tools a node that
+ * ticks it is handed — `mcp__<server>__*` taken as `mcp__<server>` — and the
+ * rest, which a skill does not grant: built-in tools, and the email's own.
+ */
+export function skillTools(content: string): { tools: string[]; ungranted: string[] } {
+    const tools: string[] = [];
+    const ungranted: string[] = [];
+    const block = frontmatterBlock(content);
+    for (const entry of block ? allowedToolsEntries(block.text) : []) {
+        const tool = entry.endsWith('__*') ? entry.slice(0, -'__*'.length) : entry;
+        const own = tool === `mcp__${EMAIL_SERVER_NAME}` || tool.startsWith(`mcp__${EMAIL_SERVER_NAME}__`);
+        const list = SERVER_TOOL.test(tool) && !own ? tools : ungranted;
+        const kept = list === tools ? tool : entry;
+        if (!list.includes(kept)) list.push(kept);
+    }
+    return {tools, ungranted};
+}
+
+/** The SKILL.md with no `allowed-tools`, as a run gets it. Unchanged when it has none. */
+export function withoutAllowedTools(content: string): string {
+    const block = frontmatterBlock(content);
+    if (!block) return content;
+    const eol = block.text.includes('\r\n') ? '\r\n' : '\n';
+    const lines = block.text.split(/\r?\n/);
+    const span = allowedToolsLines(lines);
+    if (!span) return content;
+    const kept = [...lines.slice(0, span.at), ...lines.slice(span.end)].join(eol);
+    return content.slice(0, block.start) + kept + content.slice(block.start + block.text.length);
+}
+
 /** Read from where it is, without creating anything, so asking after a skill never makes the library's folder. */
 function skillFile(name: string): string {
     return join(skillsDirAt(), name, 'SKILL.md');
@@ -124,6 +225,7 @@ function summarize(name: string, content: string, file: string): SkillSummary {
         description: parseFrontmatter(content).description ?? '',
         size: stat.size,
         updatedAt: stat.mtime.toISOString(),
+        ...skillTools(content),
     };
 }
 

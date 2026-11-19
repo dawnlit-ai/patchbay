@@ -62,9 +62,16 @@ async function main(): Promise<void> {
     const {duplicateFlow, getFlow, importFlowFile, saveFlowFrom, setFlowFileName} = await import(
         '../src/main/store/flowStore'
         );
-    const {createSkill, listSkills, locateSkill, missingSkills, workspaceSkillPlugin} = await import(
-        '../src/main/store/skillStore'
-        );
+    const {
+        createSkill,
+        listSkills,
+        locateSkill,
+        missingSkills,
+        skillTools,
+        withoutAllowedTools,
+        workspaceSkillPlugin,
+    } = await import('../src/main/store/skillStore');
+    const {nodeTools} = await import('../src/shared/settings');
     const {stopWatchingFolders, watchFolders} = await import('../src/main/store/folderWatch');
     const {listMcpServers, requireServer, setServerSecret, setServerTrust, usableServers} = await import(
         '../src/main/store/mcpStore'
@@ -412,6 +419,75 @@ async function main(): Promise<void> {
         'the run’s copy goes, and the library stays',
         !existsSync(plugin.path) && existsSync(join(root, 'skills', 'alpha', 'SKILL.md')),
     );
+
+    // A skill's allowed-tools hand a node that ticks it the workspace server tools named there, and nothing else.
+    const same = (a: string[], b: string[]): boolean => JSON.stringify(a) === JSON.stringify(b);
+    const inline = skillTools(
+        '---\nname: x\nallowed-tools: mcp__crm__lookup, mcp__crm__log Bash(git add:*), Read\ndescription: d\n---\n',
+    );
+    check(
+        'allowed-tools on one line grants its server tools, and leaves built-in ones out whole',
+        same(inline.tools, ['mcp__crm__lookup', 'mcp__crm__log']) && same(inline.ungranted, ['Bash(git add:*)', 'Read']),
+        JSON.stringify(inline),
+    );
+    const asList =
+        '---\r\nname: x\r\nallowed-tools:\r\n  - "mcp__crm__*"\r\n\r\n  - mcp__email__read_email\r\ndescription: after\r\n---\r\nBody.\r\n';
+    const fromList = skillTools(asList);
+    check(
+        'allowed-tools as a list grants a whole server for `__*`, and never the email’s own tools',
+        same(fromList.tools, ['mcp__crm']) && same(fromList.ungranted, ['mcp__email__read_email']),
+        JSON.stringify(fromList),
+    );
+    check(
+        'allowed-tools in brackets is read as a list',
+        same(skillTools('---\nallowed-tools: [mcp__a__x mcp__a__y]\n---\n').tools, ['mcp__a__x', 'mcp__a__y']),
+    );
+    check(
+        'a skill with no allowed-tools grants nothing',
+        same(skillTools('---\nname: x\ndescription: d\n---\n').tools, []),
+    );
+    check(
+        'taking allowed-tools out keeps the rest of the file, line endings and all',
+        withoutAllowedTools(asList) === '---\r\nname: x\r\ndescription: after\r\n---\r\nBody.\r\n',
+        JSON.stringify(withoutAllowedTools(asList)),
+    );
+    const plain = '---\nname: x\ndescription: d\n---\nallowed-tools: in the body\n';
+    check('a skill with none is left as it is, body and all', withoutAllowedTools(plain) === plain);
+
+    createSkill(
+        'granting',
+        '---\nname: granting\ndescription: Grants.\nallowed-tools: mcp__crm__lookup, WebFetch\n---\n\nLook it up.\n',
+    );
+    const granting = listSkills().find((s) => s.name === 'granting');
+    check(
+        'the library lists what a skill grants, and what it names but does not',
+        same(granting?.tools ?? [], ['mcp__crm__lookup']) && same(granting?.ungranted ?? [], ['WebFetch']),
+        JSON.stringify(granting),
+    );
+    const library = listSkills();
+    check(
+        'a node is handed its own ticks and what its ticked skills grant, each once',
+        same(nodeTools({skills: ['granting'], mcpTools: ['mcp__crm__log', 'mcp__crm__lookup']}, library), [
+            'mcp__crm__log',
+            'mcp__crm__lookup',
+        ]) && same(nodeTools({skills: ['alpha', 'granting'], mcpTools: []}, library), ['mcp__crm__lookup']),
+    );
+    check(
+        'a skill the node does not tick grants it nothing',
+        same(nodeTools({skills: ['alpha'], mcpTools: []}, library), []),
+    );
+    const granted = workspaceSkillPlugin();
+    const copied = granted ? readFileSync(join(granted.path, 'skills', 'granting', 'SKILL.md'), 'utf8') : '';
+    granted?.dispose();
+    check(
+        'the run’s copy has no allowed-tools for the agent to grant itself, and the library keeps it',
+        copied.includes('description: Grants.') &&
+        !copied.includes('allowed-tools') &&
+        readFileSync(join(root, 'skills', 'granting', 'SKILL.md'), 'utf8').includes('allowed-tools'),
+        JSON.stringify(copied),
+    );
+    await call('delete_skill', {name: 'granting'});
+
     // Under Electron, rmSync follows a junction and empties its target.
     const outside = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-outside-'));
     writeFileSync(join(outside, 'keep.md'), 'Not the skill’s to delete.\n');

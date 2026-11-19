@@ -11,15 +11,16 @@ import {
     schemaUsers,
 } from '@shared/flow';
 import type { FlowEntry, Readme, SchemaSummary, WorkspaceInfo } from '@shared/ipc';
-import type {
-    AboutInfo,
-    EngineStatus,
-    McpListing,
-    McpServerEntry,
-    McpServerState,
-    McpServerTool,
-    McpVariable,
-    SkillSummary,
+import {
+    type AboutInfo,
+    type EngineStatus,
+    type McpListing,
+    type McpServerEntry,
+    type McpServerState,
+    type McpServerTool,
+    type McpVariable,
+    nodeTools,
+    type SkillSummary,
 } from '@shared/settings';
 import { errorMessage, isObject, together } from '@shared/util';
 import { ConfirmDialog, type Question } from './components/ConfirmDialog';
@@ -100,15 +101,16 @@ function ticksOf(flow: Flow): string[] {
     );
 }
 
-/** The MCP servers a flow's nodes tick tools of. */
-function mcpServersOf(flow: Flow): string[] {
-    return flow.nodes.flatMap((node) =>
-        node.config.kind === 'extractor' || node.config.kind === 'processor'
-            ? node.config.mcpTools.flatMap((entry) =>
-                entry.startsWith('mcp__') ? (entry.slice('mcp__'.length).split('__')[0] || []) : [],
-            )
-            : [],
-    );
+/** The MCP servers a flow's nodes take tools of: ticked on the node, or granted by a skill it ticks. */
+function mcpServersOf(skills: SkillSummary[]): (flow: Flow) => string[] {
+    return (flow) =>
+        flow.nodes.flatMap((node) =>
+            node.config.kind === 'extractor' || node.config.kind === 'processor'
+                ? nodeTools(node.config, skills).flatMap((entry) =>
+                    entry.startsWith('mcp__') ? (entry.slice('mcp__'.length).split('__')[0] || []) : [],
+                )
+                : [],
+        );
 }
 
 /** Each name `of` finds in the flows, and the flows it is found in, each once. */
@@ -509,7 +511,7 @@ export function Welcome(): JSX.Element {
     const missingSchemas = absent(namedBy, schemaList?.map((s) => s.name));
 
     /** Each MCP server ticked anywhere, and the flows that tick it, by name. */
-    const serverTickedIn = usersOf(entries, mcpServersOf);
+    const serverTickedIn = usersOf(entries, mcpServersOf(skills ?? []));
     const shownServers = ordered(
         (mcpListing?.servers ?? []).filter((s) =>
             matches(
@@ -1319,6 +1321,11 @@ export function Welcome(): JSX.Element {
                                                     )}
                                                 </div>
                                                 <div className="meta desc">{skill.description || 'No description'}</div>
+                                                {skill.tools.length > 0 && (
+                                                    <div className="meta" title="Its allowed-tools: a node that ticks it is handed these.">
+                                                        grants {skill.tools.join(', ')}
+                                                    </div>
+                                                )}
                                                 <div className="meta">
                                                     {users.length > 0 ? `ticked in ${listed(users)}` : 'ticked in no flow'} ·
                                                     edited {ago(skill.updatedAt)}

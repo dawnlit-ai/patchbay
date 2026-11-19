@@ -303,6 +303,36 @@ export interface SkillSummary {
     /** Bytes of SKILL.md. */
     size: number;
     updatedAt: string;
+    /**
+     * The workspace's MCP server tools its frontmatter's `allowed-tools` names, as a
+     * node ticks them: `mcp__<server>__<tool>`, or `mcp__<server>` for all of one's.
+     * A node that ticks the skill is handed these.
+     */
+    tools: string[];
+    /**
+     * The rest of `allowed-tools`, as written: built-in tools such as Bash or Read,
+     * and the email's own. A skill does not grant these; the node's own settings do.
+     */
+    ungranted: string[];
+}
+
+/**
+ * The tools a node's ticked skills grant it, each with the skills that do. A
+ * skill it does not tick grants nothing, though its run may still load it.
+ */
+export function skillGrants(skills: string[], library: SkillSummary[]): Map<string, string[]> {
+    const grants = new Map<string, string[]>();
+    for (const name of skills) {
+        for (const tool of library.find((skill) => skill.name === name)?.tools ?? []) {
+            grants.set(tool, [...(grants.get(tool) ?? []), name]);
+        }
+    }
+    return grants;
+}
+
+/** Every MCP server tool a node's run is handed: those it ticks, and those its ticked skills grant, each once. */
+export function nodeTools(node: { skills: string[]; mcpTools: string[] }, library: SkillSummary[]): string[] {
+    return [...new Set([...node.mcpTools, ...skillGrants(node.skills, library).keys()])];
 }
 
 export interface SkillDetail extends SkillSummary {

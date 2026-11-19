@@ -1729,6 +1729,17 @@ button.wide {
     font-size: 11.5px;
 }
 
+/* Where a row's tick comes from, or what ticking it brings: a skill's, beside the name. */
+.pick-row .from {
+    flex: none;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 11.5px;
+}
+
 .pick-row .desc {
     color: var(--muted);
     font-size: 11.5px;

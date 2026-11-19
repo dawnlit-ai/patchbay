@@ -45,9 +45,10 @@ and a run reaching that node leaves by its error port naming the skill.
 
 ## MCP servers
 
-A Processor or Extractor is handed only the server tools ticked under *Tools from MCP servers* — one by one, or *All*
-of a server's — and a server with nothing ticked is not started for its run. So a step that reads mail from outside,
-and needs a record lookup, holds that lookup and not the same server's tool that sends mail.
+A Processor or Extractor is handed only the server tools [its ticked skills grant](#tools-a-skill-grants) and the ones
+ticked under *Tools from MCP servers* — one by one, or *All* of a server's — and a server with neither is not started
+for its run. So a step that reads mail from outside, and needs a record lookup, holds that lookup and not the same
+server's tool that sends mail.
 
 Servers come from the workspace, like its flows, skills and schemas, so a flow is handed the same ones on every
 computer it is opened on. Patchbay reads `.mcp.json` (Claude Code), `.vscode/mcp.json`, `.cursor/mcp.json` and
@@ -78,7 +79,39 @@ An app opened from the Finder or the Dock does not have a terminal's PATH, so a 
 a run. One installed by a version manager such as nvm or Volta lives elsewhere: give its full path.
 
 A skill that calls another app's MCP tools (`mcp__<server-name>__*`) needs that server allowed in the workspace, and
-the tools it calls ticked on the node, before it can run.
+the tools it calls granted by the skill itself or ticked on the node, before it can run.
+
+### Tools a skill grants
+
+A skill names the tools it calls in its frontmatter's `allowed-tools`, as Claude Code writes it, and every node that
+ticks the skill is handed them. A skill and the tools it calls then travel together, written once, not ticked again on
+each node that uses it:
+
+```yaml
+---
+name: rate-reply-log
+description: …
+allowed-tools: mcp__smart-logistics__rate_quotes
+---
+```
+
+Entries are separated by commas or spaces, or given one per `- ` line under the key. `mcp__<server>__<tool>` grants one
+tool, and `mcp__<server>` or `mcp__<server>__*` every tool of that server. The server still has to be allowed in the
+workspace, as for a tool ticked on the node.
+
+- **Only a ticked skill grants.** Every skill in the workspace reaches every run, but one the node does not tick grants
+  nothing, even when the run loads it. So an email cannot steer a step into a skill whose tools the step was never
+  meant to have.
+- **Only the workspace's server tools.** Built-in tools such as Bash, Read or WebFetch, and the email's own tools, are
+  not granted by a skill. A node's own settings give those. The inspector lists any a ticked skill names, as left out.
+- **The run gets no `allowed-tools`.** Patchbay removes the key from the copy of the library a run is handed, so the
+  agent cannot grant a skill's list itself.
+- **Editing a skill's `allowed-tools` changes every node that ticks it,** in every flow, as editing its text does.
+
+In the inspector, a tool a ticked skill grants shows ticked under *Tools from MCP servers*, with the skill it comes
+from, and cannot be unticked there: untick the skill, or change its `allowed-tools`. A tool both granted and ticked
+on the node keeps its own tick, which can be taken off. A skill that grants tools says how many beside its name in the
+skill list. A tool a skill grants that no server offers is named under the heading, so the skill can be corrected.
 
 ### Tokens and other values
 

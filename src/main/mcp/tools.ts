@@ -105,8 +105,8 @@ rather than a fan-out. The nine node kinds:
                     \`output\`. Ports: "valid", "invalid" and "error"; only
                     "valid" fills the slot. Like a processor it has the
                     workspace's skills, ticks the \`skills\` it loads first,
-                    reads \`inputs\` and gets the \`mcpTools\` it names, but
-                    it cannot run commands.
+                    reads \`inputs\` and gets MCP server tools as a
+                    processor does, but it cannot run commands.
 - processor       — runs Claude or agy scoped to one email, with every skill in
                     the workspace and none from elsewhere. \`skills\` ticks,
                     by name, the ones it loads before anything else.
@@ -114,8 +114,12 @@ rather than a fan-out. The nine node kinds:
                     With \`output\` set and \`schema\` naming a workspace
                     schema, its result fills that slot on "done" — how one
                     step hands its work to the next.
-                    It gets only the MCP server tools \`mcpTools\` names;
-                    list_server_tools gives a server's. Its file tools
+                    It gets only the MCP server tools \`mcpTools\` names
+                    and those its ticked skills grant: a skill's
+                    frontmatter \`allowed-tools\` hands every node that
+                    ticks it the \`mcp__<server>__<tool>\` entries there,
+                    and nothing else it lists. list_server_tools gives a
+                    server's tools. Its file tools
                     reach its run folder and the \`folders\` it ticks, as
                     [{folder, access}]: \`folder\` is a name from the
                     person's Settings → Folders (get_settings lists them)
@@ -682,7 +686,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List skills',
             description:
-                'The workspace’s library, which every flow in it shares. Every Processor and Extractor can use any of these and no other skill; a node’s `skills` ticks, by name, the ones it loads first.',
+                'The workspace’s library, which every flow in it shares. Every Processor and Extractor can use any of these and no other skill; a node’s `skills` ticks, by name, the ones it loads first. A skill’s `tools` are the MCP server tools its `allowed-tools` grant a node that ticks it; `ungranted` is the rest of that list, which it does not grant.',
             inputSchema: {},
             annotations: {readOnlyHint: true},
         },
@@ -709,7 +713,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Write a skill',
             description:
-                'Create or replace a SKILL.md in the workspace’s library. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a skill identifier. Every flow in the workspace that ticks it gets the change.',
+                'Create or replace a SKILL.md in the workspace’s library. Write the whole file: a `---` frontmatter block carrying `name` and `description`, then the instructions. The name has to be lowercase letters, digits and hyphens, because it becomes both a folder and a skill identifier. An `allowed-tools` line in the frontmatter (`allowed-tools: mcp__crm__lookup, mcp__crm__log`, or `mcp__<server>` for all of a server’s) hands those tools of the workspace’s MCP servers to every node that ticks the skill, so the tools a skill calls are named once, in it, rather than on each node; built-in tools listed there, such as Bash or Read, are not granted. Every flow in the workspace that ticks it gets the change.',
             inputSchema: {name: z.string(), content: z.string().min(1)},
         },
         ({name, content}) => {
@@ -1090,7 +1094,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List an MCP server’s tools',
             description:
-                'The tools one of the MCP servers allowed in the workspace offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
+                'The tools one of the MCP servers allowed in the workspace offers, asked of the server itself. A processor or extractor is handed only the tools its `mcpTools` names and its ticked skills’ `allowed-tools` grant — `mcp__<server>__<tool>` for one, `mcp__<server>` for all of a server’s — so this is how to name the few a step needs.',
             inputSchema: {server: z.string().describe('The server’s name, as get_settings lists it.')},
             annotations: {readOnlyHint: true},
         },

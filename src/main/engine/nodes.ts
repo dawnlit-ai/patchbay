@@ -37,7 +37,7 @@ import {
     type TerminalConfig,
     UNMATCHED_PORT,
 } from '@shared/flow';
-import { findFolder, type FolderSetting } from '@shared/settings';
+import { findFolder, type FolderSetting, nodeTools } from '@shared/settings';
 import { type EmailEnvelope, emailHeader, type LiveText, now, type TraceEvent } from '@shared/trace';
 import { errorMessage, isObject } from '@shared/util';
 import type { AgentMcpServer, AgentRunRequest } from '../agents';
@@ -47,7 +47,7 @@ import { createEmailToolServer, EMAIL_SERVER_NAME, emailToolNames, REPEATABLE_EM
 import { requireServer, usableServers } from '../store/mcpStore';
 import { findNewEmail, findReply, recordReply, repliedEmail, type ReplyRecord } from '../store/replyStore';
 import { findSend, recordSend } from '../store/sendStore';
-import { missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
+import { listSkills, missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { getSettings } from '../store/settingsStore';
 import { workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
@@ -395,7 +395,9 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
         onEvent: ctx.onEvent,
         actions: [],
     });
-    const extra = await nodeServers(config.mcpTools);
+    // Its own ticks, and what its ticked skills grant: a skill it does not tick grants nothing.
+    const tools = nodeTools(config, listSkills());
+    const extra = await nodeServers(tools);
     if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(capabilities), ...extra.allowed];
     if (config.includeAttachments) allowedTools.push('Read');
@@ -420,12 +422,12 @@ async function runExtractor(ctx: NodeContext, config: ExtractorConfig): Promise<
                 'to look for, and take a value from it where the schema\'s description says to.',
             ]
             : []),
-        ...(config.mcpTools.length > 0
+        ...(tools.length > 0
             ? ['A value one of your tools returns about this email counts as given, as the email\'s own would.']
             : []),
         ...(config.includeAttachments
             ? ['The attachments may hold what the body does not: save the ones that could, with `mcp__email__save_attachment`, and read them with Read.']
-            : config.mcpTools.length > 0
+            : tools.length > 0
                 ? []
                 : ['Work from the body alone; the attachments are not available here.']),
         '',
@@ -536,7 +538,8 @@ async function runProcessor(ctx: NodeContext, config: ProcessorConfig): Promise<
 
     const folders = nodeFolders(config.folders);
     if (folders.problem) return folders.problem;
-    const extra = await nodeServers(config.mcpTools);
+    // Its own ticks, and what its ticked skills grant: a skill it does not tick grants nothing.
+    const extra = await nodeServers(nodeTools(config, listSkills()));
     if (extra.problem) return extra.problem;
     const allowedTools = [...emailToolNames(config), ...extra.allowed];
     // Files anywhere, from an older flow, as its box gave them: no folder holds the file tools.

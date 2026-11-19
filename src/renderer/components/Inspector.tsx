@@ -58,6 +58,7 @@ import {
     type McpServerEntry,
     type McpServerTool,
     type McpVariable,
+    skillGrants,
 } from '@shared/settings';
 import { FolderTree } from './FolderTree';
 import { SchemaDialog } from './SchemaDialog';
@@ -907,7 +908,8 @@ function ExtractorFields({
             <McpToolsField
                 config={config}
                 patch={patch}
-                hint="The run gets only what is ticked. Tick tools that look things up: an Extractor is meant to change nothing."
+                grants={grantsOf(config.skills, library)}
+                hint="The run gets what its ticked skills grant and what is ticked here, and nothing else. Give it tools that look things up: an Extractor is meant to change nothing."
             />
 
             <div className="gap"/>
@@ -993,7 +995,7 @@ function ProcessorFields({
             <RetiredToolsField config={config} patch={patch}/>
 
             <div className="gap"/>
-            <McpToolsField config={config} patch={patch}/>
+            <McpToolsField config={config} patch={patch} grants={grantsOf(config.skills, library)}/>
         </>
     );
 }
@@ -1155,6 +1157,26 @@ function RetiredToolsField({config, patch}: Section<ProcessorConfig>): JSX.Eleme
     );
 }
 
+/** What a node's ticked skills grant it: each tool with the skills that do, and what they name that no skill can. */
+interface SkillToolGrants {
+    tools: Map<string, string[]>;
+    ungranted: string[];
+}
+
+function grantsOf(skills: string[], library: Library): SkillToolGrants {
+    const ticked = library.skills.filter((skill) => skills.includes(skill.name));
+    return {
+        tools: skillGrants(skills, library.skills),
+        ungranted: [...new Set(ticked.flatMap((skill) => skill.ungranted))],
+    };
+}
+
+/** Names in quotes, joined as a sentence says them: “a”, “b” and “c”. */
+function quotedList(names: string[]): string {
+    const quoted = names.map((name) => `“${name}”`);
+    return quoted.length < 2 ? (quoted[0] ?? '') : `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}`;
+}
+
 /** One of the workspace's servers, and the tools it offered when asked. */
 interface ServerListing {
     entry: McpServerEntry;
@@ -1171,8 +1193,9 @@ interface ServerListing {
 function McpToolsField({
                            config,
                            patch,
-                           hint = 'The run gets only what is ticked; a server with nothing ticked is not started for it.',
-                       }: Section<{ mcpTools: string[] }> & { hint?: string }): JSX.Element {
+                           grants,
+                           hint = 'The run gets what its ticked skills grant and what is ticked here, and nothing else. A server with neither is not started for it.',
+                       }: Section<{ mcpTools: string[] }> & { grants: SkillToolGrants; hint?: string }): JSX.Element {
     const [servers, setServers] = useState<ServerListing[] | null>(null);
     const [unreadable, setUnreadable] = useState<McpListing['unreadable']>([]);
     /** Why allowing a server, or setting a value for one, failed: this window has no banner to say it in. */
@@ -1231,6 +1254,11 @@ function McpToolsField({
     };
 
     const picked = config.mcpTools;
+    const granted = grants.tools;
+    /** Whether the run gets it: ticked here, or granted by a skill the node ticks. */
+    const gets = (ref: string): boolean => picked.includes(ref) || granted.has(ref);
+    /** Granted by a skill and not ticked here, so there is no tick here to take off. */
+    const locked = (ref: string): boolean => granted.has(ref) && !picked.includes(ref);
     const set = (ref: string, on: boolean): void =>
         patch({mcpTools: on ? [...picked, ref] : picked.filter((t) => t !== ref)});
     const offered = new Set(
@@ -1240,17 +1268,12 @@ function McpToolsField({
         ]),
     );
     const settled = servers?.every(({entry, tools, error}) => !startable(entry) || tools || error) ?? false;
+    const unoffered = (t: string): boolean =>
+        !offered.has(t) && !(servers ?? []).some(({entry}) => !startable(entry) && t.startsWith(`mcp__${entry.name}__`));
     // Ticked but offered by no server here: shown, so the tick can be taken off.
-    const stranded =
-        settled
-            ? picked.filter(
-                (t) =>
-                    !offered.has(t) &&
-                    !(servers ?? []).some(
-                        ({entry}) => !startable(entry) && t.startsWith(`mcp__${entry.name}__`),
-                    ),
-            )
-            : [];
+    const stranded = settled ? picked.filter(unoffered) : [];
+    // Granted the same way: there is no tick to take off, so the skill is what to change.
+    const strandedGrants = settled ? [...granted.keys()].filter((t) => !picked.includes(t) && unoffered(t)) : [];
 
     return (
         <>
@@ -1268,6 +1291,20 @@ function McpToolsField({
                 </p>
             ))}
             {trustError && <p className="hint err">{trustError}</p>}
+            {grants.ungranted.length > 0 && (
+                <p className="hint">
+                    {quotedList(grants.ungranted)} in its skills’ <code>allowed-tools</code>{' '}
+                    {grants.ungranted.length === 1 ? 'is' : 'are'} left out: a skill grants only tools of the
+                    workspace’s MCP servers.
+                </p>
+            )}
+            {strandedGrants.length > 0 && (
+                <p className="hint err">
+                    {strandedGrants.map((t) => `${t} (from ${granted.get(t)?.join(', ')})`).join('; ')}: no server
+                    here offers {strandedGrants.length === 1 ? 'it' : 'them'}. Correct the name in the
+                    skill’s <code>allowed-tools</code>, or add the server.
+                </p>
+            )}
             <PickFilter
                 value={query}
                 total={(servers ?? []).reduce((sum, server) => sum + (server.tools?.length ?? 0), 0)}
@@ -1276,7 +1313,7 @@ function McpToolsField({
             />
             {servers?.map(({entry, tools, error}) => {
                 const whole = `mcp__${entry.name}`;
-                const takesAll = picked.includes(whole);
+                const takesAll = gets(whole);
                 const allowed = entry.state === 'allowed';
                 const from = entry.source;
                 return (
@@ -1286,7 +1323,7 @@ function McpToolsField({
                         tip={entry.summary ? `From ${from} · ${entry.summary}` : `From ${from}`}
                         // Taking the whole server leaves nothing to pick one by one.
                         items={allowed && !takesAll ? (tools ?? []) : []}
-                        isTicked={(tool) => picked.includes(`${whole}__${tool.name}`)}
+                        isTicked={(tool) => gets(`${whole}__${tool.name}`)}
                         query={query}
                         text={(tool) => `${tool.name} ${tool.description}`}
                         count={
@@ -1342,10 +1379,18 @@ function McpToolsField({
                         }
                         actions={
                             allowed ? (
-                                <label className="check" title="Every tool it offers, including any it adds later">
+                                <label
+                                    className="check"
+                                    title={
+                                        granted.has(whole)
+                                            ? `Every tool it offers, granted by ${granted.get(whole)?.join(', ')}`
+                                            : 'Every tool it offers, including any it adds later'
+                                    }
+                                >
                                     <input
                                         type="checkbox"
                                         checked={takesAll}
+                                        disabled={locked(whole)}
                                         onChange={(e) => set(whole, e.target.checked)}
                                     />
                                     All
@@ -1358,16 +1403,23 @@ function McpToolsField({
                         }
                         row={(tool) => {
                             const ref = `${whole}__${tool.name}`;
+                            const by = granted.get(ref);
                             return (
-                                <div key={ref} className="pick-row" title={tool.description}>
+                                <div
+                                    key={ref}
+                                    className="pick-row"
+                                    title={by ? `${tool.description}\n\nGranted by ${by.join(', ')}.` : tool.description}
+                                >
                                     <label className="check">
                                         <input
                                             type="checkbox"
-                                            checked={picked.includes(ref)}
+                                            checked={gets(ref)}
+                                            disabled={locked(ref)}
                                             onChange={(e) => set(ref, e.target.checked)}
                                         />
                                         {tool.name}
                                     </label>
+                                    {by && <span className="from">{`from ${by.join(', ')}`}</span>}
                                 </div>
                             );
                         }}

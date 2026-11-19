@@ -198,6 +198,14 @@ export function SkillShelf({library, picked, onPick}: ShelfProps): JSX.Element {
                                 <div className="desc">{skill.description || 'No description'}</div>
                             </div>
                         )}
+                        {skill.tools.length > 0 && (
+                            <span
+                                className="from"
+                                title={`A node that ticks it is handed ${skill.tools.join(', ')}, as its allowed-tools say.`}
+                            >
+                                {`grants ${skill.tools.length} tool${skill.tools.length === 1 ? '' : 's'}`}
+                            </span>
+                        )}
                         <button
                             className="ghost compact"
                             title="Open its SKILL.md in the app your system opens .md files with. Right-click for more."
