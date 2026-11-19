@@ -1322,7 +1322,8 @@ export function Welcome(): JSX.Element {
                                                 </div>
                                                 <div className="meta desc">{skill.description || 'No description'}</div>
                                                 {skill.tools.length > 0 && (
-                                                    <div className="meta" title="Its allowed-tools: a node that ticks it is handed these.">
+                                                    <div className="meta"
+                                                         title="Its allowed-tools: a node that ticks it is handed these.">
                                                         grants {skill.tools.join(', ')}
                                                     </div>
                                                 )}

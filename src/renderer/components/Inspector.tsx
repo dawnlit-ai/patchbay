@@ -57,7 +57,7 @@ import {
     skillGrants,
 } from '@shared/settings';
 import { FolderTree } from './FolderTree';
-import { EffortField, effortAfter, Field, findModel, ModelField, modelName, useModels } from './ModelPickers';
+import { effortAfter, EffortField, Field, findModel, ModelField, modelName, useModels } from './ModelPickers';
 import { SchemaDialog } from './SchemaDialog';
 import { SecretDialog } from './SecretDialog';
 import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';

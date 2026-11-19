@@ -105,8 +105,14 @@ function slotContext(ctx: NodeContext, names: string[]): string[] {
  * A step's models as the agents take them: its own first one on, then its others
  * on and Settings' fallbacks, unless it waits for its own, to go to in turn.
  */
-function modelsFor(config: { models: ModelChoice[]; useFallbacks: boolean }): Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks'> {
-    const [first, ...fallbacks] = stepModels(config, getSettings().fallbacks).map(({model, effort}) => ({model, effort}));
+function modelsFor(config: {
+    models: ModelChoice[];
+    useFallbacks: boolean
+}): Pick<AgentRunRequest, 'model' | 'effort' | 'fallbacks'> {
+    const [first, ...fallbacks] = stepModels(config, getSettings().fallbacks).map(({model, effort}) => ({
+        model,
+        effort
+    }));
     // parseFlow keeps one on, so only a node built by hand gets here without one.
     if (!first) throw new Error('The node has no model turned on.');
     return {...first, fallbacks};

@@ -43,6 +43,7 @@ export function getSettings(): Settings {
         agents: agentsInOrder(stored.agents),
         folders: foldersOf(stored.folders),
         fallbacks: fallbacksOf(stored.fallbacks),
+        devToolsEnabled: stored.devToolsEnabled === true,
     };
     // Someone who downloaded a nightly wants the next one, until they choose otherwise.
     if (!stored.updateChannel && app.getVersion().includes('-nightly')) cached.updateChannel = 'nightly';
@@ -56,6 +57,7 @@ export function saveSettings(settings: Settings): Settings {
         agents: agentsInOrder(settings.agents),
         folders: foldersOf(settings.folders),
         fallbacks: fallbacksOf(settings.fallbacks),
+        devToolsEnabled: settings.devToolsEnabled === true,
     };
     writeJson(settingsFile(), cached);
     return cached;

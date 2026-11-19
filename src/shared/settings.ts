@@ -246,6 +246,11 @@ export interface Settings {
      * for its own instead. Empty, a step waits for its own model's limit to lift.
      */
     fallbacks: ModelChoice[];
+    /**
+     * Lets F12 or Ctrl+Shift+I (Cmd+Option+I on a Mac) open Chromium's developer
+     * tools on any window. Off, those keys do nothing and any tools open are closed.
+     */
+    devToolsEnabled: boolean;
 }
 
 export function defaultSettings(): Settings {
@@ -259,6 +264,7 @@ export function defaultSettings(): Settings {
         updateChannel: 'stable',
         folders: [],
         fallbacks: [],
+        devToolsEnabled: false,
     };
 }
 

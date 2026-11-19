@@ -333,7 +333,8 @@ export function FallbackList({value, onChange}: {
                                 />
                                 {roles[i]}
                             </label>
-                            <button className="danger compact" onClick={() => onChange(value.filter((_, j) => j !== i))}>
+                            <button className="danger compact"
+                                    onClick={() => onChange(value.filter((_, j) => j !== i))}>
                                 Remove
                             </button>
                         </div>

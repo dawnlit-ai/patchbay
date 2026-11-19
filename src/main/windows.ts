@@ -1,6 +1,7 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, type Input, screen } from 'electron';
 import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
+import { getSettings } from './store/settingsStore';
 
 /**
  * Three kinds of window from one renderer build: the welcome window (the flow
@@ -72,9 +73,19 @@ function make(frame: Frame): BrowserWindow {
         if (page(event.url) !== page(win.webContents.getURL())) event.preventDefault();
     });
 
-    // Removing the default menu removed its zoom shortcuts; rebind Ctrl+Plus/Minus/0 here.
+    // Removing the default menu removed its zoom and developer-tools shortcuts;
+    // rebind Ctrl+Plus/Minus/0 here, and the developer tools' once Settings allows them.
     win.webContents.on('before-input-event', (event, input) => {
-        if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+        if (input.type !== 'keyDown') return;
+
+        if (isDevToolsKey(input)) {
+            if (!getSettings().devToolsEnabled) return;
+            win.webContents.toggleDevTools();
+            event.preventDefault();
+            return;
+        }
+
+        if (!input.control || input.alt || input.meta) return;
 
         const level = win.webContents.getZoomLevel();
         let next: number;
@@ -88,6 +99,25 @@ function make(frame: Frame): BrowserWindow {
     });
 
     return win;
+}
+
+/**
+ * F12, or Chromium's own Ctrl+Shift+I (Cmd+Option+I on a Mac). Read by the key's
+ * place, not its character: Option turns I into another letter on a Mac.
+ */
+function isDevToolsKey(input: Input): boolean {
+    if (input.key === 'F12') return !input.control && !input.alt && !input.meta && !input.shift;
+    if (input.code !== 'KeyI') return false;
+    return process.platform === 'darwin'
+        ? input.meta && input.alt && !input.control && !input.shift
+        : input.control && input.shift && !input.alt && !input.meta;
+}
+
+/** Close the developer tools on every window: they were just switched off in Settings. */
+export function closeDevTools(): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && win.webContents.isDevToolsOpened()) win.webContents.closeDevTools();
+    }
 }
 
 /**

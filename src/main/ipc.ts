@@ -29,7 +29,7 @@ import { listServerTools } from './tools/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
-import { closeCanvases, openFlow, openFlows, showSettings, showWelcome } from './windows';
+import { closeCanvases, closeDevTools, openFlow, openFlows, showSettings, showWelcome } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 import { Updates } from './updates';
 
@@ -299,6 +299,7 @@ export function registerIpc(): void {
         // Carries out a change to the agent-control server's switch or port.
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
+        if (!saved.devToolsEnabled) closeDevTools();
         // An inspector open on a Processor ticks from Settings → Folders.
         broadcast(IPC.evtSettings, saved);
         return saved;

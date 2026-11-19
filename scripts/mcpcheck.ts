@@ -1896,7 +1896,10 @@ async function main(): Promise<void> {
         stepModels({models: [on('opus')], useFallbacks: true}, []).length === 1);
     check(
         'Settings’ fallbacks keep each named model once, and never Jev’s',
-        JSON.stringify(fallbacksOf([{model: ' agy:sonnet ', effort: 'high'}, {model: 'agy:sonnet'}, {model: 'jev-latest'},
+        JSON.stringify(fallbacksOf([{
+            model: ' agy:sonnet ',
+            effort: 'high'
+        }, {model: 'agy:sonnet'}, {model: 'jev-latest'},
             {model: ''}, {effort: 'low'}, 'opus', {model: 'opus', enabled: false}])) ===
         JSON.stringify([on('agy:sonnet', 'high'), on('opus', '', false)]),
     );

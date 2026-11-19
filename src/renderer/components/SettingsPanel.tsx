@@ -44,7 +44,7 @@ interface Props {
 
 /** The settings window's content: a rail of pages and the current page, each saved as it is edited. */
 
-type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'updates';
+type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'updates' | 'developer';
 
 const PAGES: { id: Page; label: string }[] = [
     {id: 'agents', label: 'Agents'},
@@ -52,7 +52,11 @@ const PAGES: { id: Page; label: string }[] = [
     {id: 'folders', label: 'Folders'},
     {id: 'agent', label: 'Agent control'},
     {id: 'updates', label: 'Updates'},
+    {id: 'developer', label: 'Developer'},
 ];
+
+/** The keys that open the developer tools, as this computer's keyboard names them. */
+const DEV_TOOLS_KEYS = window.navigator.userAgent.includes('Mac') ? 'F12 or ⌘⌥I' : 'F12 or Ctrl+Shift+I';
 
 const ACCESS_LABELS: Record<FolderAccess, string> = {read: 'Read only', write: 'Read and write'};
 
@@ -92,6 +96,7 @@ const edits = (s: Settings): unknown => [
     s.updateChannel,
     s.folders,
     s.fallbacks,
+    s.devToolsEnabled,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
@@ -540,6 +545,7 @@ export function SettingsPanel({
                 </span>
             );
         }
+        if (p === 'developer' && draft.devToolsEnabled) return <span className="meta">On</span>;
         if (p === 'updates' && updates?.state === 'ready') {
             return (
                 <span className="meta on">
@@ -1078,6 +1084,36 @@ export function SettingsPanel({
                                     Moving from Nightly back to Stable takes you to the newest release, even though
                                     its version number is lower. Your flows, skills and settings live outside the app
                                     folder, so an update never touches them.
+                                </p>
+                            </>
+                        )}
+
+                        {page === 'developer' && (
+                            <>
+                                <PageHead title="Developer">
+                                    For finding out why a window misbehaves. Nothing here changes what a flow does.
+                                </PageHead>
+                                <div className="set-group">
+                                    <Row
+                                        label="Developer tools"
+                                        description={
+                                            draft.devToolsEnabled
+                                                ? `${DEV_TOOLS_KEYS} opens Chromium's developer tools on the window in front, and closes them again.`
+                                                : `Lets ${DEV_TOOLS_KEYS} open Chromium's developer tools on any window. Switching it off closes any that are open.`
+                                        }
+                                        control={
+                                            <Switch
+                                                on={draft.devToolsEnabled}
+                                                label="Developer tools"
+                                                onChange={(on) => patch({devToolsEnabled: on})}
+                                            />
+                                        }
+                                    />
+                                </div>
+                                <p className="set-note">
+                                    The developer tools' console shows what the window itself logs. What the app does
+                                    behind the windows — watching mailboxes, calling Outlook and the agents — is in a
+                                    canvas's Console panel.
                                 </p>
                             </>
                         )}
