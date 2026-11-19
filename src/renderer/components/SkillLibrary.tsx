@@ -5,6 +5,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu';
 import { NameDialog } from './NameDialog';
 import { PickFilter, PickGroup, StrandedGroup } from './PickGroup';
 import type { SkillSummary } from '@shared/settings';
+import { errorMessage } from '@shared/util';
 
 /** A new skill's SKILL.md, to be filled in. */
 export const skillTemplate = (name: string): string => `---
@@ -64,7 +65,7 @@ export function SkillShelf({library, picked, onPick}: ShelfProps): JSX.Element {
     const [query, setQuery] = useState('');
 
     const say = (text: string): void => setMessage({text, bad: false});
-    const failed = (e: unknown): void => setMessage({text: (e as Error).message, bad: true});
+    const failed = (e: unknown): void => setMessage({text: errorMessage(e), bad: true});
 
     const toggle = (name: string, on: boolean): void => {
         if (!picked || !onPick) return;

@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { JsonSchema } from '@shared/flow';
-import { isObject } from '@shared/util';
+import { errorMessage, isObject } from '@shared/util';
 import {
     addField,
     describeField,
@@ -357,7 +357,7 @@ function SchemaText({value, hint, rows = 12, onChange}: {
             setError(null);
             onChange(parsed);
         } catch (e) {
-            setError((e as Error).message);
+            setError(errorMessage(e));
         }
     };
 

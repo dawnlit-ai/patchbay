@@ -11,7 +11,7 @@ why an email went where it did.
 
 ## What it does
 
-A **flow** is a graph with one trigger and any number of branches:
+A **flow** is a graph with a trigger, or several, and any number of branches:
 
 ```
 Outlook Inbox ──▶ Categorize ──┬─ "Invoice"      ─▶ Process (skill) ─┬─ Done         ─▶ Terminal

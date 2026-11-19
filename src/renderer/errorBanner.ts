@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { errorMessage } from '@shared/util';
 
 /** A window's error banner: run an action, and whatever it throws is shown. */
 export interface ErrorBanner {
@@ -20,7 +21,7 @@ export function useErrorBanner(): ErrorBanner {
         try {
             await what();
         } catch (e) {
-            report((e as Error).message);
+            report(errorMessage(e));
         }
     }, []);
 

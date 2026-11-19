@@ -1,6 +1,6 @@
 # Flows
 
-A **flow** is a graph with one trigger and any number of branches. Each node hands the email out of exactly **one**
+A **flow** is a graph with a trigger, or several, and any number of branches. Each node hands the email out of exactly **one**
 output port, and the engine follows the single edge attached to it — so a run is a readable path rather than a cloud
 of concurrent activity.
 
@@ -141,7 +141,7 @@ output slot lists both what was `sent` and what `failed`.
 
 **Sending starts off, and test runs never send.** New Send nodes have *Send the drafts when a watched flow runs*
 unticked, and the card on the canvas shows `Sending: off` or `Sending: on` at a glance. While it is off — and on every
-test run, whether started by **Run** or by dragging an email onto the trigger — the step sends nothing and leaves by
+test run, whether started from **Test run…** or by dragging an email onto the trigger — the step sends nothing and leaves by
 *Held*, recording in the trace and in its output slot's `held` list who each draft would have gone to. Those drafts stay
 in Outlook's Drafts to be sent by hand: turning sending on later does not reach back to send them on a re-run.
 
@@ -289,8 +289,9 @@ rest when there is none: a workspace whose `.mcp.json` runs its server from sour
 the values set for servers, and the runs are this machine's, in the app's data, and stay behind: whoever opens the
 export allows its servers for themselves.
 
-The workspace's folder is the working directory of every run of its flows. With file access off, a Processor can still
-read the whole of it, so keep anything a step should not read somewhere else.
+The workspace's folder is the working directory of every run of its flows. Even so, a Processor's file tools do not
+reach it unless it, or a folder inside it, is listed in Settings → Folders and ticked on the node (see [File
+access](skills.md#file-access)). A node that may run commands is held to none of this.
 
 **New flow** and **Duplicate** ask for a name and save the flow in `flows`, in a file named after it. **Import flow
 file…** copies a flow file somebody sent you into `flows`. A flow file put into `flows` by hand is listed too.

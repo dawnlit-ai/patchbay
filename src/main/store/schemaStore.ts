@@ -4,6 +4,7 @@ import { schemasDir, schemasDirAt } from '../paths';
 import { writeJson } from './jsonFile';
 import { type JsonSchema, repointSchema, type Schemas, SLOT_NAME } from '@shared/flow';
 import type { SchemaSummary } from '@shared/ipc';
+import { errorMessage, isObject } from '@shared/util';
 
 /**
  * The open workspace's named schemas: `schemas/<name>.json`, each a JSON Schema
@@ -30,12 +31,10 @@ function summarize(name: string, file: string): SchemaSummary {
     try {
         parsed = JSON.parse(readFileSync(file, 'utf8'));
     } catch (e) {
-        return {...base, schema: null, problem: `Not readable JSON: ${(e as Error).message}`};
+        return {...base, schema: null, problem: `Not readable JSON: ${errorMessage(e)}`};
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return {...base, schema: null, problem: 'Not a JSON object, so not a schema.'};
-    }
-    return {...base, schema: parsed as JsonSchema};
+    if (!isObject(parsed)) return {...base, schema: null, problem: 'Not a JSON object, so not a schema.'};
+    return {...base, schema: parsed};
 }
 
 /**

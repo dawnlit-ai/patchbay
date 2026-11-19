@@ -7,7 +7,7 @@ import { SchemaFields } from './SchemaFields';
 
 /**
  * Making or changing one of the workspace's named schemas, its name included,
- * without leaving the start window or writing JSON. Nothing is written until
+ * without leaving the window or writing JSON. Nothing is written until
  * Save, and a click outside asks before it throws edits away. It can open on
  * its fields to look at instead, with Edit a click away.
  */

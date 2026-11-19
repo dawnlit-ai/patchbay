@@ -33,11 +33,9 @@ export function fallbacksOf(stored: unknown): ModelChoice[] {
     return out;
 }
 
-export function getSettings(): Settings {
-    if (cached) return cached;
-    // Over the defaults, so a field the file leaves out is never undefined.
-    const stored = known(readJson<unknown>(settingsFile(), {}));
-    cached = {
+/** Settings over the defaults, so a field left out is never undefined, and each list read as a file lists it. */
+function normalized(stored: Partial<Settings>): Settings {
+    return {
         ...defaultSettings(),
         ...stored,
         agents: agentsInOrder(stored.agents),
@@ -45,20 +43,19 @@ export function getSettings(): Settings {
         fallbacks: fallbacksOf(stored.fallbacks),
         devToolsEnabled: stored.devToolsEnabled === true,
     };
+}
+
+export function getSettings(): Settings {
+    if (cached) return cached;
+    const stored = known(readJson<unknown>(settingsFile(), {}));
+    cached = normalized(stored);
     // Someone who downloaded a nightly wants the next one, until they choose otherwise.
     if (!stored.updateChannel && app.getVersion().includes('-nightly')) cached.updateChannel = 'nightly';
     return cached;
 }
 
 export function saveSettings(settings: Settings): Settings {
-    cached = {
-        ...defaultSettings(),
-        ...known(settings),
-        agents: agentsInOrder(settings.agents),
-        folders: foldersOf(settings.folders),
-        fallbacks: fallbacksOf(settings.fallbacks),
-        devToolsEnabled: settings.devToolsEnabled === true,
-    };
+    cached = normalized(known(settings));
     writeJson(settingsFile(), cached);
     return cached;
 }

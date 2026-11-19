@@ -898,7 +898,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Test a flow against one email',
             description:
-                'Put one real email through a flow now, ignoring the watermark, starting at the trigger named. Without an entryId the newest message in that trigger’s folder is used. This runs the flow’s models and costs money, and a Processor with drafting or filing switched on will act on the mailbox. Returns the run id; get_run has the trace.',
+                'Put one real email through a flow now, ignoring the watermark, starting at the trigger named. Without an entryId the newest message in that trigger’s folder is used. This runs the flow’s models and costs money, and acts on the real mailbox: a create-email leaves a draft and a move-email files the email. A send never sends on a test run. Returns the run id; get_run has the trace.',
             inputSchema: {
                 flowId: flowIdArg,
                 nodeId: z.string().describe('The trigger to start from — a flow may have several.'),

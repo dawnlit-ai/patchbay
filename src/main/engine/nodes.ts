@@ -1,4 +1,3 @@
-import { statSync } from 'node:fs';
 import { z } from 'zod';
 import {
     type CategorizerConfig,
@@ -49,7 +48,7 @@ import { findNewEmail, findReply, recordReply, repliedEmail, type ReplyRecord } 
 import { findSend, recordSend } from '../store/sendStore';
 import { listSkills, missingSkills, SKILL_PLUGIN, workspaceSkillPlugin } from '../store/skillStore';
 import { getSettings } from '../store/settingsStore';
-import { workspaceRoot } from '../paths';
+import { isFolder, workspaceRoot } from '../paths';
 import * as outlook from '../outlook/bridge';
 
 /** What the engine hands a node, and what it expects back. */
@@ -200,14 +199,6 @@ function nodeFolders(grants: FolderGrant[]): NodeFolders {
         (grant.access === 'write' && folder.access === 'write' ? write : read).push(folder);
     }
     return {read, write};
-}
-
-function isFolder(path: string): boolean {
-    try {
-        return statSync(path).isDirectory();
-    } catch {
-        return false;
-    }
 }
 
 /** Skills as Claude names them: each of the workspace's plugin, `workspace:<name>`. */

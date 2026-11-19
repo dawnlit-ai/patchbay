@@ -352,7 +352,10 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     if (request.jsonSchema) options.outputFormat = {type: 'json_schema', schema: request.jsonSchema};
     if (request.signal) {
         const controller = new AbortController();
-        request.signal.addEventListener('abort', () => controller.abort(), {once: true});
+        // A cancel can land while the SDK loads or the run's servers are set up,
+        // before there is a listener to hear it.
+        if (request.signal.aborted) controller.abort();
+        else request.signal.addEventListener('abort', () => controller.abort(), {once: true});
         options.abortController = controller;
     }
 

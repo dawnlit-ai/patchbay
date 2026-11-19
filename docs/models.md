@@ -26,10 +26,10 @@ says under the box what the step would go on to now, in turn. A model the step h
 the list, at another level either: it is the same quota.
 
 A step moves on only when the model before is at its usage limit, or its agent is switched off, not installed or cannot
-be reached — and never once the step has changed something: a Processor that drafted a reply before its quota ran out is
-not run again. A model known to be at its limit is passed over until the reset its agent named, and the run's trace says
-each time a step moved on and why. The last model waits for its limit to reset rather than failing, as a step with no
-fallbacks does.
+be reached — and never once the step has changed something: a Processor that wrote a file, ran a command or called a
+server tool before its quota ran out is not run again. A model known to be at its limit is passed over until the reset
+its agent named, and the run's trace says each time a step moved on and why. The last model waits for its limit to
+reset rather than failing, as a step with no fallbacks does.
 
 A node made before Settings had fallback models may list several models of its own. It keeps them, shown under *Its own
 fallbacks*, and tries them in turn before Settings' list. Remove one to leave it to Settings: a node's own fallbacks can

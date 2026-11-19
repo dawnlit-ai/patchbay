@@ -1595,10 +1595,6 @@ button.wide {
     margin-top: 0;
 }
 
-.section-title.accented {
-    color: var(--k);
-}
-
 .palette-item {
     border: 1px solid var(--line);
     border-left: 3px solid var(--k);

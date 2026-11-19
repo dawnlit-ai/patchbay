@@ -7,7 +7,7 @@ Every email produces a `Run`, and every node it touches produces a `Pass`:
 - which port it left by, and the one-line reason
 - the full prompt sent to the model
 - every tool call with its arguments, and every result
-- Outlook side effects (body read, attachment saved, draft left, email moved)
+- Outlook side effects (body read, attachment saved, draft left, draft sent, email moved)
 - when it started and finished
 
 Select a run in the bottom panel and the canvas lights up the exact nodes and edges that email traveled, with each node

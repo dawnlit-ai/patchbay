@@ -447,7 +447,15 @@ export function registerIpc(): void {
 
     handle(IPC.runsList, (limit: number) => (workspaceStore.currentWorkspaceInfo() ? traceStore.listRuns(limit) : []));
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));
-    handle(IPC.runsClear, () => traceStore.clearRuns());
+    handle(IPC.runsClear, () => {
+        // Clearing takes every run's folder, and a run under way is still writing
+        // its trace there and saving its attachments into it.
+        const {activeRunIds, queuedRunIds} = getWatcher().status();
+        if (activeRunIds.length > 0 || queuedRunIds.length > 0) {
+            throw new Error('Runs are under way or waiting. Cancel them, or let them finish, before clearing the runs.');
+        }
+        traceStore.clearRuns();
+    });
     handle(IPC.runsRemove, (id: string) => {
         if (getWatcher().isRunPending(id)) {
             throw new Error('That run is still in progress. Cancel it, or let it finish, before deleting it.');

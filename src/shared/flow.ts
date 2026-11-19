@@ -1902,7 +1902,8 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
 /**
  * Rebuild a flow from untrusted JSON (an import, a hand edit, an agent's write).
  * Unknown kinds and duplicate ids are dropped, and an edge survives only if it
- * joins a real output port to a node that takes input.
+ * joins a real output port to a node that takes input, and is the first to leave
+ * that port: one edge per port, as `connectNodes` keeps it, and the one a run takes.
  */
 export function parseFlow(value: unknown, id: string, fallbackName: string): Flow {
     const raw = isObject(value) ? value : {};
@@ -1932,6 +1933,8 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const portsOf = new Map(nodes.map((n) => [n.id, new Set(outputPorts(n).map((p) => p.id))]));
     const takenEdges = new Set<string>();
+    /** Each port that has its edge, as `<source>\n<sourceHandle>`. */
+    const takenPorts = new Set<string>();
     const edges = (Array.isArray(raw.edges) ? raw.edges : []).filter(isObject).flatMap(
         (e): FlowEdge[] => {
             const source = str(e.source, '');
@@ -1941,8 +1944,10 @@ export function parseFlow(value: unknown, id: string, fallbackName: string): Flo
             if (!portsOf.get(source)?.has(sourceHandle)) return [];
             if (!targetNode || !hasInput(targetNode.kind)) return [];
             const id = str(e.id, '') || edgeId(source, sourceHandle, target);
-            if (takenEdges.has(id)) return [];
+            const port = `${source}\n${sourceHandle}`;
+            if (takenEdges.has(id) || takenPorts.has(port)) return [];
             takenEdges.add(id);
+            takenPorts.add(port);
             return [{id, source, sourceHandle, target}];
         },
     );

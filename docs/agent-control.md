@@ -64,7 +64,9 @@ a queued one out before it starts. When an email never became a run at all, `get
   servers handed to a Processor decide what code a run executes, so they stay with the person at the window, and
   `get_settings` says which of a server's values are set without giving any of them.
 - **No tool opens another workspace.** Switching closes the person's canvases and stops their flows being watched.
-- **Nothing sends mail.** Nothing in this app does.
+- **No tool sends mail.** Only a [Send](flows.md#sending) node does, in a watched flow whose sending is switched on,
+  and never on a test run, so `test_run` sends nothing. It does leave real drafts and move real email, wherever the
+  flow has a Create email or a Move email.
 
 ## Security
 

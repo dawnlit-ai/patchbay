@@ -99,10 +99,10 @@ interface Frontmatter {
 
 /** Reads `name` and `description` from the frontmatter, without a YAML parser. */
 export function parseFrontmatter(content: string): Frontmatter {
-    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-    if (!match?.[1]) return {};
+    const block = frontmatterBlock(content);
+    if (!block) return {};
     const out: Frontmatter = {};
-    for (const line of match[1].split(/\r?\n/)) {
+    for (const line of block.text.split(/\r?\n/)) {
         const kv = /^(name|description):\s*(.*)$/.exec(line);
         if (!kv?.[1]) continue;
         let value = (kv[2] ?? '').trim();

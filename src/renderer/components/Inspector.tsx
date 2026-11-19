@@ -56,6 +56,7 @@ import {
     nodeTools,
     skillGrants,
 } from '@shared/settings';
+import { together } from '@shared/util';
 import { FolderTree } from './FolderTree';
 import {
     effortAfter,
@@ -177,11 +178,6 @@ interface Edits<C> {
     config: C;
 
     patch(partial: Partial<C>): void;
-}
-
-/** Names joined as a sentence says them: a, b and c. */
-function spoken(names: string[]): string {
-    return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
 /** A count and its noun: 1 rule, 2 rules. */
@@ -451,7 +447,7 @@ function CategorizerFields({config, patch}: Edits<CategorizerConfig>): JSX.Eleme
         <>
             <Section
                 title="Categories"
-                summary={categories.length === 0 ? 'none yet' : spoken(categories.map((c) => c.label))}
+                summary={categories.length === 0 ? 'none yet' : together(categories.map((c) => c.label))}
                 info="Each category is a branch, and a port of its own. The model picks one by matching the email against these descriptions: write them the way you would explain the difference to a new colleague."
             >
                 {categories.map((cat, i) => (
@@ -843,7 +839,7 @@ function SkillsSection({config, patch, library}: Edits<{ skills: string[] }> & {
     return (
         <Section
             title="Skills"
-            summary={config.skills.length === 0 ? 'none ticked' : spoken(config.skills)}
+            summary={config.skills.length === 0 ? 'none ticked' : together(config.skills)}
             info="Every skill in the workspace is this step’s to use, and none from anywhere else. The ones you tick it loads before anything else. A skill is shared by every flow here: Edit changes it for all of them."
         >
             <SkillShelf library={library} picked={config.skills} onPick={(skills) => patch({skills})}/>
@@ -1102,7 +1098,7 @@ function toolsSummary(tools: string[], own: number): string {
     if (tools.length === 0) return 'no server tools';
     const servers = tools.filter((t) => !t.slice('mcp__'.length).includes('__')).map((t) => `all of ${t.slice('mcp__'.length)}`);
     const singles = tools.length - servers.length;
-    const what = spoken([...(singles > 0 ? [`${singles} server tool${singles === 1 ? '' : 's'}`] : []), ...servers]);
+    const what = together([...(singles > 0 ? [`${singles} server tool${singles === 1 ? '' : 's'}`] : []), ...servers]);
     if (own === 0) return `${what} from its skills`;
     return own >= tools.length ? `${what} ticked here` : `${what}, ${own} ticked here`;
 }
@@ -1157,12 +1153,6 @@ function grantsOf(skills: string[], library: Library): SkillToolGrants {
         tools: skillGrants(skills, library.skills),
         ungranted: [...new Set(ticked.flatMap((skill) => skill.ungranted))],
     };
-}
-
-/** Names in quotes, joined as a sentence says them: “a”, “b” and “c”. */
-function quotedList(names: string[]): string {
-    const quoted = names.map((name) => `“${name}”`);
-    return quoted.length < 2 ? (quoted[0] ?? '') : `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}`;
 }
 
 /** One of the workspace's servers, and the tools it offered when asked. */
@@ -1279,7 +1269,8 @@ function McpToolsField({config, patch, grants}: Edits<{ mcpTools: string[] }> & 
             {trustError && <p className="hint err">{trustError}</p>}
             {grants.ungranted.length > 0 && (
                 <p className="hint">
-                    {quotedList(grants.ungranted)} in its skills’ <code>allowed-tools</code>{' '}
+                    {together(grants.ungranted.map((name) => `“${name}”`))} in its
+                    skills’ <code>allowed-tools</code>{' '}
                     {grants.ungranted.length === 1 ? 'is' : 'are'} left out: a skill grants only tools of the
                     workspace’s MCP servers.
                 </p>
@@ -1456,7 +1447,7 @@ function InputsSection({
     return (
         <Section
             title="Reads"
-            summary={read.length === 0 ? 'nothing' : spoken(read)}
+            summary={read.length === 0 ? 'nothing' : together(read)}
             info="What goes into the prompt. Data an earlier node filled goes in as JSON, and only the slots every path here fills are offered: an Extractor, or a Processor with an output slot, fills one."
         >
             <label className="check">
@@ -1715,7 +1706,7 @@ function SwitchFields({
         <>
             <Section
                 title="Routes"
-                summary={spoken([...routes.map(routeLabel), 'Otherwise'])}
+                summary={together([...routes.map(routeLabel), 'Otherwise'])}
                 info="Each route is a port of its own. The email leaves by the route of the first rule that matches, or by Otherwise when none does."
             >
                 <div className="route-list">
@@ -1989,7 +1980,7 @@ function SendFields({
             <Section
                 title="Sends"
                 summary={
-                    `${config.drafts.length === 0 ? 'no drafts' : spoken(config.drafts)} · ` +
+                    `${config.drafts.length === 0 ? 'no drafts' : together(config.drafts)} · ` +
                     (config.sending ? 'sending on' : 'sending off')
                 }
                 info="It sends only the drafts this run made, by the ids in the slots ticked here, and records each send so the same draft is never sent twice. Only Draft slots every path here fills are offered; a slot whose Create email left by Already drafted holds no draft of this run’s and is passed over. A draft held back by an earlier run is not sent by a later one: send it by hand in Outlook."
@@ -2125,7 +2116,7 @@ function DataSection({node, available, tokens}: {
         <Section
             title="Data"
             open={false}
-            summary={ports.length === 0 ? 'the path ends here' : added.length === 0 ? 'adds nothing new' : `adds ${spoken(added)}`}
+            summary={ports.length === 0 ? 'the path ends here' : added.length === 0 ? 'adds nothing new' : `adds ${together(added)}`}
             info="The slots every path into this node fills, and what leaves by each of its ports: everything it arrived with, plus what that port adds."
         >
             {hasInput(node.kind) && (

@@ -162,8 +162,8 @@ export function ModelField({
     const sameToday = models?.find((m) => m.resolvedModel === value);
     const agent: AgentId = isAgyModel(value) ? 'agy' : isJevModel(value) ? 'jev' : 'claude';
     let hint: string;
-    if (error) hint = `Could not ask Claude which models it offers: ${error}`;
-    else if (!models) hint = 'Asking Claude…';
+    if (error) hint = `Could not ask the agents which models they offer: ${error}`;
+    else if (!models) hint = 'Asking the agents…';
     else if (agent === 'jev' && !jev) {
         hint = `Jev answers a Categorizer's question and nothing else, so this step passes ${value} over. Pick another model.`;
     } else if (listed) hint = listed.description;

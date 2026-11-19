@@ -200,7 +200,7 @@ async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOpt
         value: `${AGY_MODEL_PREFIX}${id}`,
         displayName: `${name} · agy`,
         description:
-            `${name} through the Antigravity CLI (agy), on its own Google login and quota. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a Processor with file-system access cannot run on it.`,
+            `${name} through the Antigravity CLI (agy), on its own Google login and quota. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a step that runs commands or writes files cannot run on it.`,
         effortLevels: levels.sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b)),
         // agy refuses a model listed by level unless the run names one.
         effortRequired: levels.length > 0,
