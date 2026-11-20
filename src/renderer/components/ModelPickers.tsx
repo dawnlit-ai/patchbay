@@ -82,6 +82,8 @@ export interface Models {
     off: AgentId[];
     /** Settings → Agents' fallback models, in turn. Null until Settings has been read. */
     fallbacks: ModelChoice[] | null;
+    /** Settings → Runs' model for the AI monitor. Null until Settings has been read. */
+    monitorModel: Settings['monitorModel'] | null;
 }
 
 /**
@@ -128,7 +130,13 @@ export function useModels(): Models {
         };
     }, [switchedOff]);
 
-    return {models, error, off: off ?? [], fallbacks: settings?.fallbacks ?? null};
+    return {
+        models,
+        error,
+        off: off ?? [],
+        fallbacks: settings?.fallbacks ?? null,
+        monitorModel: settings?.monitorModel ?? null,
+    };
 }
 
 /** The list's entry for a node's model: by its own name, or a pinned id an alias stands for today. */
@@ -262,6 +270,33 @@ function moveTo<T>(list: T[], from: number, gap: number): T[] {
     const [item] = moved.splice(from, 1);
     moved.splice(to, 0, item as T);
     return moved;
+}
+
+/** The AI monitor's model and level, as Settings → Runs sets them. Jev's are not offered: a review is not a choice. */
+export function MonitorModelPicker({value, onChange}: {
+    value: Settings['monitorModel'];
+    onChange(choice: Settings['monitorModel']): void;
+}): JSX.Element {
+    const offered = useModels();
+    const listing = {...offered, models: offered.models && offeredTo('processor', offered.models)};
+    return (
+        <div className="card model-card">
+            <div className="model-body">
+                <ModelField
+                    {...listing}
+                    jev={false}
+                    value={value.model}
+                    onChange={(model) => onChange({model, effort: effortAfter(listing.models, model, value.effort)})}
+                />
+                <EffortField
+                    value={value.effort}
+                    model={findModel(listing.models, value.model)}
+                    loading={!listing.models && !listing.error}
+                    onChange={(effort) => onChange({...value, effort})}
+                />
+            </div>
+        </div>
+    );
 }
 
 /**

@@ -22,7 +22,7 @@ import {
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { errorMessage } from '@shared/util';
 import { ahead, time } from '../format';
-import { FallbackList } from './ModelPickers';
+import { FallbackList, MonitorModelPicker } from './ModelPickers';
 import { SecretPrompt } from './SecretDialog';
 
 interface Props {
@@ -97,6 +97,7 @@ const edits = (s: Settings): unknown => [
     s.folders,
     s.fallbacks,
     s.devToolsEnabled,
+    s.monitorModel,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
@@ -756,6 +757,21 @@ export function SettingsPanel({
                                         }
                                     />
                                 </div>
+
+                                <header className="set-head set-subhead">
+                                    <h2>AI monitor</h2>
+                                    <p>
+                                        A trigger with its AI monitor on brings it into every run it starts. Once the
+                                        run ends, the monitor reads its whole trace against the flow and writes down
+                                        what it would change, under the run and in the console. It has no tools, so it
+                                        changes nothing itself. This is the model it reviews on, for every trigger; at
+                                        its usage limit it goes on to the fallback models in Settings → Agents.
+                                    </p>
+                                </header>
+                                <MonitorModelPicker
+                                    value={draft.monitorModel}
+                                    onChange={(monitorModel) => patch({monitorModel})}
+                                />
                             </>
                         )}
 

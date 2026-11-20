@@ -319,6 +319,10 @@ export function App({initialFlowId}: Props): JSX.Element {
             passes: new Map(selectedRun.passes.map((p) => [p.nodeId, p])),
             takenEdges: new Set(selectedRun.edgePath),
             current: selectedRun.current,
+            findings: Map.groupBy(
+                (selectedRun.monitor?.findings ?? []).filter((f) => f.nodeId !== null),
+                (f) => f.nodeId as string,
+            ),
         };
     }, [selectedRun, flow]);
 
@@ -601,6 +605,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                             <RunsPanel
                                 runs={runs}
                                 selected={selectedRun}
+                                reviewing={status?.reviewingRunIds ?? []}
                                 onSelect={(id) => void window.api.runs.get(id).then(setSelectedRun)}
                                 onClear={() => void clearRuns()}
                                 onReveal={() => void window.api.runs.revealFolder()}

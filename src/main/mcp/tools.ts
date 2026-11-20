@@ -82,6 +82,8 @@ rather than a fan-out. The nine node kinds:
                     Inbox (list_folders' relativePath, "" for the Inbox
                     itself), read on its own and not the folders in it.
                     A folder made later is read only once it is listed.
+                    \`monitor: true\` brings in the AI monitor for every
+                    run it starts, which reviews the run once it ends.
 - categorizer     — an if/else written in prose: each category is an output port
                     and its model picks exactly one, with an "unmatched" port
                     for the rest. It alone may run on Jev's models
@@ -212,7 +214,15 @@ the flow, and get_run returns the trace, including why each node left by the por
 it did. A run can wait in a queue before it starts; get_run says so, and why.
 
 A trace explains a run. When an email never became one — or a run never started —
-get_console is where the app said why: polls, Outlook failures, mail marked seen.`;
+get_console is where the app said why: polls, Outlook failures, mail marked seen.
+
+A run started at a trigger with \`monitor\` on carries the AI monitor's review in
+its \`monitor\`: once the run ends, a model with no tools reads the whole trace
+against the flow and writes findings, each naming a node by id, what it saw in
+the run and the change it suggests. It changes nothing. list_monitor_notes
+gives the reviews across runs, newest first — the place to start when asked to
+improve a flow from how it has been running. Weigh a suggestion against the
+other runs before making it: each review saw one email.`;
 
 // ── Results ──────────────────────────────────────────────────────────────
 
@@ -306,6 +316,7 @@ function describeRun(run: Run, includeEvents: boolean) {
         ...run,
         passes: run.passes.map(describePass),
         current: run.current && describePass(run.current),
+        monitor: run.monitor && describePass(run.monitor),
     };
 }
 
@@ -938,7 +949,7 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'Cancel a run',
             description:
-                'Abort a run under way, keeping its trace up to that point — or take one out of the queue before it starts, which leaves no trace at all.',
+                'Abort a run under way, keeping its trace up to that point — or take one out of the queue before it starts, which leaves no trace at all. Given a run that has ended and is being reviewed by the AI monitor, it stops the review.',
             inputSchema: {runId: z.string()},
             annotations: {idempotentHint: true},
         },
@@ -947,6 +958,10 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             switch (host.watcher().cancel(runId)) {
                 case 'stopping':
                     return text(`Asked run ${runId} to stop. The trace up to that point is kept; get_run has it.`);
+                case 'review-stopped':
+                    return text(
+                        `Run ${runId} had already ended. The AI monitor's review of it is stopped, and get_run shows it as skipped.`,
+                    );
                 case 'dequeued':
                     return text(
                         `Run ${runId} had not started, and is out of the queue. It will not run and leaves no trace.` +
@@ -1021,6 +1036,32 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
                 ...describeQueued(queued),
                 note: 'Not started yet, so there is no trace. Ask again once it has; cancel_run takes it out of the queue.',
             });
+        },
+    );
+
+    server.registerTool(
+        'list_monitor_notes',
+        {
+            title: 'List the AI monitor’s reviews',
+            description:
+                'What the AI monitor found in the runs it reviewed, newest first: per run, a verdict (fine, suggestions or problem), a summary, and findings that each name a node by id, what happened in that run, and the change it suggests to the flow, a skill or a schema. Only runs started at a trigger with `monitor` on are reviewed. A review saw one email: a suggestion several reviews make is worth more than one made once. get_run has a review in full, with the prompt the monitor was sent.',
+            inputSchema: {
+                flowId: z.string().optional().describe('Only reviews of this flow’s runs.'),
+                limit: z.number().int().min(1).max(200).optional().describe('Default 20.'),
+                findingsOnly: z
+                    .boolean()
+                    .optional()
+                    .describe('Default false. True leaves out reviews that found nothing to change.'),
+            },
+            annotations: {readOnlyHint: true},
+        },
+        ({flowId, limit, findingsOnly}) => {
+            const wanted = limit ?? 20;
+            const notes = traceStore
+                .listReviews(findingsOnly ? 1_000 : wanted, flowId)
+                .filter((note) => !findingsOnly || note.findings.length > 0)
+                .slice(0, wanted);
+            return json(notes);
         },
     );
 

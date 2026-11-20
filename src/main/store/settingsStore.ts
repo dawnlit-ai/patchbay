@@ -33,6 +33,15 @@ export function fallbacksOf(stored: unknown): ModelChoice[] {
     return out;
 }
 
+/** The monitor's model as a file names it, or the default where it names none a review can run on: not Jev's. */
+function monitorModelOf(stored: unknown): Settings['monitorModel'] {
+    const fallback = defaultSettings().monitorModel;
+    if (!isObject(stored) || typeof stored.model !== 'string') return fallback;
+    const model = stored.model.trim();
+    if (!model || isJevModel(model)) return fallback;
+    return {model, effort: typeof stored.effort === 'string' ? stored.effort : ''};
+}
+
 /** Settings over the defaults, so a field left out is never undefined, and each list read as a file lists it. */
 function normalized(stored: Partial<Settings>): Settings {
     return {
@@ -42,6 +51,7 @@ function normalized(stored: Partial<Settings>): Settings {
         folders: foldersOf(stored.folders),
         fallbacks: fallbacksOf(stored.fallbacks),
         devToolsEnabled: stored.devToolsEnabled === true,
+        monitorModel: monitorModelOf(stored.monitorModel),
     };
 }
 

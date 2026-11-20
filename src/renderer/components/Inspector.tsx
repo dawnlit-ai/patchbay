@@ -434,7 +434,42 @@ function TriggerFields({config, patch}: Edits<TriggerConfig>): JSX.Element {
                     Process mail already in its folders when watching starts
                 </label>
             </Section>
+
+            <MonitorSection on={config.monitor} onChange={(monitor) => patch({monitor})}/>
         </>
+    );
+}
+
+/**
+ * Whether the runs a trigger starts bring in the AI monitor, and the model it
+ * reviews on, which is Settings' for every trigger.
+ */
+function MonitorSection({on, onChange}: { on: boolean; onChange(on: boolean): void }): JSX.Element {
+    // Only while it is on: the model list is asked of the agents, which takes a moment.
+    return (
+        <Section
+            title="AI monitor"
+            open={false}
+            summary={on ? 'reviews each run' : 'off'}
+            info="Once a run this trigger starts has ended, a model reads its whole trace against this flow and writes down what it would change: a category to reword, a port to wire, a skill's instruction to clarify. It has no tools, so it cannot touch the mailbox or the flow. Its findings show under the run and in the console, and are kept in the runs folder's monitor.jsonl, where an agent driving Patchbay reads them with list_monitor_notes. Each review is one more model call."
+        >
+            <label className="check">
+                <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)}/>
+                Review each run this trigger starts
+            </label>
+            {on && <MonitorModelHint/>}
+        </Section>
+    );
+}
+
+function MonitorModelHint(): JSX.Element {
+    const {models, monitorModel} = useModels();
+    return (
+        <div className="hint">
+            {monitorModel
+                ? `Reviews on ${modelName(models, monitorModel)}, set for every trigger in Settings → Runs.`
+                : 'Reading Settings…'}
+        </div>
     );
 }
 

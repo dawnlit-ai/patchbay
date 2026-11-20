@@ -1,6 +1,17 @@
 import type { JSX } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { LiveText, Pass, PassUnderWay, Run, RunSummary, TraceEvent } from '@shared/trace';
+import {
+    type LiveText,
+    type MonitorSeverity,
+    type MonitorState,
+    type MonitorSummary,
+    monitorSummary,
+    type Pass,
+    type PassUnderWay,
+    type Run,
+    type RunSummary,
+    type TraceEvent,
+} from '@shared/trace';
 import { activity, liveLabel } from '../activity';
 import { duration, time } from '../format';
 import { ContextMenu, type MenuItem } from './ContextMenu';
@@ -15,6 +26,129 @@ import { Expandable } from './Expandable';
 function statusBadge(status: string): JSX.Element {
     const cls = status === 'completed' ? 'ok' : status === 'failed' ? 'err' : 'run';
     return <span className={`badge ${cls}`}>{status}</span>;
+}
+
+/**
+ * Where the monitor is with a run. A review recorded as under way with none
+ * under way was cut off: Patchbay closed, or another workspace was opened.
+ */
+type MonitorStage = MonitorState | 'unfinished';
+
+function monitorStage(state: MonitorState, runEnded: boolean, underReview: boolean): MonitorStage {
+    // An ended run is handed to its review straight away.
+    if (state === 'watching') return runEnded ? 'reviewing' : 'watching';
+    if (state === 'reviewing') return underReview ? 'reviewing' : 'unfinished';
+    return state;
+}
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** The monitor in a word or two, for a run's row and the head of its review. */
+function monitorBadge(stage: MonitorStage, monitor: MonitorSummary): JSX.Element {
+    switch (stage) {
+        case 'watching':
+            return <span className="badge run">monitor watching</span>;
+        case 'reviewing':
+            return <span className="badge run">monitor reviewing</span>;
+        case 'unfinished':
+            return <span className="badge">review unfinished</span>;
+        case 'failed':
+            return <span className="badge err">review failed</span>;
+        case 'skipped':
+            return <span className="badge">not reviewed</span>;
+        case 'done':
+            if (monitor.verdict === 'problem') return <span className="badge err">monitor: problem</span>;
+            return monitor.asks > 0 ? (
+                <span className="badge warn">monitor: {plural(monitor.asks, 'suggestion')}</span>
+            ) : (
+                <span className="badge ok">monitor: fine</span>
+            );
+    }
+}
+
+const SEVERITY_BADGE: Record<MonitorSeverity, string> = {note: '', suggestion: 'warn', problem: 'err'};
+
+/**
+ * What the AI monitor made of a run: watching while it is under way, then its
+ * review — a verdict, a summary, and findings that each name a node — and, folded,
+ * what it was sent.
+ */
+function MonitorCard({run, underReview, onStop}: {
+    run: Run;
+    underReview: boolean;
+    onStop(): void;
+}): JSX.Element | null {
+    const [open, setOpen] = useState(false);
+    const monitor = run.monitor;
+    if (!monitor) return null;
+    const stage = monitorStage(monitor.state, run.status !== 'running', underReview);
+    return (
+        <>
+            <div className="section-title">AI monitor</div>
+            <div className="monitor">
+                <div className="monitor-head">
+                    {monitorBadge(stage, monitorSummary(monitor))}
+                    {stage === 'reviewing' && monitor.startedAt && (
+                        <span className="took">
+                            <Elapsed from={monitor.startedAt}/>
+                        </span>
+                    )}
+                    <span className="spacer"/>
+                    {stage === 'reviewing' && (
+                        <button className="ghost compact" onClick={onStop} title="Stop this review; the run is kept">
+                            Stop review
+                        </button>
+                    )}
+                </div>
+                {stage === 'watching' && (
+                    <div className="monitor-line">Watching this run. It reviews the whole run once it ends.</div>
+                )}
+                {stage === 'reviewing' && (
+                    <div className="monitor-line">Reading the trace against the flow…</div>
+                )}
+                {stage === 'unfinished' && (
+                    <div className="monitor-line">
+                        The review was cut off before it finished: Patchbay closed, or another workspace was opened.
+                    </div>
+                )}
+                {monitor.error && stage !== 'unfinished' && (
+                    <div className={stage === 'failed' ? 'err-banner' : 'monitor-line'}>{monitor.error}</div>
+                )}
+                {monitor.summary && <div className="monitor-summary">{monitor.summary}</div>}
+                {stage === 'done' && monitor.findings.length === 0 && (
+                    <div className="monitor-line">Nothing in the flow it would change.</div>
+                )}
+                {monitor.findings.map((finding, i) => (
+                    <div key={i} className={`finding ${finding.severity}`}>
+                        <div className="finding-head">
+                            <span className={`badge ${SEVERITY_BADGE[finding.severity]}`}>{finding.severity}</span>
+                            <span className="name">{finding.nodeName ?? 'The flow as a whole'}</span>
+                        </div>
+                        {finding.observed && <div className="finding-saw">{finding.observed}</div>}
+                        {finding.suggestion && (
+                            <div className="finding-change">
+                                <b>Change</b> {finding.suggestion}
+                            </div>
+                        )}
+                    </div>
+                ))}
+                {monitor.events.length > 0 && (
+                    <>
+                        <button className="monitor-events-toggle" onClick={() => setOpen(!open)}>
+                            {open ? '▾' : '▸'} What it was sent, and noted ({monitor.events.length})
+                        </button>
+                        {open && (
+                            <div className="pass-events">
+                                {monitor.events.map((event, i) => (
+                                    <EventRow key={i} event={event}/>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        </>
+    );
 }
 
 function EventRow({event}: { event: TraceEvent }): JSX.Element {
@@ -113,6 +247,8 @@ function PassCard({pass}: { pass: Pass | PassUnderWay }): JSX.Element {
 interface Props {
     runs: RunSummary[];
     selected: Run | null;
+    /** Runs that have ended and that the AI monitor is reviewing now. */
+    reviewing: string[];
 
     onSelect(id: string): void;
 
@@ -130,6 +266,7 @@ interface Props {
 export function RunsPanel({
                               runs,
                               selected,
+                              reviewing,
                               onSelect,
                               onClear,
                               onReveal,
@@ -156,6 +293,9 @@ export function RunsPanel({
         run.status === 'running'
             ? [{label: 'Cancel run', danger: true, onSelect: () => onCancel(run.id)}]
             : [
+                ...(reviewing.includes(run.id)
+                    ? [{label: 'Stop the monitor’s review', onSelect: () => onCancel(run.id)}]
+                    : []),
                 {label: 'Run this email again', onSelect: () => onRerun(run.id)},
                 {label: 'Delete run', separator: true, danger: true, onSelect: () => onRemove(run.id)},
             ];
@@ -198,6 +338,11 @@ export function RunsPanel({
                             {run.disposition && <span className="badge">{run.disposition}</span>}
                             {run.trigger === 'manual' && <span className="badge">test</span>}
                             <span className="badge">{run.passCount} passes</span>
+                            {run.monitor &&
+                                monitorBadge(
+                                    monitorStage(run.monitor.state, run.status !== 'running', reviewing.includes(run.id)),
+                                    run.monitor,
+                                )}
                             {run.status === 'running' && run.at && <span className="at">at {run.at}</span>}
                         </div>
                     </div>
@@ -258,6 +403,13 @@ export function RunsPanel({
                         {[...selected.passes, ...(selected.current ? [selected.current] : [])].map((pass) => (
                             <PassCard key={pass.seq} pass={pass}/>
                         ))}
+
+                        <MonitorCard
+                            key={selected.id}
+                            run={selected}
+                            underReview={reviewing.includes(selected.id)}
+                            onStop={() => onCancel(selected.id)}
+                        />
                     </>
                 )}
             </div>

@@ -111,6 +111,89 @@ export type PassUnderWay = Pick<Pass, 'seq' | 'nodeId' | 'nodeKind' | 'nodeName'
 
 export type RunStatus = 'running' | 'completed' | 'failed';
 
+/** How much a finding of the AI monitor asks of a person. */
+export type MonitorSeverity = 'note' | 'suggestion' | 'problem';
+
+export const MONITOR_SEVERITIES: MonitorSeverity[] = ['note', 'suggestion', 'problem'];
+
+/** One thing the monitor saw in a run, and what it would change in the flow. */
+export interface MonitorFinding {
+    /** The node it is about, or null for the flow as a whole. */
+    nodeId: string | null;
+    /** That node's name when the review was written, so the finding still reads once the node is renamed or gone. */
+    nodeName?: string;
+    severity: MonitorSeverity;
+    /** What happened in this run that shows it, citing the pass by number. */
+    observed: string;
+    /** The change to make to the flow, a skill or a schema. Empty for a note that asks for none. */
+    suggestion: string;
+}
+
+/** The monitor's word on a run as a whole. */
+export type MonitorVerdict = 'fine' | 'suggestions' | 'problem';
+
+export const MONITOR_VERDICTS: MonitorVerdict[] = ['fine', 'suggestions', 'problem'];
+
+/**
+ * - `watching` — brought in as the trigger started the run, which is under way.
+ * - `reviewing` — the run has ended, and the review is being written.
+ * - `done` — reviewed: `verdict`, `summary` and `findings` say what it found.
+ * - `failed` — the review could not be written; `error` says why.
+ * - `skipped` — not reviewed, such as a run cancelled before it got anywhere; `error` says why.
+ */
+export type MonitorState = 'watching' | 'reviewing' | 'done' | 'failed' | 'skipped';
+
+/**
+ * The AI monitor's part in a run. A trigger whose monitor is on brings it in as
+ * it starts the run, and once the run ends it reviews the whole trace against the
+ * flow. It reads; it changes nothing. What it suggests is for a person, or an
+ * agent they ask, to make.
+ */
+export interface RunMonitor {
+    state: MonitorState;
+    /** When the review began and ended: after the run, not with it. */
+    startedAt?: string;
+    endedAt?: string;
+    verdict?: MonitorVerdict;
+    /** How the run went, in a sentence or two. */
+    summary?: string;
+    findings: MonitorFinding[];
+    /** Why it failed or was skipped. */
+    error?: string;
+    /** The prompt it was sent and what its agent noted on the way, as a pass keeps them. */
+    events: TraceEvent[];
+}
+
+/** One review as the monitor's log keeps it: one JSON line a run, newest last. */
+export interface MonitorNote {
+    runId: string;
+    flowId: string;
+    flowName: string;
+    /** When the review was written. */
+    at: string;
+    subject: string;
+    trigger: 'poll' | 'manual';
+    verdict: MonitorVerdict;
+    summary: string;
+    findings: MonitorFinding[];
+}
+
+/** The monitor as a run's row in a list shows it. */
+export interface MonitorSummary {
+    state: MonitorState;
+    verdict?: MonitorVerdict;
+    /** Findings that ask for a change: suggestions and problems, not notes. */
+    asks: number;
+}
+
+export function monitorSummary(monitor: RunMonitor): MonitorSummary {
+    return {
+        state: monitor.state,
+        verdict: monitor.verdict,
+        asks: monitor.findings.filter((f) => f.severity !== 'note').length,
+    };
+}
+
 export interface Run {
     id: string;
     flowId: string;
@@ -133,6 +216,8 @@ export interface Run {
     /** Terminal disposition, when the run reached a terminal node. */
     disposition?: string;
     error?: string;
+    /** Set when the trigger it started at has its AI monitor on. */
+    monitor?: RunMonitor;
 }
 
 /** The one-line form kept in the run index, so the list loads without every pass. */
@@ -150,6 +235,7 @@ export interface RunSummary {
     passCount: number;
     /** The node a run under way is at. */
     at?: string;
+    monitor?: MonitorSummary;
 }
 
 export function toSummary(run: Run): RunSummary {
@@ -166,5 +252,6 @@ export function toSummary(run: Run): RunSummary {
         disposition: run.disposition,
         passCount: run.passes.length,
         at: run.current?.nodeName,
+        monitor: run.monitor && monitorSummary(run.monitor),
     };
 }

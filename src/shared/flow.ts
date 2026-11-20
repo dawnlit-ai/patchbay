@@ -58,6 +58,12 @@ export interface TriggerConfig {
      * default: switching a flow on should not replay last week's mail.
      */
     processBacklogOnStart: boolean;
+    /**
+     * Whether each run this trigger starts brings in the AI monitor, which reviews
+     * the run once it ends and writes down what in the flow it would change. Off
+     * by default: each review is another model call.
+     */
+    monitor: boolean;
 }
 
 /** Where a trigger reads its mail: the folders it ticks. */
@@ -1409,7 +1415,7 @@ export function checkSlots(flow: Flow, schemas: Schemas): SlotCheck {
 // ── Defaults ─────────────────────────────────────────────────────────────
 
 /** The alias rather than a dated id, so new nodes get the newest Opus the account offers. */
-const DEFAULT_MODEL = 'opus';
+export const DEFAULT_MODEL = 'opus';
 
 /** A model stored as `agy:<id>` runs through the Antigravity CLI rather than on Claude. */
 export const AGY_MODEL_PREFIX = 'agy:';
@@ -1479,6 +1485,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
                 lookbackDays: 1,
                 maxPerPoll: 10,
                 processBacklogOnStart: false,
+                monitor: false,
             };
         case 'categorizer':
             return {
@@ -1776,6 +1783,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
                 lookbackDays: num(from.lookbackDays, base.lookbackDays),
                 maxPerPoll: num(from.maxPerPoll, base.maxPerPoll),
                 processBacklogOnStart: bool(from.processBacklogOnStart, base.processBacklogOnStart),
+                monitor: bool(from.monitor, base.monitor),
             };
         case 'categorizer': {
             const taken = new Set<string>();

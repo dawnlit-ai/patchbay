@@ -40,6 +40,8 @@ export interface RunRequest {
     startNodeId: string;
     email: EmailEnvelope;
     trigger: 'poll' | 'manual';
+    /** Whether the AI monitor is brought in: the run carries it from the start, and it reviews the run once it ends. */
+    monitor?: boolean;
     signal: AbortSignal;
 
     /** Called at the start and end of every pass, and a few times a second while a node works, so the UI can follow live. */
@@ -60,6 +62,7 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         edgePath: [],
         passes: [],
         data: {},
+        ...(request.monitor ? {monitor: {state: 'watching', findings: [], events: []}} : {}),
     };
     const {data} = run;
 

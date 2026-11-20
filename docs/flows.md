@@ -11,7 +11,9 @@ of concurrent activity.
   folders in it out, and *+ below* ticks a folder with everything inside it. Unticking a folder unticks the folders
   inside it too. A folder made later — by you, or by a rule filing mail away — is not read until you tick it. A
   trigger reading more than one folder knows an email by sender, time and subject rather than by entry id, so filing
-  one from one watched folder into another doesn't make it new again.
+  one from one watched folder into another doesn't make it new again. Its **AI monitor** section brings a reviewer
+  into every run it starts, which writes down what in the flow it would change — see
+  [The AI monitor](runs.md#the-ai-monitor).
 - **Categorizer** — an if/else you write in prose. Give each branch a description; its model picks exactly one, and
   says why. Every model answers as TypeSafe AI's Jev does — a probability for each branch, *Unmatched* included — and
   the email leaves by the most likely one. The run's trace shows the whole answer. A Categorizer can run on

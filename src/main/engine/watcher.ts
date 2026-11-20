@@ -19,6 +19,7 @@ import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
 import { errorMessage } from '@shared/util';
 import * as outlook from '../outlook/bridge';
 import { executeRun } from './engine';
+import { DROPPED, reviewRun } from './monitor';
 import { log } from '../log';
 
 /**
@@ -111,8 +112,11 @@ export interface QueuedRun {
     waitingFor: string;
 }
 
-/** What cancelling did. `unknown` most likely means the run already finished. */
-export type CancelOutcome = 'stopping' | 'dequeued' | 'unknown';
+/**
+ * What cancelling did. `review-stopped` stopped the monitor's review of a run
+ * that had already ended. `unknown` most likely means the run already finished.
+ */
+export type CancelOutcome = 'stopping' | 'dequeued' | 'review-stopped' | 'unknown';
 
 export class Watcher {
     /** Runs while any flow is switched on. */
@@ -122,6 +126,11 @@ export class Watcher {
     private queue: QueueItem[] = [];
     private polling = false;
     private active = new Map<string, ActiveRun>();
+    /**
+     * Runs that have ended and that the AI monitor is reviewing, by run id. They
+     * hold no slot and no flow's turn: the next email does not wait for a review.
+     */
+    private reviews = new Map<string, AbortController>();
     private lastPollAt?: string;
     private lastError?: string;
     private lastPollPerTrigger = new Map<string, number>();
@@ -183,13 +192,32 @@ export class Watcher {
         return this.status();
     }
 
-    /** Switch every flow off, as closing the last window does. */
+    /**
+     * Switch every flow off, as closing the last window and opening another
+     * workspace do. Reviews under way go unwritten: their runs are the old workspace's.
+     */
     stopAll(): void {
         if (this.flowIds.size > 0) log.info('watcher', 'Stopped watching every flow');
         this.flowIds.clear();
         this.dropQueued(() => true);
+        this.dropReviews();
         this.stopTimerIfIdle();
         this.onStatus();
+    }
+
+    /**
+     * Before runs are deleted: stop the monitor's reviews of them, writing nothing,
+     * so none brings back a run that is gone. Every review, without ids.
+     */
+    dropReviews(runIds?: string[]): void {
+        let dropped = false;
+        for (const [runId, controller] of this.reviews) {
+            if (runIds && !runIds.includes(runId)) continue;
+            controller.abort(DROPPED);
+            this.reviews.delete(runId);
+            dropped = true;
+        }
+        if (dropped) this.onStatus();
     }
 
     status(): EngineStatus {
@@ -209,6 +237,7 @@ export class Watcher {
             lastError: this.lastError,
             activeRunIds: [...this.active.keys()],
             queuedRunIds: this.queue.map((item) => item.runId),
+            reviewingRunIds: [...this.reviews.keys()],
         };
     }
 
@@ -232,12 +261,17 @@ export class Watcher {
         });
     }
 
-    /** Abort a run under way, or remove one still queued. */
+    /** Abort a run under way, remove one still queued, or stop the monitor's review of one that has ended. */
     cancel(runId: string): CancelOutcome {
         const active = this.active.get(runId);
         if (active) {
             active.controller.abort();
             return 'stopping';
+        }
+        const review = this.reviews.get(runId);
+        if (review) {
+            review.abort();
+            return 'review-stopped';
         }
         const index = this.queue.findIndex((item) => item.runId === runId);
         const item = this.queue[index];
@@ -479,6 +513,9 @@ export class Watcher {
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const test = item.trigger === 'manual' ? ' (test)' : '';
         log.info('run', `Started ${subject} in ${item.flow.name}${test}`, {runId});
+        // Read from the flow the run reads, so the run and its review agree on what the trigger said.
+        const monitor = triggerConfig(item.flow.nodes.find((n) => n.id === item.startNodeId))?.monitor === true;
+        if (monitor) log.info('monitor', `Watching ${subject}, to review it once it ends`, {runId});
         try {
             const run = await executeRun({
                 runId,
@@ -486,6 +523,7 @@ export class Watcher {
                 startNodeId: item.startNodeId,
                 email: item.email,
                 trigger: item.trigger,
+                monitor,
                 signal: controller.signal,
                 onUpdate: (update) => this.onRun(update),
             });
@@ -503,6 +541,14 @@ export class Watcher {
                     detail: run.error,
                 });
             }
+            if (run.monitor) {
+                const skip = controller.signal.aborted
+                    ? 'the run was cancelled'
+                    : run.passes.length === 0
+                        ? 'the run never reached a node'
+                        : undefined;
+                this.review(run, item.flow, skip);
+            }
         } catch (e) {
             this.lastError = errorMessage(e);
             log.error('run', `${subject} could not run: ${this.lastError}`, {runId});
@@ -511,5 +557,25 @@ export class Watcher {
             this.onStatus();
             this.pump();
         }
+    }
+
+    /**
+     * The monitor's review of a run that has ended, started without waiting for it:
+     * the run's slot and its flow's turn are already free for the next email.
+     */
+    private review(run: Run, flow: Flow, skip: string | undefined): void {
+        const controller = new AbortController();
+        this.reviews.set(run.id, controller);
+        // Before the run says it is being reviewed, so the window never sees a
+        // review with none under way, which is how it knows one cut off by a close.
+        this.onStatus();
+        void reviewRun({run, flow, skip, signal: controller.signal, onUpdate: (update) => this.onRun(update)}).finally(
+            () => {
+                // A dropped review is already out of the map, and another may since hold its id.
+                if (this.reviews.get(run.id) !== controller) return;
+                this.reviews.delete(run.id);
+                this.onStatus();
+            },
+        );
     }
 }

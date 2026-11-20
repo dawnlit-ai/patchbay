@@ -2744,6 +2744,25 @@ button.add-field:hover:not(:disabled) {
     color: var(--warn);
 }
 
+/* What the AI monitor's review of the selected run says about this node. */
+.node-monitor {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--muted);
+    border-top: 1px solid var(--line-soft);
+    cursor: help;
+}
+
+.node-monitor.suggestion {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.node-monitor.problem {
+    color: var(--err);
+    background: var(--err-soft);
+}
+
 /* The inspector's Data section: one slot, or one port, per row. */
 .slot-row {
     display: flex;
@@ -3134,6 +3153,106 @@ button.add-field:hover:not(:disabled) {
 .pass-events {
     border-top: 1px solid var(--line);
     padding: 6px 10px 8px;
+}
+
+/* ── The AI monitor's review of a run ──────────────────────────────────── */
+
+.monitor {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel-2);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.monitor-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.monitor-head .took {
+    color: var(--dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-head button.compact {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.monitor .err-banner {
+    margin-bottom: 0;
+}
+
+.monitor-line {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.monitor-summary {
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+/* One finding: what the monitor saw, and the change it would make. */
+.finding {
+    border-left: 3px solid var(--line);
+    padding: 2px 0 2px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.finding.suggestion {
+    border-left-color: var(--warn-line);
+}
+
+.finding.problem {
+    border-left-color: var(--err-line);
+}
+
+.finding-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.finding-head .name {
+    font-weight: 600;
+}
+
+.finding-saw {
+    color: var(--muted);
+}
+
+.finding-change b {
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.monitor-events-toggle {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--dim);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.monitor-events-toggle:hover {
+    color: var(--text);
+}
+
+.monitor .pass-events {
+    padding: 6px 0 0;
 }
 
 .event {

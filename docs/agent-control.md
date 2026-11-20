@@ -30,7 +30,7 @@ it.
 | Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`    |
 | Mailbox   | `list_accounts`, `list_folders`, `list_recent_emails`                         |
 | Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`     |
-| Runs      | `list_runs`, `get_run`, `get_console`                                         |
+| Runs      | `list_runs`, `get_run`, `list_monitor_notes`, `get_console`                   |
 | Settings  | `get_settings`, `list_server_tools`                                           |
 
 Every tool works on the workspace open in the app: its flows, its skills, its schemas and its runs.
@@ -49,6 +49,11 @@ still names it, and the refusal says which.
 `write_skill` writes one `SKILL.md` into the workspace's library; a skill with scripts or references beside it comes in
 whole through `import_skills`, from a folder on this machine, optionally narrowed to the names wanted. `delete_skill`
 names every flow still ticking the skill it deleted.
+
+A trigger with `monitor` on brings the [AI monitor](runs.md#the-ai-monitor) into each run it starts; `get_run` has its
+review under `monitor`, and `list_monitor_notes` has every review, newest first, with each finding naming a node by
+id — the place to start when asked to improve a flow from how it has been running. `cancel_run` on a run being
+reviewed stops the review.
 
 A test run's id comes back before the run starts, and it can wait — behind a run of the same flow, or for a free slot
 under *Runs at once*. `get_run` says which, `list_runs` puts what is queued and under way first, and `cancel_run` takes

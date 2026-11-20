@@ -39,7 +39,7 @@ import {
     type SlotCheck,
     slotTypeLabel,
 } from '@shared/flow';
-import type { Pass, PassUnderWay } from '@shared/trace';
+import type { MonitorFinding, Pass, PassUnderWay } from '@shared/trace';
 import type { OutlookDrag } from '@shared/ipc';
 import { activity } from '../activity';
 import { type DataTokens, tint } from '../slotColors';
@@ -57,6 +57,8 @@ export interface CanvasHighlight {
     takenEdges: Set<string>;
     /** The pass the run is in the middle of, while it is under way. */
     current?: PassUnderWay;
+    /** The AI monitor's findings about each node, once it has reviewed the run. */
+    findings?: Map<string, MonitorFinding[]>;
 }
 
 interface NodeData extends Record<string, unknown> {
@@ -64,6 +66,8 @@ interface NodeData extends Record<string, unknown> {
     pass?: Pass;
     /** Set on the node the run is at now. A node visited before keeps its `pass` too. */
     working?: PassUnderWay;
+    /** What the AI monitor's review of the run says about this node. */
+    findings?: MonitorFinding[];
     /**
      * While an email is being dragged: `ready` on every trigger it could start a
      * run at, `over` on the one it would land on if let go now.
@@ -80,8 +84,26 @@ interface EdgeData extends Record<string, unknown> {
     onRemove(edgeId: string): void;
 }
 
+/** What the AI monitor's review says about a node, in a line, each finding in full on hover. */
+function MonitorNote({findings}: { findings: MonitorFinding[] }): JSX.Element {
+    const asks = findings.filter((f) => f.severity !== 'note');
+    const worst = findings.some((f) => f.severity === 'problem') ? 'problem' : asks.length > 0 ? 'suggestion' : 'note';
+    const counted = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const line = worst === 'problem'
+        ? `Monitor: ${counted(findings.filter((f) => f.severity === 'problem').length, 'problem')}`
+        : `Monitor: ${asks.length > 0 ? counted(asks.length, 'suggestion') : counted(findings.length, 'note')}`;
+    return (
+        <div
+            className={`node-monitor ${worst}`}
+            title={findings.map((f) => [f.observed, f.suggestion].filter(Boolean).join('\n→ ')).join('\n\n')}
+        >
+            {line}
+        </div>
+    );
+}
+
 function NodeCard({data, selected}: NodeProps): JSX.Element {
-    const {flowNode, pass, working, drop, issues, available, tokens} = data as NodeData;
+    const {flowNode, pass, working, findings, drop, issues, available, tokens} = data as NodeData;
     const reads = requires(flowNode);
     const meta = NODE_KIND_META[flowNode.kind];
     const ports = outputPorts(flowNode);
@@ -173,6 +195,8 @@ function NodeCard({data, selected}: NodeProps): JSX.Element {
             ) : (
                 pass && <div className="node-note">{pass.summary}</div>
             )}
+
+            {findings && findings.length > 0 && <MonitorNote findings={findings}/>}
         </div>
     );
 }
@@ -371,6 +395,7 @@ export function FlowCanvas({
                         flowNode: n,
                         pass: highlight?.passes.get(n.id),
                         working: highlight?.current?.nodeId === n.id ? highlight.current : undefined,
+                        findings: highlight?.findings?.get(n.id),
                         drop,
                         issues: slots?.issues.filter((issue) => issue.nodeId === n.id) ?? [],
                         available: slots?.available.get(n.id),

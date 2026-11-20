@@ -34,7 +34,7 @@ import type {
 } from '../src/shared/flow';
 import type { WorkspaceChange } from '../src/shared/ipc';
 import type { EngineStatus } from '../src/shared/settings';
-import type { EmailEnvelope } from '../src/shared/trace';
+import type { EmailEnvelope, Run } from '../src/shared/trace';
 
 /** Not the default port: a check should not fight the app if it is running. */
 const PORT = 8799;
@@ -625,6 +625,96 @@ async function main(): Promise<void> {
     check(
         'cancel_run says when there is nothing to cancel',
         (await call('cancel_run', {runId: second})).includes('Nothing to cancel'),
+    );
+
+    // The AI monitor: a trigger with it on brings it into each run it starts, and
+    // reviews the run once it ends. With every agent switched off the review fails
+    // at once, no model asked, which is enough to follow it from end to end.
+    await call('update_node', {flowId: lane, nodeId: start, config: {monitor: true}});
+    check(
+        'a trigger keeps its AI monitor switched on',
+        (await call('get_flow', {flowId: lane})).includes('"monitor": true'),
+    );
+    const settingsBefore = getSettings();
+    saveSettings({...settingsBefore, agents: settingsBefore.agents.map((a) => ({...a, enabled: false}))});
+    const watched = watcher.enqueueManual(lane, start, email);
+    const busy = (): boolean => {
+        const now = watcher.status();
+        return now.activeRunIds.length + now.queuedRunIds.length + now.reviewingRunIds.length > 0;
+    };
+    for (let i = 0; i < 100 && busy(); i++) await new Promise((r) => setTimeout(r, 50));
+    saveSettings(settingsBefore);
+    const reviewed = JSON.parse(await call('get_run', {runId: watched})) as Run;
+    check(
+        'a monitored run carries its review, which says why it could not be written',
+        reviewed.monitor?.state === 'failed' && reviewed.monitor.error?.includes('switched off') === true,
+        JSON.stringify(reviewed.monitor),
+    );
+    check(
+        'the run index follows the review',
+        (await call('list_runs', {flowId: lane})).includes('"state": "failed"'),
+    );
+    check(
+        'the console says the review failed',
+        (await call('get_console', {source: 'monitor'})).includes('Could not review'),
+    );
+    await call('update_node', {flowId: lane, nodeId: start, config: {monitor: false}});
+
+    const {readReview, reviewPrompt} = await import('../src/main/engine/monitor');
+    const {listReviews, recordReview, removeRun} = await import('../src/main/store/traceStore');
+    const laneFlow = getFlow(lane)!;
+    const triggerName = laneFlow.nodes.find((n) => n.id === start)?.name;
+    const prompt = reviewPrompt(reviewed, laneFlow);
+    check(
+        'the review is shown the flow, the email and each pass',
+        prompt.includes(`"id": "${start}"`) && prompt.includes('Subject: Queue check') && prompt.includes('Pass 1 ·'),
+    );
+    const read = readReview(
+        {
+            verdict: 'unheard-of',
+            summary: '  It went to Unmatched.  ',
+            findings: [
+                {nodeId: start, severity: 'problem', observed: 'Pass 1 ended unwired.', suggestion: 'Wire On email.'},
+                {nodeId: 'no-such-node', severity: 'odd', observed: 'Something about the flow.', suggestion: ''},
+                {nodeId: '', severity: 'note', observed: '', suggestion: ''},
+            ],
+        },
+        laneFlow,
+    );
+    check(
+        'a review is held to its shape',
+        read.verdict === 'problem' &&
+        read.summary === 'It went to Unmatched.' &&
+        read.findings.length === 2 &&
+        read.findings[0]?.nodeName === triggerName &&
+        read.findings[1]?.nodeId === null &&
+        read.findings[1]?.severity === 'suggestion',
+        JSON.stringify(read),
+    );
+    const note = {
+        runId: watched,
+        flowId: lane,
+        flowName: laneFlow.name,
+        at: new Date().toISOString(),
+        subject: email.subject,
+        trigger: 'manual' as const,
+        verdict: read.verdict ?? 'problem',
+        summary: read.summary ?? '',
+        findings: read.findings,
+    };
+    recordReview(note);
+    recordReview({...note, runId: first, verdict: 'fine', findings: []});
+    const notes = JSON.parse(await call('list_monitor_notes', {flowId: lane})) as { runId: string }[];
+    check('list_monitor_notes has the reviews, newest first', notes[0]?.runId === first && notes[1]?.runId === watched);
+    const asking = JSON.parse(await call('list_monitor_notes', {flowId: lane, findingsOnly: true})) as {
+        runId: string
+    }[];
+    check('… and only those with findings, when asked', asking.length === 1 && asking[0]?.runId === watched);
+    watcher.dropReviews([watched]);
+    removeRun(watched);
+    check(
+        'deleting a run takes its review out of the monitor’s log',
+        listReviews(10, lane).every((r) => r.runId !== watched) && listReviews(10, lane).length === 1,
     );
 
     // A step whose skill was deleted since it was ticked stops at its error port,

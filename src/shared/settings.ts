@@ -1,6 +1,6 @@
 /** App-level settings, stored once per install rather than per flow. */
 
-import type { ModelChoice } from './flow';
+import { DEFAULT_MODEL, type ModelChoice } from './flow';
 
 /**
  * How a server is reached: a command started on this computer, or an address.
@@ -251,6 +251,11 @@ export interface Settings {
      * tools on any window. Off, those keys do nothing and any tools open are closed.
      */
     devToolsEnabled: boolean;
+    /**
+     * The model the AI monitor reviews a run on, for every trigger that has it on.
+     * At its usage limit or out of reach, the review goes on to the fallbacks above.
+     */
+    monitorModel: Pick<ModelChoice, 'model' | 'effort'>;
 }
 
 export function defaultSettings(): Settings {
@@ -265,6 +270,7 @@ export function defaultSettings(): Settings {
         folders: [],
         fallbacks: [],
         devToolsEnabled: false,
+        monitorModel: {model: DEFAULT_MODEL, effort: ''},
     };
 }
 
@@ -375,4 +381,6 @@ export interface EngineStatus {
     activeRunIds: string[];
     /** Handed out and waiting: for a slot, or for an earlier run of the same flow. */
     queuedRunIds: string[];
+    /** Ended, and being reviewed by the AI monitor. */
+    reviewingRunIds: string[];
 }

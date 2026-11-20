@@ -73,7 +73,11 @@ export function getUpdates(): Updates {
         {
             busy: () => {
                 const status = getWatcher().status();
-                return status.activeRunIds.length > 0 || status.queuedRunIds.length > 0;
+                return (
+                    status.activeRunIds.length > 0 ||
+                    status.queuedRunIds.length > 0 ||
+                    status.reviewingRunIds.length > 0
+                );
             },
         },
         () => broadcast(IPC.evtUpdateStatus, updates?.status()),
@@ -454,12 +458,15 @@ export function registerIpc(): void {
         if (activeRunIds.length > 0 || queuedRunIds.length > 0) {
             throw new Error('Runs are under way or waiting. Cancel them, or let them finish, before clearing the runs.');
         }
+        // A review goes with its run, rather than write it back once it is gone.
+        getWatcher().dropReviews();
         traceStore.clearRuns();
     });
     handle(IPC.runsRemove, (id: string) => {
         if (getWatcher().isRunPending(id)) {
             throw new Error('That run is still in progress. Cancel it, or let it finish, before deleting it.');
         }
+        getWatcher().dropReviews([id]);
         traceStore.removeRun(id);
     });
     handle(IPC.runsRerun, async (id: string) => {

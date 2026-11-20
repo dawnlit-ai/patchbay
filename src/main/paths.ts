@@ -214,5 +214,10 @@ export const mcpSecretsFile = (): string => join(dataRoot(), 'mcp-secrets.json')
 export const agentKeysFile = (): string => join(dataRoot(), 'agent-keys.json');
 export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
+/**
+ * The AI monitor's reviews, one JSON line a run, among the runs: they quote the
+ * mail they reviewed, and go when the runs are cleared.
+ */
+export const monitorLogFile = (): string => join(runsDir(), 'monitor.jsonl');
 /** The console's files, one JSONL per day. */
 export const logsDir = (): string => ensure('logs');
