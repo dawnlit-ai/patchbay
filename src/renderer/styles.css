@@ -4,6 +4,12 @@
  */
 
 :root {
+    /*
+     * Settings → Appearance → Text size, as a fraction: every font size is
+     * multiplied by it, and the rest of the layout keeps its size.
+     */
+    --text-scale: 1;
+
     --bg: #f4f6f9;
     --panel: #ffffff;
     --panel-2: #f2f5f9;
@@ -154,7 +160,7 @@ html, body, #root {
 body {
     background: var(--bg);
     color: var(--text);
-    font: 13px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: calc(13px * var(--text-scale))/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
     overflow: hidden;
 }
 
@@ -306,7 +312,7 @@ input:focus, select:focus, textarea:focus {
 textarea {
     resize: vertical;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.55;
 }
 
@@ -316,7 +322,7 @@ label {
 
 code {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 /* ── App shell ─────────────────────────────────────────────────────────── */
@@ -348,7 +354,7 @@ code {
 .window-title {
     color: var(--muted);
     font-weight: 600;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     letter-spacing: 0.2px;
 }
 
@@ -410,7 +416,7 @@ code {
     border: 1px solid var(--line);
     background: var(--panel-2);
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .dot {
@@ -468,7 +474,7 @@ code {
 
 .lede h1 {
     margin: 0 0 6px;
-    font-size: 19px;
+    font-size: calc(19px * var(--text-scale));
     font-weight: 650;
     letter-spacing: 0.2px;
 }
@@ -476,7 +482,7 @@ code {
 .lede p {
     margin: 0 0 6px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.55;
 }
 
@@ -485,14 +491,14 @@ button.wide {
     width: 100%;
     text-align: left;
     padding: 8px 11px;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
 }
 
 /* A path shown to be read and recognised, not retyped. */
 .path {
     display: block;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--text-scale));
     line-height: 1.5;
     color: var(--muted);
     background: var(--code-bg);
@@ -509,7 +515,7 @@ button.wide {
     margin-top: 12px;
     padding-top: 10px;
     border-top: 1px solid var(--line-soft);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 .welcome-foot .dim {
@@ -551,7 +557,7 @@ button.wide {
 .welcome-head .compact {
     width: auto;
     padding: 4px 8px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .welcome-head input.compact {
@@ -608,7 +614,7 @@ button.wide {
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: calc(13px * var(--text-scale));
 }
 
 .flow-row .title .badge {
@@ -620,7 +626,7 @@ button.wide {
 
 .flow-row .meta {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     margin-top: 2px;
 }
 
@@ -642,7 +648,7 @@ button.wide {
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--line);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.45;
 }
 
@@ -658,12 +664,12 @@ button.wide {
 
 .schema-field .name {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .schema-field .type {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     color: var(--muted);
 }
 
@@ -701,7 +707,7 @@ button.wide {
 .value-actions button.compact {
     width: auto;
     padding: 2px 7px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 /* A skill ticked but not in the workspace: nothing to open, only to read. */
@@ -726,7 +732,7 @@ button.wide {
     min-width: 0;
     overflow: hidden;
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     white-space: nowrap;
     text-overflow: ellipsis;
 }
@@ -749,7 +755,7 @@ button.wide {
 
 .md {
     max-width: 760px;
-    font-size: 13px;
+    font-size: calc(13px * var(--text-scale));
     line-height: 1.6;
     overflow-wrap: anywhere;
 }
@@ -770,23 +776,23 @@ button.wide {
 }
 
 .md h1 {
-    font-size: 20px;
+    font-size: calc(20px * var(--text-scale));
 }
 
 .md h2 {
-    font-size: 15.5px;
+    font-size: calc(15.5px * var(--text-scale));
     padding-bottom: 5px;
     border-bottom: 1px solid var(--line-soft);
 }
 
 .md h3 {
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--text-scale));
 }
 
 .md h4,
 .md h5,
 .md h6 {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     color: var(--muted);
 }
 
@@ -831,7 +837,7 @@ button.wide {
 
 .md code {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     background: var(--code-bg);
     border: 1px solid var(--line-soft);
     border-radius: var(--radius-sm);
@@ -873,7 +879,7 @@ button.wide {
 
 .md table {
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     /* Words whole, so no column is squeezed to a letter or two: a wide table scrolls instead. */
     overflow-wrap: normal;
 }
@@ -913,7 +919,7 @@ button.wide {
 
 .md .md-copied {
     margin-left: 6px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--text-scale));
     color: var(--ok);
 }
 
@@ -927,7 +933,7 @@ button.wide {
     display: flex;
     max-width: 45%;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--text-scale));
     color: var(--dim);
 }
 
@@ -998,7 +1004,7 @@ button.wide {
     width: 100%;
     text-align: left;
     padding: 6px 10px;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     background: none;
     border-color: transparent;
 }
@@ -1078,7 +1084,7 @@ button.wide {
     align-items: center;
     gap: 5px;
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     font-weight: 400;
 }
 
@@ -1097,7 +1103,7 @@ button.wide {
     padding: 10px 10px 0;
     border-top: 1px solid var(--line-soft);
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     line-height: 1.65;
 }
 
@@ -1109,7 +1115,7 @@ button.wide {
 .set-about .set-link {
     padding: 0;
     color: var(--accent);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     background: none;
     border: none;
 }
@@ -1139,7 +1145,7 @@ button.wide {
 
 .set-head h1 {
     margin: 0;
-    font-size: 19px;
+    font-size: calc(19px * var(--text-scale));
     font-weight: 650;
     letter-spacing: 0.2px;
 }
@@ -1151,7 +1157,7 @@ button.wide {
 
 .set-head h2 {
     margin: 0;
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale));
     font-weight: 650;
 }
 
@@ -1159,7 +1165,7 @@ button.wide {
     max-width: 62ch;
     margin: 4px 0 18px;
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     line-height: 1.55;
 }
 
@@ -1190,7 +1196,7 @@ button.wide {
     max-width: 60ch;
     margin-top: 2px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.5;
 }
 
@@ -1207,17 +1213,31 @@ button.wide {
 /* Paths and commands are typed the way a terminal shows them. */
 .set-page input.mono {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* In the UI's own face, so an empty field never reads as a path typed into it. */
 .set-page input::placeholder {
     color: var(--dim);
-    font: 12.5px "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: calc(12.5px * var(--text-scale)) "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 .set-page input.port {
     width: 92px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A window's width × height, two number fields with the sign between them. */
+.set-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+}
+
+.set-page input.size {
+    width: 76px;
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
@@ -1232,7 +1252,7 @@ button.wide {
     max-width: 62ch;
     margin: 14px 2px 0;
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     line-height: 1.55;
 }
 
@@ -1253,7 +1273,7 @@ button.wide {
     border-radius: 50%;
     background: var(--panel-3);
     color: var(--muted);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
@@ -1271,7 +1291,7 @@ button.wide {
     gap: 8px;
     margin-top: 8px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.5;
 }
 
@@ -1307,7 +1327,7 @@ button.wide {
     column-gap: 10px;
     row-gap: 6px;
     margin-top: 10px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .usage-row {
@@ -1351,7 +1371,7 @@ button.wide {
     margin-top: 2px;
     color: var(--dim);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     overflow-wrap: anywhere;
 }
 
@@ -1456,7 +1476,7 @@ button.wide {
     gap: 8px;
     padding: 11px 14px;
     color: var(--term-dim);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .conn-status .dot {
@@ -1483,12 +1503,12 @@ button.wide {
 .conn-url {
     color: var(--term-accent);
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .conn-when {
     color: var(--term-dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     white-space: nowrap;
 }
 
@@ -1499,7 +1519,7 @@ button.wide {
     gap: 8px;
     padding: 8px 14px 0;
     color: var(--term-dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     border-top: 1px solid var(--term-line);
 }
 
@@ -1508,7 +1528,7 @@ button.wide {
     padding: 6px 14px 12px;
     color: var(--term-dim);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.7;
     white-space: pre-wrap;
     /* Between words where it can, so a flag is never split from its dashes. */
@@ -1579,12 +1599,12 @@ button.wide {
 
 .side-note {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     line-height: 1.6;
 }
 
 .section-title {
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.9px;
     color: var(--dim);
@@ -1611,12 +1631,12 @@ button.wide {
 
 .palette-item strong {
     display: block;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
 }
 
 .palette-item span {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 /* The filter over a long list of groups: skills, or MCP servers' tools. */
@@ -1652,7 +1672,7 @@ button.wide {
 
 .insp-kind {
     color: var(--k);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
@@ -1663,7 +1683,7 @@ button.wide {
     width: calc(100% + 14px);
     margin: 3px -7px 0;
     padding: 3px 6px;
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale));
     font-weight: 600;
     background: transparent;
     border-color: transparent;
@@ -1680,7 +1700,7 @@ button.wide {
 .insp-blurb {
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.45;
 }
 
@@ -1739,7 +1759,7 @@ button.wide {
 
 .insp-section-title {
     flex: none;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     font-weight: 600;
     color: var(--text);
 }
@@ -1752,7 +1772,7 @@ button.wide {
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .insp-section-body {
@@ -1825,7 +1845,7 @@ button.wide {
     border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--text);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     line-height: 1.5;
 }
 
@@ -1837,7 +1857,7 @@ button.wide {
 .data-label {
     margin-bottom: 4px;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .chip-list {
@@ -1870,7 +1890,7 @@ button.link:hover:not(:disabled) {
 .pick-group-head .check {
     margin: 0 4px 0 6px;
     gap: 5px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .pick-group-toggle {
@@ -1893,7 +1913,7 @@ button.link:hover:not(:disabled) {
 }
 
 .pick-group-title {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--dim);
@@ -1903,14 +1923,14 @@ button.link:hover:not(:disabled) {
 }
 
 .pick-group-count {
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     color: var(--dim);
     white-space: nowrap;
 }
 
 .pick-group button.compact {
     padding: 2px 7px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .pick-note {
@@ -1953,14 +1973,14 @@ button.link:hover:not(:disabled) {
     flex: none;
     width: auto;
     padding: 2px 6px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 /* A way to the settings a field ticks from, under its hint. */
 .field-link {
     margin-top: 6px;
     padding: 2px 8px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 /* Where a row's tick comes from, or what ticking it brings: a skill's, beside the name. */
@@ -1971,12 +1991,12 @@ button.link:hover:not(:disabled) {
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .pick-row .desc {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -1998,13 +2018,13 @@ button.link:hover:not(:disabled) {
 .folder-note {
     flex-shrink: 0;
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 .folder-row button.compact {
     flex-shrink: 0;
     padding: 1px 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 /* The inspector pads each of its own parts, so its sections can run edge to edge. */
@@ -2020,7 +2040,7 @@ button.link:hover:not(:disabled) {
 .field > span {
     display: block;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     margin-bottom: 4px;
 }
 
@@ -2033,7 +2053,7 @@ button.link:hover:not(:disabled) {
 
 .hint {
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     margin-top: 6px;
 }
 
@@ -2088,7 +2108,7 @@ button.link:hover:not(:disabled) {
 /* Words to read rather than code: the body font, growing with what is written. */
 .schema-editor textarea.prose {
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     line-height: 1.45;
     resize: none;
     field-sizing: content;
@@ -2129,7 +2149,7 @@ button.link:hover:not(:disabled) {
     flex: 1 1 120px;
     min-width: 0;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .field-head .field-kind {
@@ -2140,7 +2160,7 @@ button.link:hover:not(:disabled) {
 
 .field-head .of {
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .field-tools {
@@ -2153,7 +2173,7 @@ button.link:hover:not(:disabled) {
     width: 26px;
     height: 26px;
     padding: 0;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* Narrow, as in the inspector: the name and its buttons on one line, what it holds on the next. */
@@ -2190,12 +2210,12 @@ button.link:hover:not(:disabled) {
 
 .field-card .choices > span {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .field-card .choices input {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .field-foot {
@@ -2206,12 +2226,12 @@ button.link:hover:not(:disabled) {
 
 .field-foot .check {
     margin-bottom: 0;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .field-foot button.compact {
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* A group's own fields, set in under the field that holds them. */
@@ -2246,7 +2266,7 @@ button.add-field:hover:not(:disabled) {
 .modal footer .footer-note {
     align-self: center;
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
 }
 
 .modal .err-banner {
@@ -2301,7 +2321,7 @@ button.add-field:hover:not(:disabled) {
     align-self: center;
     min-width: 14px;
     color: var(--dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     text-align: center;
 }
 
@@ -2357,7 +2377,7 @@ button.add-field:hover:not(:disabled) {
 
 .model-head button {
     padding: 2px 7px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .grip {
@@ -2389,7 +2409,7 @@ button.add-field:hover:not(:disabled) {
     color: var(--dim);
     text-align: center;
     padding: 28px 12px;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
 }
 
 .empty.loading {
@@ -2548,7 +2568,7 @@ button.add-field:hover:not(:disabled) {
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     overflow: hidden;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .node.selected {
@@ -2610,7 +2630,7 @@ button.add-field:hover:not(:disabled) {
 }
 
 .node-head .kind {
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.7px;
     font-weight: 600;
@@ -2618,7 +2638,7 @@ button.add-field:hover:not(:disabled) {
 
 .node-head .seq {
     margin-left: auto;
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale));
     background: var(--chip);
     border-radius: var(--pill);
     padding: 1px 7px;
@@ -2628,13 +2648,13 @@ button.add-field:hover:not(:disabled) {
 .node-title {
     padding: 8px 10px 4px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: calc(13px * var(--text-scale));
 }
 
 .node-sub {
     padding: 0 10px 8px;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     overflow-wrap: anywhere;
 }
 
@@ -2645,7 +2665,7 @@ button.add-field:hover:not(:disabled) {
 .node-port {
     position: relative;
     padding: 5px 22px 5px 10px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     color: var(--muted);
     border-top: 1px solid var(--line-soft);
 }
@@ -2675,7 +2695,7 @@ button.add-field:hover:not(:disabled) {
 
 .node-note {
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     color: var(--muted);
     border-top: 1px solid var(--line-soft);
     background: var(--accent-soft);
@@ -2697,7 +2717,7 @@ button.add-field:hover:not(:disabled) {
 }
 
 .io-label {
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--dim);
@@ -2706,7 +2726,7 @@ button.add-field:hover:not(:disabled) {
 
 .slot-chip {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--text-scale));
     line-height: 1.5;
     padding: 0 6px;
     border-radius: var(--pill);
@@ -2731,7 +2751,7 @@ button.add-field:hover:not(:disabled) {
 /* A slot a node reads that some path to it never fills, or one it overwrites. */
 .node-issue {
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     border-top: 1px solid var(--line-soft);
 }
 
@@ -2747,7 +2767,7 @@ button.add-field:hover:not(:disabled) {
 /* What the AI monitor's review of the selected run says about this node. */
 .node-monitor {
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     color: var(--muted);
     border-top: 1px solid var(--line-soft);
     cursor: help;
@@ -2769,7 +2789,7 @@ button.add-field:hover:not(:disabled) {
     align-items: baseline;
     gap: 8px;
     padding: 2px 0;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
 }
 
 .slot-type {
@@ -2796,7 +2816,7 @@ button.add-field:hover:not(:disabled) {
     border-radius: var(--radius-md);
     padding: 8px 10px;
     margin-bottom: 10px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* ── Dock: runs and console, under the canvas ─────────────────────────── */
@@ -2875,7 +2895,7 @@ button.add-field:hover:not(:disabled) {
 }
 
 .runs-detail .panel-head strong {
-    font-size: 14px;
+    font-size: calc(14px * var(--text-scale));
 }
 
 .runs-detail .err-banner {
@@ -2925,7 +2945,7 @@ button.add-field:hover:not(:disabled) {
 
 .run-row .meta {
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     display: flex;
     gap: 8px;
     margin-top: 2px;
@@ -2943,7 +2963,7 @@ button.add-field:hover:not(:disabled) {
 }
 
 .badge {
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale));
     padding: 1px 7px;
     border-radius: var(--pill);
     border: 1px solid var(--line);
@@ -2979,7 +2999,7 @@ button.add-field:hover:not(:disabled) {
 .console .panel-head .compact {
     width: auto;
     padding: 3px 6px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .console .panel-head input.compact {
@@ -2990,7 +3010,7 @@ button.add-field:hover:not(:disabled) {
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .log-row {
@@ -3015,14 +3035,14 @@ button.add-field:hover:not(:disabled) {
 
 .log-row .at {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     color: var(--dim);
     flex: none;
 }
 
 .log-row .level,
 .log-row .source {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--dim);
@@ -3051,7 +3071,7 @@ button.add-field:hover:not(:disabled) {
 .log-row .head button {
     flex: none;
     padding: 0 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 .log-row.level-debug .message {
@@ -3103,7 +3123,7 @@ button.add-field:hover:not(:disabled) {
     border: 1px solid var(--line);
     display: grid;
     place-items: center;
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale));
     color: var(--muted);
 }
 
@@ -3122,12 +3142,12 @@ button.add-field:hover:not(:disabled) {
 
 .pass-head .count {
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 .pass-head .took {
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     font-variant-numeric: tabular-nums;
 }
 
@@ -3147,7 +3167,7 @@ button.add-field:hover:not(:disabled) {
 .pass-summary {
     padding: 0 10px 8px 38px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .pass-events {
@@ -3176,13 +3196,13 @@ button.add-field:hover:not(:disabled) {
 
 .monitor-head .took {
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     font-variant-numeric: tabular-nums;
 }
 
 .monitor-head button.compact {
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
 }
 
 .monitor .err-banner {
@@ -3191,11 +3211,11 @@ button.add-field:hover:not(:disabled) {
 
 .monitor-line {
     color: var(--muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 .monitor-summary {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--text-scale));
     line-height: 1.5;
 }
 
@@ -3206,7 +3226,7 @@ button.add-field:hover:not(:disabled) {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     line-height: 1.5;
 }
 
@@ -3243,7 +3263,7 @@ button.add-field:hover:not(:disabled) {
     border: none;
     padding: 0;
     color: var(--dim);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     cursor: pointer;
 }
 
@@ -3269,7 +3289,7 @@ button.add-field:hover:not(:disabled) {
 }
 
 .event .type {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--text-scale));
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--dim);
@@ -3279,7 +3299,7 @@ button.add-field:hover:not(:disabled) {
 
 .event .label {
     color: var(--text);
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     overflow-wrap: anywhere;
 }
 
@@ -3369,7 +3389,7 @@ button.add-field:hover:not(:disabled) {
     border: 1px solid var(--line-soft);
     border-radius: var(--radius-sm);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale));
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     max-height: 340px;
@@ -3380,7 +3400,7 @@ button.add-field:hover:not(:disabled) {
 .kv {
     display: flex;
     gap: 8px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
     color: var(--muted);
     margin-bottom: 3px;
 }
@@ -3466,7 +3486,7 @@ button.add-field:hover:not(:disabled) {
 
 .list-row .desc {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--text-scale));
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -3480,7 +3500,7 @@ button.add-field:hover:not(:disabled) {
     border-radius: var(--radius-md);
     padding: 8px 10px;
     margin-bottom: 10px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* The same shape as an error banner, for something that merely happened. */
@@ -3491,7 +3511,7 @@ button.add-field:hover:not(:disabled) {
     border-radius: var(--radius-md);
     padding: 8px 10px;
     margin-bottom: 10px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale));
 }
 
 /* The app-level banner, between the topbar and the panels. */

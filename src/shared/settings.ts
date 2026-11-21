@@ -210,6 +210,45 @@ export function foldersOf(stored: unknown): FolderSetting[] {
 /** Absolute on Windows or a Mac, judged without node's path, which the renderer does not have. */
 const isAbsolutePath = (path: string): boolean => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(path);
 
+/** The kinds of window, each opened at the size Settings → Appearance gives it. */
+export type WindowKind = 'canvas' | 'welcome' | 'settings';
+
+export const WINDOW_KINDS: WindowKind[] = ['canvas', 'welcome', 'settings'];
+
+/** A window's width and height, before display scaling: at 150%, 1000 is 1,500 pixels on the screen. */
+export interface WindowSize {
+    width: number;
+    height: number;
+}
+
+/** Each kind's size out of the box, and the smallest it can be set to: any smaller and its layout no longer fits. */
+export const WINDOW_SIZES: Record<WindowKind, { initial: WindowSize; min: WindowSize }> = {
+    canvas: {initial: {width: 1560, height: 980}, min: {width: 1100, height: 700}},
+    welcome: {initial: {width: 1120, height: 800}, min: {width: 860, height: 520}},
+    settings: {initial: {width: 920, height: 800}, min: {width: 740, height: 480}},
+};
+
+/** The largest a width or height can be set to. A screen smaller than a window shrinks it to fit in any case. */
+export const WINDOW_SIZE_MAX = 10000;
+
+/** Whether a window of this kind can open at `size`: whole numbers, no smaller than its layout needs. */
+export function usableWindowSize(kind: WindowKind, size: WindowSize): boolean {
+    const {min} = WINDOW_SIZES[kind];
+    const fits = (n: number, least: number): boolean => Number.isInteger(n) && n >= least && n <= WINDOW_SIZE_MAX;
+    return fits(size.width, min.width) && fits(size.height, min.height);
+}
+
+/** The window sizes a settings file gives, each kind's own where its is missing or one it cannot open at. */
+export function windowSizesOf(stored: unknown): Record<WindowKind, WindowSize> {
+    const given = (stored ?? {}) as Partial<Record<WindowKind, Partial<WindowSize>>>;
+    const out = {} as Record<WindowKind, WindowSize>;
+    for (const kind of WINDOW_KINDS) {
+        const size = {width: Number(given[kind]?.width), height: Number(given[kind]?.height)};
+        out[kind] = usableWindowSize(kind, size) ? size : {...WINDOW_SIZES[kind].initial};
+    }
+    return out;
+}
+
 /** Which releases the app updates itself to: published ones, or a build of each day's changes. */
 export type UpdateChannel = 'stable' | 'nightly';
 
@@ -256,6 +295,13 @@ export interface Settings {
      * At its usage limit or out of reach, the review goes on to the fallbacks above.
      */
     monitorModel: Pick<ModelChoice, 'model' | 'effort'>;
+    /**
+     * The size each kind of window opens at. A screen too small for one shrinks
+     * it to fit; a window already open keeps the size it has.
+     */
+    windowSizes: Record<WindowKind, WindowSize>;
+    /** Opens each new canvas maximised. Restored, it takes the canvas size above. */
+    canvasMaximized: boolean;
 }
 
 export function defaultSettings(): Settings {
@@ -271,6 +317,8 @@ export function defaultSettings(): Settings {
         fallbacks: [],
         devToolsEnabled: false,
         monitorModel: {model: DEFAULT_MODEL, effort: ''},
+        windowSizes: windowSizesOf({}),
+        canvasMaximized: false,
     };
 }
 

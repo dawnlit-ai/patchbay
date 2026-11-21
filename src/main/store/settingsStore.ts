@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { settingsFile } from '../paths';
 import { readJson, writeJson } from './jsonFile';
 import { isJevModel, type ModelChoice } from '@shared/flow';
-import { agentsInOrder, defaultSettings, foldersOf, type Settings } from '@shared/settings';
+import { agentsInOrder, defaultSettings, foldersOf, type Settings, windowSizesOf } from '@shared/settings';
 import { isObject } from '@shared/util';
 
 let cached: Settings | null = null;
@@ -52,6 +52,8 @@ function normalized(stored: Partial<Settings>): Settings {
         fallbacks: fallbacksOf(stored.fallbacks),
         devToolsEnabled: stored.devToolsEnabled === true,
         monitorModel: monitorModelOf(stored.monitorModel),
+        windowSizes: windowSizesOf(stored.windowSizes),
+        canvasMaximized: stored.canvasMaximized === true,
     };
 }
 

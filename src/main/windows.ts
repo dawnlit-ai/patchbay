@@ -1,6 +1,7 @@
-import { BrowserWindow, type Input, screen } from 'electron';
+import { BrowserWindow, type Input, type Rectangle, screen } from 'electron';
 import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
+import { WINDOW_SIZES, type WindowKind } from '@shared/settings';
 import { getSettings } from './store/settingsStore';
 
 /**
@@ -120,6 +121,13 @@ export function closeDevTools(): void {
     }
 }
 
+/** A kind of window at the size Settings gives it, and no smaller than its layout needs. */
+function sizedAs(kind: WindowKind): Frame {
+    const {width, height} = getSettings().windowSizes[kind];
+    const {min} = WINDOW_SIZES[kind];
+    return {width, height, minWidth: min.width, minHeight: min.height};
+}
+
 /**
  * A window as large as asked where its screen has room for it, and no larger
  * than the screen where it has not: a laptop at 150% scaling has about 670
@@ -127,7 +135,11 @@ export function closeDevTools(): void {
  * which is the one it was sized for.
  */
 function fitted(frame: Frame): Frame {
-    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    return within(frame, screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+}
+
+/** A frame no larger than `area`, centred on it. */
+function within(frame: Frame, area: Rectangle): Frame {
     const width = Math.min(frame.width, area.width);
     const height = Math.min(frame.height, area.height);
     return {
@@ -171,18 +183,20 @@ function track(project: Project): void {
 }
 
 /**
- * Offset a new canvas from the last one, kept inside that display. Electron would
- * centre it exactly on top, where it looks like nothing happened.
+ * Offset a new canvas from the last one, kept inside that display and no larger
+ * than it. Electron would centre it exactly on top, where it looks like nothing
+ * happened. With no canvas to sit beside, it is centred like any other window.
  */
 function beside(frame: Frame): Frame {
     const from = projects[0]?.win;
-    if (!from || from.isDestroyed() || from.isMaximized() || from.isFullScreen()) return frame;
+    if (!from || from.isDestroyed() || from.isMaximized() || from.isFullScreen()) return fitted(frame);
     const bounds = from.getBounds();
     const area = screen.getDisplayMatching(bounds).workArea;
+    const fit = within(frame, area);
     return {
-        ...frame,
-        x: Math.max(area.x, Math.min(bounds.x + CASCADE_STEP, area.x + area.width - frame.width)),
-        y: Math.max(area.y, Math.min(bounds.y + CASCADE_STEP, area.y + area.height - frame.height)),
+        ...fit,
+        x: Math.max(area.x, Math.min(bounds.x + CASCADE_STEP, area.x + area.width - fit.width)),
+        y: Math.max(area.y, Math.min(bounds.y + CASCADE_STEP, area.y + area.height - fit.height)),
     };
 }
 
@@ -192,8 +206,7 @@ export function showWelcome(): void {
         raise(welcome);
         return;
     }
-    // Sized for a list, not a canvas.
-    welcome = make(fitted({width: 1120, height: 800, minWidth: 860, minHeight: 520, maximizable: false}));
+    welcome = make(fitted({...sizedAs('welcome'), maximizable: false}));
     welcome.on('closed', () => {
         welcome = null;
     });
@@ -206,7 +219,7 @@ export function showSettings(): void {
         raise(settings);
         return;
     }
-    settings = make(fitted({width: 920, height: 800, minWidth: 740, minHeight: 480, maximizable: false}));
+    settings = make(fitted({...sizedAs('settings'), maximizable: false}));
     settings.on('closed', () => {
         settings = null;
     });
@@ -231,7 +244,8 @@ export function openFlow(flowId: string, where: OpenWhere = 'current'): void {
     } else {
         // `beside` reads the canvas in front, so it is asked before the new one
         // takes that place.
-        const win = make(beside({width: 1560, height: 980, minWidth: 1100, minHeight: 700}));
+        const win = make(beside(sizedAs('canvas')));
+        if (getSettings().canvasMaximized) win.maximize();
         track({win, flowId});
         load(win, `flow=${encodeURIComponent(flowId)}`);
     }

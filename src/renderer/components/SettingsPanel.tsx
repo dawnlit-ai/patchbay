@@ -18,10 +18,17 @@ import {
     UPDATE_CHANNELS,
     type UpdateChannel,
     type UpdateStatus,
+    usableWindowSize,
+    WINDOW_KINDS,
+    WINDOW_SIZE_MAX,
+    WINDOW_SIZES,
+    type WindowKind,
+    type WindowSize,
 } from '@shared/settings';
 import type { AgentStatus, UsageWindow } from '@shared/ipc';
 import { errorMessage } from '@shared/util';
 import { ahead, time } from '../format';
+import { TEXT_SIZES, useTextSize } from '../textSize';
 import { FallbackList, MonitorModelPicker } from './ModelPickers';
 import { SecretPrompt } from './SecretDialog';
 
@@ -44,13 +51,14 @@ interface Props {
 
 /** The settings window's content: a rail of pages and the current page, each saved as it is edited. */
 
-type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'updates' | 'developer';
+type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'appearance' | 'updates' | 'developer';
 
 const PAGES: { id: Page; label: string }[] = [
     {id: 'agents', label: 'Agents'},
     {id: 'runs', label: 'Runs'},
     {id: 'folders', label: 'Folders'},
     {id: 'agent', label: 'Agent control'},
+    {id: 'appearance', label: 'Appearance'},
     {id: 'updates', label: 'Updates'},
     {id: 'developer', label: 'Developer'},
 ];
@@ -59,6 +67,22 @@ const PAGES: { id: Page; label: string }[] = [
 const DEV_TOOLS_KEYS = window.navigator.userAgent.includes('Mac') ? 'F12 or ⌘⌥I' : 'F12 or Ctrl+Shift+I';
 
 const ACCESS_LABELS: Record<FolderAccess, string> = {read: 'Read only', write: 'Read and write'};
+
+/** Each kind of window as Settings → Appearance names it, and what it is for. */
+const WINDOW_LABELS: Record<WindowKind, { label: string; plural: string; description: string }> = {
+    canvas: {label: 'Canvas', plural: 'canvases', description: 'Where a flow is drawn, tested and watched.'},
+    welcome: {label: 'Start page', plural: 'start pages', description: 'The list of flows, shown when Patchbay starts.'},
+    settings: {label: 'Settings', plural: 'settings windows', description: 'This window, the next time it opens.'},
+};
+
+/** The window sizes as they are saved: one that cannot be opened at, as one is while it is retyped, stays as saved. */
+const usableSizes = (
+    sizes: Record<WindowKind, WindowSize>,
+    saved: Record<WindowKind, WindowSize>,
+): Record<WindowKind, WindowSize> =>
+    Object.fromEntries(
+        WINDOW_KINDS.map((kind) => [kind, usableWindowSize(kind, sizes[kind]) ? sizes[kind] : saved[kind]]),
+    ) as Record<WindowKind, WindowSize>;
 
 /** The folders as they are saved: each name trimmed. */
 const trimmedFolders = (folders: FolderSetting[]): FolderSetting[] => folders.map((f) => ({...f, name: f.name.trim()}));
@@ -98,6 +122,8 @@ const edits = (s: Settings): unknown => [
     s.fallbacks,
     s.devToolsEnabled,
     s.monitorModel,
+    s.windowSizes,
+    s.canvasMaximized,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
@@ -106,6 +132,7 @@ const typed = (s: Settings): unknown => [
     s.agyExecutablePath,
     s.agentControl.port,
     s.folders.map((f) => f.name),
+    s.windowSizes,
 ];
 
 /** How long typing has to pause before what was typed is saved; a switch, a move or a choice is saved at once. */
@@ -414,11 +441,13 @@ export function SettingsPanel({
     // Every edit is saved: a switch, a move or a choice at once, what is typed once
     // typing pauses. A newer edit replaces one still waiting. A port the server
     // cannot take, as one is while it is retyped, is not saved; the rest still is.
-    // So with the folders while one has no name, or another's.
+    // So with the folders while one has no name, or another's, and a window size
+    // too small for its window.
     useEffect(() => {
         const folders = trimmedFolders(draft.folders);
         const next = {
             ...draft,
+            windowSizes: usableSizes(draft.windowSizes, settings.windowSizes),
             agentControl: usablePort(draft.agentControl.port)
                 ? draft.agentControl
                 : {...draft.agentControl, port: settings.agentControl.port},
@@ -500,6 +529,11 @@ export function SettingsPanel({
     const patchAgent = (partial: Partial<AgentControlSettings>): void =>
         setDraft((d) => ({...d, agentControl: {...d.agentControl, ...partial}}));
 
+    const patchSize = (kind: WindowKind, partial: Partial<WindowSize>): void =>
+        setDraft((d) => ({...d, windowSizes: {...d.windowSizes, [kind]: {...d.windowSizes[kind], ...partial}}}));
+
+    const [textSize, setTextSize] = useTextSize();
+
     const patchFolder = (index: number, partial: Partial<FolderSetting>): void =>
         setDraft((d) => ({...d, folders: d.folders.map((f, j) => (j === index ? {...f, ...partial} : f))}));
 
@@ -547,6 +581,7 @@ export function SettingsPanel({
             );
         }
         if (p === 'developer' && draft.devToolsEnabled) return <span className="meta">On</span>;
+        if (p === 'appearance' && textSize !== 100) return <span className="meta">{textSize}%</span>;
         if (p === 'updates' && updates?.state === 'ready') {
             return (
                 <span className="meta on">
@@ -1101,6 +1136,108 @@ export function SettingsPanel({
                                     its version number is lower. Your flows, skills and settings live outside the app
                                     folder, so an update never touches them.
                                 </p>
+                            </>
+                        )}
+
+                        {page === 'appearance' && (
+                            <>
+                                <PageHead title="Appearance">
+                                    How large the text is, and the size each kind of window opens at. These are for
+                                    this computer only; nothing here changes what a flow does.
+                                </PageHead>
+                                <div className="set-group">
+                                    <Row
+                                        label="Text size"
+                                        description="The text in every window, changed at once. The rest of the layout keeps its size; Ctrl+Plus and Ctrl+Minus zoom instead, the layout along with the text."
+                                        below={
+                                            <div className="segmented" role="radiogroup" aria-label="Text size">
+                                                {TEXT_SIZES.map((size) => (
+                                                    <button
+                                                        key={size}
+                                                        role="radio"
+                                                        aria-checked={textSize === size}
+                                                        onClick={() => setTextSize(size)}
+                                                    >
+                                                        {size}%
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        }
+                                    />
+                                </div>
+
+                                <header className="set-head set-subhead">
+                                    <h2>Window size</h2>
+                                    <p>
+                                        The width and height each kind of window opens at. A window already open
+                                        keeps its size, and a screen too small for one shrinks it to fit. Sizes are
+                                        before display scaling: at 150%, 1000 is 1,500 pixels on the screen.
+                                    </p>
+                                </header>
+                                <div className="set-group">
+                                    {WINDOW_KINDS.map((kind) => {
+                                        const {label, plural, description} = WINDOW_LABELS[kind];
+                                        const size = draft.windowSizes[kind];
+                                        const {initial, min} = WINDOW_SIZES[kind];
+                                        const saved = settings.windowSizes[kind];
+                                        return (
+                                            <Row
+                                                key={kind}
+                                                label={label}
+                                                description={
+                                                    usableWindowSize(kind, size)
+                                                        ? description
+                                                        : `Pick a width of ${min.width} or more and a height of ${min.height} or more, up to ${WINDOW_SIZE_MAX}. New ${plural} open at ${saved.width} × ${saved.height} until then.`
+                                                }
+                                                control={
+                                                    <>
+                                                        <span className="set-size">
+                                                            <input
+                                                                className="size"
+                                                                type="number"
+                                                                aria-label={`${label} width`}
+                                                                title="Width"
+                                                                min={min.width}
+                                                                max={WINDOW_SIZE_MAX}
+                                                                value={size.width}
+                                                                onChange={(e) => patchSize(kind, {width: Number(e.target.value)})}
+                                                            />
+                                                            <span aria-hidden="true">×</span>
+                                                            <input
+                                                                className="size"
+                                                                type="number"
+                                                                aria-label={`${label} height`}
+                                                                title="Height"
+                                                                min={min.height}
+                                                                max={WINDOW_SIZE_MAX}
+                                                                value={size.height}
+                                                                onChange={(e) => patchSize(kind, {height: Number(e.target.value)})}
+                                                            />
+                                                        </span>
+                                                        <button
+                                                            disabled={same(size, initial)}
+                                                            title={`Back to ${initial.width} × ${initial.height}`}
+                                                            onClick={() => patchSize(kind, initial)}
+                                                        >
+                                                            Reset
+                                                        </button>
+                                                    </>
+                                                }
+                                            />
+                                        );
+                                    })}
+                                    <Row
+                                        label="Open canvases maximised"
+                                        description="Each new canvas fills its screen. Restored, it takes the canvas size above."
+                                        control={
+                                            <Switch
+                                                on={draft.canvasMaximized}
+                                                label="Open canvases maximised"
+                                                onChange={(on) => patch({canvasMaximized: on})}
+                                            />
+                                        }
+                                    />
+                                </div>
                             </>
                         )}
 

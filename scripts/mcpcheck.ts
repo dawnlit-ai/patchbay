@@ -2025,6 +2025,26 @@ async function main(): Promise<void> {
     check('Settings saves its fallback models as fallbacksOf reads them',
         JSON.stringify(getSettings().fallbacks) === JSON.stringify([on('agy:sonnet', 'high')]));
     saveSettings(before);
+
+    const {WINDOW_SIZES, windowSizesOf} = await import('../src/shared/settings');
+    const sizes = windowSizesOf({
+        canvas: {width: 1800, height: 1100},
+        welcome: {width: 400, height: 800},
+        settings: {width: 1000.5, height: 'tall'},
+    });
+    check('a window size a settings file gives is kept where its window can open at it',
+        sizes.canvas.width === 1800 && sizes.canvas.height === 1100);
+    check('a window size too small, or not a whole number, falls back to that kind’s own',
+        JSON.stringify([sizes.welcome, sizes.settings]) ===
+        JSON.stringify([WINDOW_SIZES.welcome.initial, WINDOW_SIZES.settings.initial]));
+    check('a settings file with no window sizes opens every window at its own',
+        JSON.stringify(windowSizesOf(undefined)) === JSON.stringify(windowSizesOf({})) &&
+        windowSizesOf(null).canvas.width === WINDOW_SIZES.canvas.initial.width);
+    saveSettings({...before, windowSizes: {...before.windowSizes, canvas: {width: 1, height: 1}}, canvasMaximized: true});
+    check('Settings saves a window size as windowSizesOf reads it, and the canvas switch as it is',
+        JSON.stringify(getSettings().windowSizes.canvas) === JSON.stringify(WINDOW_SIZES.canvas.initial) &&
+        getSettings().canvasMaximized);
+    saveSettings(before);
     const oldFile = parseFlow(
         {
             nodes: [
