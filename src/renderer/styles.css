@@ -2649,7 +2649,12 @@ button.add-field:hover:not(:disabled) {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--d, var(--accent)) 30%, transparent);
 }
 
+/* React Flow's own rules sit in a cascade layer, which every rule here outranks,
+   so the button rule above would pad, border and round these too. */
 .react-flow__controls-button {
+    padding: 4px;
+    border: none;
+    border-radius: 0;
     background: var(--panel);
     border-bottom: 1px solid var(--line);
     fill: var(--text);
