@@ -158,9 +158,12 @@ Every way out — *Sent*, *Held* and *Error* — fills its **output slot** with 
 
 Once a flow has handled an email, a **Move email** files it into a folder in its mailbox, with no model.
 
-Give it a **folder** under the Inbox, such as `Processed` or `Clients\Acme` — when a trigger in the flow names a
-mailbox, the folder box offers the folders already under its Inbox — or a well-known folder such as `Deleted Items`. If
-the folder is not there yet, Outlook creates it. The folder path can name a field an earlier node filled, in braces,
+Choose **where** the folder is: *In the Inbox*, the default, or *Beside the Inbox, at the top of the mailbox*, where
+Outlook puts a folder made on the mailbox itself rather than on its Inbox. Then give the **folder**, such as `Processed`
+or `Clients\Acme` — in the Inbox, when a trigger in the flow names a mailbox, the folder box offers the folders already
+under its Inbox — or a well-known folder such as `Deleted Items`, which is found by name from either. The canvas says
+which: *To Processed in the Inbox*, *To Processed beside the Inbox*. If the folder is not there yet, Outlook creates
+it. The folder path can name a field an earlier node filled, in braces,
 which the run writes in: `Processed\{{shipment.client}}`; typing `{{` offers the fields that reach the node. Each field
 is checked against the schema of the slot it reads, and a field that is missing or blank when the run reaches the node
 leaves by *Error* rather than filing into the parent folder.

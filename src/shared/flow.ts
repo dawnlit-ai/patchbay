@@ -329,17 +329,28 @@ export interface SendConfig {
 }
 
 /**
+ * Where a Move email's folder starts: inside the Inbox, or at the top of the
+ * mailbox, beside the Inbox, where Outlook puts a folder made on the mailbox
+ * itself.
+ */
+export type MoveUnder = 'inbox' | 'mailbox';
+export const MOVE_UNDERS: MoveUnder[] = ['inbox', 'mailbox'];
+
+/**
  * Files the email into a folder in its mailbox, creating the folder if it does
  * not exist, with no model. The folder path can name a field an earlier node
  * filled, in braces, such as `Processed/{{order.client}}`.
  */
 export interface MoveEmailConfig {
     /**
-     * Where to file the email: a path under the Inbox (`Processed`,
-     * `Processed/Invoices`), or a well-known folder (`Deleted Items`). May name
-     * a field in braces, `{{order.client}}`, which the run writes in.
+     * Where to file the email: a path (`Processed`, `Processed/Invoices`) from
+     * where `under` says, or a well-known folder (`Deleted Items`), which is
+     * found by its role from either. May name a field in braces,
+     * `{{order.client}}`, which the run writes in.
      */
     folder: string;
+    /** Whether `folder` is inside the Inbox or beside it, at the top of the mailbox. */
+    under: MoveUnder;
     /**
      * The slot later nodes read where the email went by, filled on Moved and
      * Error. Empty fills nothing.
@@ -1200,6 +1211,21 @@ function moveEmailFields(config: MoveEmailConfig): string[] {
     return fieldRefs(config.folder).filter(namesField);
 }
 
+/** Where a Move email files the email, in words: “Processed in the Inbox”, “Processed beside the Inbox”. */
+export function moveFolderLabel(under: MoveUnder, folder: string): string {
+    return `${folder} ${under === 'mailbox' ? 'beside' : 'in'} the Inbox`;
+}
+
+/**
+ * The folder Outlook is asked for, once any braces are filled. In the Inbox it
+ * is the path as written; beside it, the full path Outlook writes for a folder
+ * at the top of the mailbox, `\\beop@example.com\Processed`, which is how the
+ * bridge tells the two apart.
+ */
+export function moveFolderPath(under: MoveUnder, account: string, folder: string): string {
+    return under === 'mailbox' ? `\\\\${account}\\${folder.replace(/^[\\/\s]+/, '')}` : folder;
+}
+
 /**
  * Why a Move email cannot run whatever reaches it, said as sentences: what the
  * canvas flags and a run stops on, before Outlook is asked for anything.
@@ -1208,9 +1234,9 @@ export function moveEmailProblems(node: FlowNode, config: MoveEmailConfig): stri
     const problems: string[] = [];
     const folder = config.folder.trim();
     if (!folder) {
-        problems.push(`${node.name} has no folder yet: give the folder under the Inbox to move the email to, such as Processed.`);
+        problems.push(`${node.name} has no folder yet: give the folder to move the email to, such as Processed.`);
     } else if (!/[^\\/\s]/.test(folder)) {
-        problems.push(`${node.name}’s folder, “${folder}”, names no folder: give a folder under the Inbox, such as Processed.`);
+        problems.push(`${node.name}’s folder, “${folder}”, names no folder: give one, such as Processed.`);
     }
     for (const field of fieldRefs(config.folder)) {
         if (namesField(field)) continue;
@@ -1569,7 +1595,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
         case 'send':
             return {kind, drafts: [], sending: false, output: 'sent'};
         case 'move-email':
-            return {kind, folder: '', output: ''};
+            return {kind, folder: '', under: 'inbox', output: ''};
         case 'terminal':
             return {kind, disposition: 'done'};
     }
@@ -1911,6 +1937,8 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 folder: str(from.folder, base.folder),
+                // A flow from before there was a choice files into the Inbox, as it did.
+                under: oneOf(from.under, MOVE_UNDERS, base.under),
                 output: outputName(from.output, ''),
             };
         case 'terminal':

@@ -1379,7 +1379,7 @@ async function main(): Promise<void> {
 
     // A Switch decides with no model: each rule is checked on the canvas against
     // the schema of the slot it reads, and the first that matches picks the route.
-    const {decideSwitch, parseFlow, stepModels} = await import('../src/shared/flow');
+    const {decideSwitch, moveFolderPath, parseFlow, stepModels} = await import('../src/shared/flow');
     await call('set_schema', {
         name: 'Verdict',
         schema: {
@@ -1973,6 +1973,31 @@ async function main(): Promise<void> {
         check('a move email with no folder leaves by error, moving nothing, and fills its output slot when named', false,
             'the move email node was not saved');
     }
+
+    // Where the folder is: in the Inbox, as a flow from before the choice files, or beside it.
+    const inInbox = saved(mover);
+    check('a move email files in the Inbox unless told otherwise',
+        inInbox?.config.kind === 'move-email' && inInbox.config.under === 'inbox');
+    await call('update_node', {flowId: thanks, nodeId: mover, config: {under: 'mailbox'}});
+    const beside = saved(mover);
+    check(
+        'a move email can file beside the Inbox, keeping its folder',
+        beside?.config.kind === 'move-email' && beside.config.under === 'mailbox' &&
+        beside.config.folder === 'Processed/{{verdict.reply}}',
+    );
+    check(
+        'beside the Inbox, Outlook is asked for the full path of a folder at the top of the mailbox',
+        moveFolderPath('mailbox', 'beop@example.com', 'Processed') === '\\\\beop@example.com\\Processed' &&
+        moveFolderPath('mailbox', 'beop@example.com', '/Processed/2026') === '\\\\beop@example.com\\Processed/2026' &&
+        moveFolderPath('inbox', 'beop@example.com', 'Processed') === 'Processed',
+    );
+    const oldMover = parseFlow(
+        {nodes: [{id: 'm1', kind: 'move-email', config: {folder: 'Processed'}}, {id: 'm2', kind: 'move-email', config: {folder: 'Processed', under: 'attic'}}]},
+        'old',
+        'Old',
+    ).nodes.map((n) => (n.config.kind === 'move-email' ? n.config.under : null));
+    check('a flow file with no choice, or one it does not know, files in the Inbox', oldMover.every((u) => u === 'inbox'),
+        JSON.stringify(oldMover));
 
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,
     // and a list left empty stays empty.

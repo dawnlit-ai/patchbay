@@ -173,10 +173,14 @@ rather than a fan-out. The nine node kinds:
                     list recipients and \`failed\` is [{to, why}].
 - move-email      — files the email into a folder in its mailbox, creating
                     the folder if it does not exist, with no model. \`folder\`
-                    is a path under the Inbox ("Processed", "Clients\\Acme")
-                    or a well-known folder ("Deleted Items"), and may name
-                    fields in braces ("Processed/{{order.client}}") that the
-                    run writes in. Ports: "moved" and "error". With \`output\`
+                    is a path ("Processed", "Clients\\Acme") from where
+                    \`under\` says: "inbox" (the default) inside the Inbox,
+                    "mailbox" at the top of the mailbox, beside the Inbox,
+                    where a folder made on the mailbox itself sits. A
+                    well-known folder ("Deleted Items") is found by its role
+                    from either. \`folder\` may name fields in braces
+                    ("Processed/{{order.client}}") that the run writes in.
+                    Ports: "moved" and "error". With \`output\`
                     set, both ports fill that slot with {moved, folder,
                     folderCreated, why}.
 - terminal        — ends the path and records how the email came out, as

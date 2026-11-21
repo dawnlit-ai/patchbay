@@ -18,6 +18,8 @@ import {
     type JsonSchema,
     type ModelChoice,
     type MoveEmailConfig,
+    moveFolderLabel,
+    type MoveUnder,
     NODE_KIND_META,
     type NodeConfig,
     type NodeKind,
@@ -2161,29 +2163,44 @@ function MoveEmailFields({
 
     const fields = available ? ruleFields(shelf.schemas, available) : [];
     const openBrace = /^(.*\{\{)[^{}]*$/.exec(config.folder);
-    const suggestions = openBrace ? fields.map((f) => `${openBrace[1]}${f.field}}}`) : folders;
+    // The folders Outlook lists are the Inbox's, so they are offered only for a folder in it.
+    const suggestions = openBrace
+        ? fields.map((f) => `${openBrace[1]}${f.field}}}`)
+        : config.under === 'inbox' ? folders : [];
     const folderList = `move-folders-${nodeId}`;
 
     return (
         <>
             <Section
                 title="Folder"
-                summary={config.folder.trim() || 'none yet'}
-                info="A folder under the Inbox, such as Processed or Clients\Acme; Outlook creates it if it is not there yet. A field an earlier node filled, in braces, is written in by the run: Processed\{{shipment.client}}. Moving an email gives it a new id, but a trigger watching more than one folder knows an email by sender, time and subject, so filing it from one watched folder into another does not run it a second time."
+                summary={config.folder.trim() ? moveFolderLabel(config.under, config.folder.trim()) : 'none yet'}
+                info="In the Inbox, Processed is the folder inside the Inbox, and Clients\Acme one inside that. Beside the Inbox, Processed is the folder at the top of the mailbox, next to the Inbox, where Outlook puts a folder made on the mailbox itself. A well-known folder, such as Deleted Items, is found by name from either. Outlook creates the folder if it is not there yet. A field an earlier node filled, in braces, is written in by the run: Processed\{{shipment.client}}. Moving an email gives it a new id, but a trigger watching more than one folder knows an email by sender, time and subject, so filing it from one watched folder into another does not run it a second time."
             >
-                <input
-                    value={config.folder}
-                    list={folderList}
-                    aria-label="Folder"
-                    placeholder="Processed"
-                    spellCheck={false}
-                    onChange={(e) => patch({folder: e.target.value})}
-                />
-                <datalist id={folderList}>
-                    {suggestions.map((value) => (
-                        <option key={value} value={value}/>
-                    ))}
-                </datalist>
+                <Field label="Where">
+                    <select
+                        aria-label="Where"
+                        value={config.under}
+                        onChange={(e) => patch({under: e.target.value as MoveUnder})}
+                    >
+                        <option value="inbox">In the Inbox</option>
+                        <option value="mailbox">Beside the Inbox, at the top of the mailbox</option>
+                    </select>
+                </Field>
+                <Field label="Folder">
+                    <input
+                        value={config.folder}
+                        list={folderList}
+                        aria-label="Folder"
+                        placeholder="Processed"
+                        spellCheck={false}
+                        onChange={(e) => patch({folder: e.target.value})}
+                    />
+                    <datalist id={folderList}>
+                        {suggestions.map((value) => (
+                            <option key={value} value={value}/>
+                        ))}
+                    </datalist>
+                </Field>
             </Section>
 
             <SlotSection
