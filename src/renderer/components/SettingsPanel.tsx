@@ -17,6 +17,7 @@ import {
     type FolderSetting,
     type Settings,
     suggestedWindowSizes,
+    trayPlace,
     UPDATE_CHANNELS,
     type UpdateChannel,
     type UpdateStatus,
@@ -54,7 +55,12 @@ interface Props {
 
 /** The settings window's content: a rail of pages and the current page, each saved as it is edited. */
 
-type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'appearance' | 'updates' | 'developer';
+type Page = 'agents' | 'runs' | 'folders' | 'agent' | 'appearance' | 'tray' | 'updates' | 'developer';
+
+const ON_MAC = window.navigator.userAgent.includes('Mac');
+
+/** Where Patchbay's icon sits on this computer: the system tray, or a Mac's menu bar. */
+const TRAY = trayPlace(ON_MAC);
 
 const PAGES: { id: Page; label: string }[] = [
     {id: 'agents', label: 'Agents'},
@@ -62,11 +68,10 @@ const PAGES: { id: Page; label: string }[] = [
     {id: 'folders', label: 'Folders'},
     {id: 'agent', label: 'Agent control'},
     {id: 'appearance', label: 'Appearance'},
+    {id: 'tray', label: ON_MAC ? 'Menu bar' : 'System tray'},
     {id: 'updates', label: 'Updates'},
     {id: 'developer', label: 'Developer'},
 ];
-
-const ON_MAC = window.navigator.userAgent.includes('Mac');
 
 /** The keys that open the developer tools, as this computer's keyboard names them. */
 const DEV_TOOLS_KEYS = ON_MAC ? 'F12 or ⌘⌥I' : 'F12 or Ctrl+Shift+I';
@@ -139,6 +144,8 @@ const edits = (s: Settings): unknown => [
     s.monitorModel,
     s.windowSizes,
     s.canvasMaximized,
+    s.runInTray,
+    s.minimizeToTray,
 ];
 
 /** The fields typed into, saved once typing pauses rather than at each key. */
@@ -604,6 +611,7 @@ export function SettingsPanel({
     /** What the rail says about a page besides its name. */
     const meta = (p: Page): ReactNode => {
         if (p === 'runs' && !draft.pollingEnabled) return <span className="meta">Off</span>;
+        if (p === 'tray' && !draft.runInTray) return <span className="meta">Off</span>;
         if (p === 'folders' && draft.folders.length > 0) return <span className="meta">{draft.folders.length}</span>;
         if (p === 'agent' && agentControl?.running) {
             return (
@@ -1309,6 +1317,63 @@ export function SettingsPanel({
                                         }
                                     />
                                 </div>
+                            </>
+                        )}
+
+                        {page === 'tray' && (
+                            <>
+                                <PageHead title={ON_MAC ? 'Menu bar' : 'System tray'}>
+                                    Patchbay is made to keep running out of the way. With its icon in the {TRAY}, it
+                                    goes on watching the flows switched on, and finishing the runs under way, with no
+                                    window open.
+                                </PageHead>
+                                <div className="set-group">
+                                    <Row
+                                        label={`Keep running in the ${TRAY}`}
+                                        description={
+                                            draft.runInTray
+                                                ? ON_MAC
+                                                    ? 'Closing the last window leaves Patchbay running, with its icon in the menu bar. Click the icon to open Patchbay again, see what it is watching, or quit it.'
+                                                    : 'Closing the last window leaves Patchbay running, with its icon in the system tray. Click the icon to open Patchbay again; right-click it to see what it is watching, or to quit.'
+                                                : `Closing the last window stops every flow being watched${ON_MAC ? '' : ', and quits Patchbay'}.`
+                                        }
+                                        control={
+                                            <Switch
+                                                on={draft.runInTray}
+                                                label={`Keep running in the ${TRAY}`}
+                                                onChange={(on) => patch({runInTray: on})}
+                                            />
+                                        }
+                                    />
+                                    {/* A Mac's Dock is where a minimised window belongs; ⌘H hides Patchbay there. */}
+                                    {!ON_MAC && (
+                                        <Row
+                                            label="Minimise to the system tray"
+                                            description={
+                                                draft.runInTray
+                                                    ? 'A minimised window leaves the taskbar too, and the icon in the system tray brings it back.'
+                                                    : 'Needs the icon in the system tray, which Keep running in the system tray puts there.'
+                                            }
+                                            control={
+                                                <Switch
+                                                    on={draft.runInTray && draft.minimizeToTray}
+                                                    label="Minimise to the system tray"
+                                                    disabled={!draft.runInTray}
+                                                    onChange={(on) => patch({minimizeToTray: on})}
+                                                />
+                                            }
+                                        />
+                                    )}
+                                </div>
+                                <p className="set-note">
+                                    The icon's dot says what Patchbay is doing: none while no flow is watched, green
+                                    while one is, and amber while a run is under way, waiting or under review.
+                                    Quitting from its menu asks first while runs are in hand.
+                                    {!ON_MAC &&
+                                        ' Windows tucks a new icon behind the arrow at the end of the taskbar; drag it from there onto the taskbar to keep it in sight.'}{' '}
+                                    Opening Patchbay again while it runs brings its windows back, rather than starting
+                                    a second copy that would watch the same mailboxes twice.
+                                </p>
                             </>
                         )}
 

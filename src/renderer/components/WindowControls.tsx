@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
+import type { Settings } from '@shared/settings';
 
 /** Minimise, maximise and close, drawn by the app because the window is frameless. */
 
@@ -20,6 +21,8 @@ function Glyph({d}: { d: string }): JSX.Element {
     );
 }
 
+const ON_MAC = window.navigator.userAgent.includes('Mac');
+
 interface Props {
     /** False where the window has a size of its own to keep — the welcome and settings windows. */
     maximize?: boolean;
@@ -35,9 +38,19 @@ export function WindowControls({maximize = true}: Props): JSX.Element {
         return window.api.on.windowMaximized(setMaximized);
     }, []);
 
+    // Settings → System tray can send a minimised window there instead of the taskbar. Not on a Mac.
+    const [toTray, setToTray] = useState(false);
+    useEffect(() => {
+        if (ON_MAC) return;
+        const read = (s: Settings): void => setToTray(s.runInTray && s.minimizeToTray);
+        void window.api.settings.get().then(read);
+        return window.api.on.settings(read);
+    }, []);
+    const minimise = toTray ? 'Minimise to the system tray' : 'Minimise';
+
     return (
         <div className="window-controls">
-            <button title="Minimise" aria-label="Minimise" onClick={() => void window.api.window.minimize()}>
+            <button title={minimise} aria-label={minimise} onClick={() => void window.api.window.minimize()}>
                 <Glyph d={ICON.minimize}/>
             </button>
             {maximize && (

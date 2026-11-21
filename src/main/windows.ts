@@ -31,6 +31,14 @@ let welcome: BrowserWindow | null = null;
 let settings: BrowserWindow | null = null;
 /** Every canvas open, the one used most recently first. */
 const projects: Project[] = [];
+/** The window of any kind brought to the front last, which comes back in front of the rest. */
+let lastUsed: BrowserWindow | null = null;
+/**
+ * Windows minimised into the tray: hidden, with no taskbar button, until the
+ * tray icon brings them back. Kept here because Windows calls a window
+ * minimised to the taskbar not visible too, so visibility cannot tell the two apart.
+ */
+const inTray = new Set<BrowserWindow>();
 
 interface Frame {
     width: number;
@@ -66,6 +74,14 @@ function make(frame: Frame): BrowserWindow {
     };
     win.on('maximize', sendMaximized);
     win.on('unmaximize', sendMaximized);
+
+    win.on('focus', () => {
+        lastUsed = win;
+    });
+    win.on('closed', () => {
+        if (lastUsed === win) lastUsed = null;
+        inTray.delete(win);
+    });
 
     // Chromium opens a file dropped outside any drop target (an Outlook email that
     // misses a trigger) in place of the app. Refuse navigation off this page.
@@ -199,6 +215,7 @@ function load(win: BrowserWindow, hash: string): void {
 }
 
 function raise(win: BrowserWindow): void {
+    inTray.delete(win);
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -305,6 +322,42 @@ export function openFlows(): string[] {
     return projects.map((p) => p.flowId);
 }
 
-export function anyWindowOpen(): boolean {
-    return BrowserWindow.getAllWindows().some((win) => !win.isDestroyed());
+/**
+ * Bring Patchbay back, as its tray icon, the Dock and a second launch do: the
+ * windows hidden in the tray, the one used last in front of the rest, or with
+ * none hidden, the one used last, restored if minimised. With none open, the
+ * start page.
+ */
+export function showAll(): void {
+    const open = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+    const last = lastUsed && !lastUsed.isDestroyed() ? lastUsed : undefined;
+    const hidden = open.filter((win) => inTray.has(win));
+    if (hidden.length > 0) {
+        for (const win of hidden) if (win !== last) raise(win);
+        if (last && hidden.includes(last)) raise(last);
+        return;
+    }
+    const front = last ?? open[0];
+    if (front) raise(front);
+    else showWelcome();
+}
+
+/** Take a window just minimised off the taskbar, into the tray. */
+export function hideInTray(win: BrowserWindow): void {
+    inTray.add(win);
+    win.hide();
+}
+
+/**
+ * Put every window hidden in the tray back on the screen, without taking the
+ * focus: the tray icon is going, and nothing else would bring them back.
+ */
+export function showHidden(): void {
+    for (const win of inTray) if (!win.isDestroyed()) win.showInactive();
+    inTray.clear();
+}
+
+/** Whether any window is still on the screen or the taskbar: open, and not hidden in the tray. */
+export function onScreen(): boolean {
+    return BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && !inTray.has(win));
 }

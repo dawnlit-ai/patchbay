@@ -19,6 +19,15 @@ npm start
 
 A copy run from source does not update itself.
 
+Only one Patchbay runs on a data folder at a time, and a copy run from source shares `%APPDATA%\Patchbay` (on a Mac,
+`~/Library/Application Support/Patchbay`) with a downloaded one. While that one is running — in the system tray, say —
+`npm start` brings its windows back and exits, saying so. Quit it from its tray icon first, or start this copy on a
+folder of its own:
+
+```bash
+npx electron-forge start -- --user-data-dir=<a folder>
+```
+
 ## Build a release zip
 
 To build the zip a release carries, for the machine you are on:
@@ -84,6 +93,7 @@ src/
 │  ├─ mcp/      the app's own MCP server — Patchbay as tools an agent can call
 │  ├─ outlook/  seam over @dawnlit/outlook-bridge
 │  ├─ store/    the open workspace, its flows, skills and schemas, settings, run traces (files on disk)
+│  ├─ tray.ts   the system tray icon, which keeps Patchbay running with no window open
 │  └─ ipc.ts    one handler per channel in shared/ipc.ts
 ├─ preload/     contextBridge — the renderer gets `window.api` and nothing else
 └─ renderer/    React Flow canvas, inspector, trace viewer

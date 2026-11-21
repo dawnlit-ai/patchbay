@@ -340,7 +340,22 @@ export interface Settings {
     windowSizes: Record<WindowKind, WindowSize>;
     /** Opens each new canvas maximised. Restored, it takes the canvas size above. */
     canvasMaximized: boolean;
+    /**
+     * Puts Patchbay's icon in the system tray (the menu bar on a Mac) while it runs,
+     * and keeps it running there once its last window closes: still watching the
+     * flows switched on and finishing the runs under way, until the icon's menu
+     * quits it. Off, closing the last window stops every flow, and on Windows quits.
+     */
+    runInTray: boolean;
+    /**
+     * On Windows, with the icon there, a minimised window leaves the taskbar for
+     * it, and the icon brings it back. A Mac's minimised windows stay in the Dock.
+     */
+    minimizeToTray: boolean;
 }
+
+/** What the system calls where Patchbay's icon sits, as Settings and the icon itself name it. */
+export const trayPlace = (mac: boolean): string => (mac ? 'menu bar' : 'system tray');
 
 export function defaultSettings(): Settings {
     return {
@@ -357,6 +372,8 @@ export function defaultSettings(): Settings {
         monitorModel: {model: DEFAULT_MODEL, effort: ''},
         windowSizes: windowSizesOf({}),
         canvasMaximized: false,
+        runInTray: true,
+        minimizeToTray: true,
     };
 }
 

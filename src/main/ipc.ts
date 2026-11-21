@@ -41,8 +41,10 @@ import {
 } from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 import { Updates } from './updates';
+import { TrayIcon } from './tray';
 
 let watcher: Watcher | null = null;
+let tray: TrayIcon | null = null;
 
 function broadcast(channel: string, payload: unknown, except?: WebContents): void {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -54,9 +56,18 @@ function broadcast(channel: string, payload: unknown, except?: WebContents): voi
 export function getWatcher(): Watcher {
     watcher ??= new Watcher(
         (run: Run) => broadcast(IPC.evtRunUpdated, run),
-        () => broadcast(IPC.evtEngineStatus, watcher?.status()),
+        () => {
+            broadcast(IPC.evtEngineStatus, watcher?.status());
+            tray?.refresh();
+        },
     );
     return watcher;
+}
+
+/** The tray icon, which says what the watcher is doing and keeps Patchbay running with no window open. */
+export function getTray(): TrayIcon {
+    tray ??= new TrayIcon({status: () => getWatcher().status()});
+    return tray;
 }
 
 let agentControl: AgentControl | null = null;
@@ -314,6 +325,7 @@ export function registerIpc(): void {
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
         if (!saved.devToolsEnabled) closeDevTools();
         resizeOpen(windowSizes, saved.windowSizes);
+        getTray().apply();
         // An inspector open on a Processor ticks from Settings → Folders.
         broadcast(IPC.evtSettings, saved);
         return saved;

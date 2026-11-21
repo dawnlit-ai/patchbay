@@ -107,6 +107,13 @@ Categorizers can also run on **Jev**, TypeSafe AI's model, with a TypeSafe API k
 5. When the path looks right, **Start watching**. Mail already in the folder is left alone — only new mail starts a
    run.
 
+Patchbay is made to keep running out of the way. Closing its last window leaves it in the system tray — the menu bar on
+a Mac — still watching and finishing its runs. The dot on its icon says what it is doing: green while flows are
+watched, amber while a run is under way. On Windows a minimised window goes there too. Click the icon to open Patchbay
+again; its menu quits it. **Settings → System tray** (**Menu bar** on a Mac) switches either off.
+Quitting stops every flow, and starting Patchbay again does not switch them back on: open each and **Start watching**
+again.
+
 ## Documentation
 
 - [Flows](docs/flows.md) — the nodes in detail, the slots data travels in, and workspaces

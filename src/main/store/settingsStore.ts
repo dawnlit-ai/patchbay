@@ -54,6 +54,8 @@ function normalized(stored: Partial<Settings>): Settings {
         monitorModel: monitorModelOf(stored.monitorModel),
         windowSizes: windowSizesOf(stored.windowSizes),
         canvasMaximized: stored.canvasMaximized === true,
+        runInTray: stored.runInTray !== false,
+        minimizeToTray: stored.minimizeToTray !== false,
     };
 }
 

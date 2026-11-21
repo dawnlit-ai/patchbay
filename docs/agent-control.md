@@ -80,7 +80,8 @@ It is off until you switch it on. When it is on it binds to `127.0.0.1` only; ev
 Settings shows, and **New token** cuts off anything still holding the old one. A request whose `Host` is not this
 listener, or that carries an `Origin` at all, is refused before the token is even looked at — those are the two headers
 a web page cannot forge, and a page is the one thing that can be told to post to a loopback port without you knowing.
-Close the last window and the server stops with it.
+It keeps listening while Patchbay runs in the system tray (the menu bar on a Mac) with no window open. Quit Patchbay, or
+close its last window with **Settings → System tray** switched off, and the server stops with it.
 
 `test_run`, `continue_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool
 calls, so whatever permission prompt your client puts in front of a tool is what keeps a person in the loop.
