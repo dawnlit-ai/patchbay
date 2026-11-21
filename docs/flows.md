@@ -171,6 +171,15 @@ leaves by *Error* rather than filing into the parent folder.
 Give it an **output slot** and both *Moved* and *Error* fill it with `moved`, the `folder` Outlook filed the email into,
 `folderCreated` and `why`.
 
+On a Mac, Outlook ignores a scripted move for a Microsoft 365 mailbox it syncs through Microsoft's cloud. Patchbay then
+files the email through Outlook's own *Message → Move → Choose Folder…*: Outlook comes to the front for a moment, the
+email is opened, and so marked read, and whatever was in front is put back. For that, Patchbay needs **Accessibility**
+access in *System Settings → Privacy & Security → Accessibility*, called *Device Control and Data Access* on macOS 27.
+Without it the email leaves by *Error*, naming the setting. Outlook's Move dialog finds folders by name alone, so no
+other folder in the mailbox may have the folder's name, or have it inside its own (`Processed 2025` would for
+`Processed`). If one does, the email leaves by *Error*, naming the folders found, and is not moved. Outlook may refuse
+to create a folder on such a mailbox, so make it yourself in Outlook first.
+
 ## Data on the wire
 
 A run carries named **slots**. The trigger fills `email`; an Extractor fills the slot it names, and only on *Valid*;
