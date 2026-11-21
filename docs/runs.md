@@ -21,6 +21,26 @@ a crash still shows the node it was at and what it had done there.
 Right-click a run to put its email through the flow again (once whatever stopped it has been fixed, say) or to delete
 it. The new run starts at the trigger the email came in by and reads the flow as it is now.
 
+### Continuing a run from a node
+
+Putting an email through again from the trigger runs every step again: each model is asked again, and each step that
+acts on the mailbox acts again. When one node went wrong late in a run, fix it and **continue** the run from that node
+instead. Right-click its pass in the run's path and choose **Continue the run from here**, or, with the run selected,
+right-click the node on the canvas. A node the run visited more than once offers its last visit there; the path offers
+every pass.
+
+The run is wound back to just before that pass, and a new run picks up from it:
+
+- the passes before it are **carried** over as they ran, shown dashed and marked *carried*, with the slots they filled
+- the files the run saved — attachments, a fix report — are copied into the new run's folder, and the slots name the
+  copies, so a step can read them and deleting the old run later takes nothing the new one needs
+- that node, and everything after it, run on the flow as it is now, so the fix is what runs
+- the email is found again in Outlook first, wherever the run filed it
+
+The new run is a test run: a Send in it never sends. It is marked *continued*, and names the run and pass it picked
+up at, which stays as it was. A continued run is refused while the run is still going, when the node has since been
+deleted, and when the node now reads a slot the carried passes never filled.
+
 Runs are plain JSON — one file per run, plus a JSONL index — in the app's data folder, kept apart for each workspace,
 and the runs panel shows the open workspace's. They stay out of the workspace itself, which may be a git repository,
 because a trace holds the mail it handled. These records exist to be read when something has gone wrong, so a file you

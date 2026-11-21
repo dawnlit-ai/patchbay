@@ -368,6 +368,12 @@ export interface Api {
          * found again in Outlook if it has been filed since. Resolves to the new run's id.
          */
         rerun(id: string): Promise<string>;
+        /**
+         * Wind a finished run back to just before its pass `seq`, and run the flow
+         * on from that pass's node as a new run: the passes before it are carried
+         * over with the slots they filled. Resolves to the new run's id.
+         */
+        continueFrom(id: string, seq: number): Promise<string>;
         revealFolder(): Promise<void>;
     };
     /** The console: what the app did outside any one run. */
@@ -505,6 +511,7 @@ export const IPC = {
     runsClear: 'runs:clear',
     runsRemove: 'runs:remove',
     runsRerun: 'runs:rerun',
+    runsContinue: 'runs:continue',
     runsReveal: 'runs:reveal',
 
     logList: 'log:list',

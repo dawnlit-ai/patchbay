@@ -21,17 +21,17 @@ it.
 
 ## Tools
 
-| Area      | Tools                                                                         |
-|-----------|-------------------------------------------------------------------------------|
-| Workspace | `get_workspace`                                                               |
-| Flows     | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`         |
-| Graph     | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`             |
-| Schemas   | `list_schemas`, `set_schema`, `rename_schema`, `delete_schema`                |
-| Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`    |
-| Mailbox   | `list_accounts`, `list_signatures`, `list_folders`, `list_recent_emails`      |
-| Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`     |
-| Runs      | `list_runs`, `get_run`, `list_monitor_notes`, `get_console`                   |
-| Settings  | `get_settings`, `list_server_tools`                                           |
+| Area      | Tools                                                                                     |
+|-----------|-------------------------------------------------------------------------------------------|
+| Workspace | `get_workspace`                                                                           |
+| Flows     | `list_flows`, `get_flow`, `create_flow`, `rename_flow`, `delete_flow`                     |
+| Graph     | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`                         |
+| Schemas   | `list_schemas`, `set_schema`, `rename_schema`, `delete_schema`                            |
+| Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`                |
+| Mailbox   | `list_accounts`, `list_signatures`, `list_folders`, `list_recent_emails`                  |
+| Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `continue_run`, `cancel_run` |
+| Runs      | `list_runs`, `get_run`, `list_monitor_notes`, `get_console`                               |
+| Settings  | `get_settings`, `list_server_tools`                                                       |
 
 Every tool works on the workspace open in the app: its flows, its skills, its schemas and its runs.
 
@@ -70,8 +70,9 @@ a queued one out before it starts. When an email never became a run at all, `get
   `get_settings` says which of a server's values are set without giving any of them.
 - **No tool opens another workspace.** Switching closes the person's canvases and stops their flows being watched.
 - **No tool sends mail.** Only a [Send](flows.md#sending) node does, in a watched flow whose sending is switched on,
-  and never on a test run, so `test_run` sends nothing. It does leave real drafts and move real email, wherever the
-  flow has a Create email or a Move email.
+  and never on a test run, so `test_run` and `continue_run` send nothing. They do leave real drafts and move real
+  email, wherever the flow has a Create email or a Move email — `continue_run` only from the node it continues at,
+  since the passes before it are [carried over](runs.md#continuing-a-run-from-a-node), not run again.
 
 ## Security
 
@@ -81,5 +82,5 @@ listener, or that carries an `Origin` at all, is refused before the token is eve
 a web page cannot forge, and a page is the one thing that can be told to post to a loopback port without you knowing.
 Close the last window and the server stops with it.
 
-`test_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool calls, so whatever
-permission prompt your client puts in front of a tool is what keeps a person in the loop.
+`test_run`, `continue_run`, `start_watching` and `delete_flow` spend money or destroy work. They are ordinary tool
+calls, so whatever permission prompt your client puts in front of a tool is what keeps a person in the loop.

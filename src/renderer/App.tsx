@@ -327,6 +327,17 @@ export function App({initialFlowId}: Props): JSX.Element {
         };
     }, [selectedRun, flow]);
 
+    /**
+     * The pass the selected run can be continued from at each node it visited, on
+     * this flow's canvas, once it has ended. A node visited twice offers its last
+     * visit, the one its card shows; the runs panel offers every pass.
+     */
+    const continuable: ReadonlyMap<string, number> | null = useMemo(() => {
+        if (!highlight || !selectedRun || selectedRun.status === 'running') return null;
+        return new Map(selectedRun.passes.map((p) => [p.nodeId, p.seq]));
+    }, [highlight, selectedRun]);
+    const continuableNodes = useMemo(() => continuable && new Set(continuable.keys()), [continuable]);
+
     // ── Actions ────────────────────────────────────────────────────────────
 
     /** `window.confirm` via ConfirmDialog; Electron's native box leaves the page unable to take focus. */
@@ -463,6 +474,18 @@ export function App({initialFlowId}: Props): JSX.Element {
     };
 
     /**
+     * A run wound back to just before its pass `seq`, and the flow run on from
+     * that pass's node as a new run. Queued edits go out first: the fix being tried
+     * is most likely one just made.
+     */
+    const continueRun = (runId: string, seq: number): void => {
+        flushSave();
+        setSelectedRun(null);
+        showDock('runs');
+        void window.api.runs.continueFrom(runId, seq).catch((e: Error) => setError(e.message));
+    };
+
+    /**
      * An email taken from Outlook — dragged out of it, or selected in it: found in
      * the trigger's mailbox first, then run like any other.
      */
@@ -574,6 +597,11 @@ export function App({initialFlowId}: Props): JSX.Element {
                             runFromOutlook(nodeId, (account) => window.api.outlook.dragged(account, drag))
                         }
                         onRunOutlookSelected={(nodeId) => runFromOutlook(nodeId, window.api.outlook.selected)}
+                        continuable={continuableNodes}
+                        onContinueRun={(nodeId) => {
+                            const seq = continuable?.get(nodeId);
+                            if (selectedRun && seq !== undefined) continueRun(selectedRun.id, seq);
+                        }}
                     />
                     <Pane
                         className={`dock${dockCollapsed ? ' collapsed' : ''}`}
@@ -619,6 +647,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                                 onCancel={(runId) => void window.api.engine.cancel(runId)}
                                 onRemove={(runId) => void removeRun(runId)}
                                 onRerun={rerun}
+                                onContinue={continueRun}
                             />
                         )}
                         {!dockCollapsed && dockTab === 'console' && (

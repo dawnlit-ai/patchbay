@@ -2,6 +2,7 @@ import { EMAIL_SLOT, type Flow, type FlowNode, outputPorts, requires } from '@sh
 import { type EmailEnvelope, now, type Pass, type PassUnderWay, type Run, type TraceEvent } from '@shared/trace';
 import { errorMessage } from '@shared/util';
 import { executeNode } from './nodes';
+import { carryOver, type Rewound } from './rewind';
 import { runScratchDir } from '../paths';
 import { workspaceSchemas } from '../store/schemaStore';
 import { indexRun, saveRun } from '../store/traceStore';
@@ -42,6 +43,12 @@ export interface RunRequest {
     trigger: 'poll' | 'manual';
     /** Whether the AI monitor is brought in: the run carries it from the start, and it reviews the run once it ends. */
     monitor?: boolean;
+    /**
+     * An earlier run wound back to one of its passes, which this run continues:
+     * it starts with the passes before that one and the slots they filled, and
+     * at that pass's node rather than at `startNodeId`.
+     */
+    continuing?: Rewound;
     signal: AbortSignal;
 
     /** Called at the start and end of every pass, and a few times a second while a node works, so the UI can follow live. */
@@ -49,7 +56,17 @@ export interface RunRequest {
 }
 
 export async function executeRun(request: RunRequest): Promise<Run> {
-    const {runId, flow, startNodeId, email, trigger, signal} = request;
+    const {runId, flow, startNodeId, email, trigger, signal, continuing} = request;
+    const scratchDir = runScratchDir(runId);
+    let carried: Pick<Rewound, 'passes' | 'data'> = {passes: [], data: {}};
+    let carryFailed: string | undefined;
+    if (continuing) {
+        try {
+            carried = carryOver(continuing, scratchDir);
+        } catch (e) {
+            carryFailed = `Could not bring over the files of run ${continuing.runId}: ${errorMessage(e)}`;
+        }
+    }
     const run: Run = {
         id: runId,
         flowId: flow.id,
@@ -58,11 +75,21 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         status: 'running',
         trigger,
         email,
-        path: [],
-        edgePath: [],
-        passes: [],
-        data: {},
+        path: continuing ? [...continuing.path] : [],
+        edgePath: continuing ? [...continuing.edgePath] : [],
+        passes: carried.passes,
+        data: carried.data,
         ...(request.monitor ? {monitor: {state: 'watching', findings: [], events: []}} : {}),
+        ...(continuing
+            ? {
+                continuedFrom: {
+                    runId: continuing.runId,
+                    seq: continuing.seq,
+                    nodeId: continuing.nodeId,
+                    nodeName: continuing.nodeName,
+                },
+            }
+            : {}),
     };
     const {data} = run;
 
@@ -91,20 +118,29 @@ export async function executeRun(request: RunRequest): Promise<Run> {
         return run;
     };
 
-    const start = flow.nodes.find((n) => n.id === startNodeId);
-    if (!start) return finish('failed', 'The trigger this run started from is no longer in the flow.');
+    if (carryFailed) return finish('failed', carryFailed);
+    const start = flow.nodes.find((n) => n.id === (continuing?.nodeId ?? startNodeId));
+    if (!start) {
+        return finish(
+            'failed',
+            continuing
+                ? `${continuing.nodeName}, the node this run was to continue from, is no longer in the flow.`
+                : 'The trigger this run started from is no longer in the flow.',
+        );
+    }
 
     publish();
 
-    const scratchDir = runScratchDir(runId);
     // Read once, as the run starts, so a schema edited while it is under way does not change it halfway.
     const schemas = workspaceSchemas();
     let current: FlowNode | undefined = start;
-    let seq = 0;
+    // A continued run numbers its own passes on from those it carries, as the run it continues did.
+    const carriedCount = run.passes.length;
+    let seq = carriedCount;
 
     while (current) {
         if (signal.aborted) return finish('failed', 'Cancelled.');
-        if (seq >= MAX_PASSES) {
+        if (seq - carriedCount >= MAX_PASSES) {
             return finish('failed', `Stopped after ${MAX_PASSES} passes — the flow loops back on itself.`);
         }
 

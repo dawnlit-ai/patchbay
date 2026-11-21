@@ -218,6 +218,12 @@ Before telling the person it works, run it: test_run puts one real email through
 the flow, and get_run returns the trace, including why each node left by the port
 it did. A run can wait in a queue before it starts; get_run says so, and why.
 
+Having fixed a node a run went wrong at, continue_run runs the flow on from it
+rather than from the trigger: the run is wound back to just before that node's
+pass, the passes before it are carried over with the slots they filled, and the
+node and everything after it run as the flow now is. Nothing before it runs
+again — no model is asked twice, and no earlier step acts on the mailbox again.
+
 A trace explains a run. When an email never became one — or a run never started —
 get_console is where the app said why: polls, Outlook failures, mail marked seen.
 
@@ -956,6 +962,48 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             return json({
                 runId,
                 email: describeEmail(email),
+                note: 'Queued. Poll get_run: it says "queued" and why until the run starts, then has the trace.',
+            });
+        },
+    );
+
+    server.registerTool(
+        'continue_run',
+        {
+            title: 'Continue a run from one of its nodes',
+            description:
+                'Wind a finished run back to just before one of its passes, and run the flow on from that pass’s node as a new run. The passes before it are carried over as they ran, with the slots they filled, and the files the run saved come along; that node and everything after it run as the flow now is, so a node fixed since runs fixed. Nothing before it runs again. Name the pass by `seq` (get_run numbers them), or by `nodeId` when the run visited that node once. Like test_run it costs money and acts on the real mailbox from that node on, and a send never sends. The earlier run is left as it was. Returns the new run’s id; get_run has the trace, with the carried passes marked `carried`.',
+            inputSchema: {
+                runId: z.string().describe('A finished run, from list_runs.'),
+                seq: z.number().int().min(1).optional().describe('The pass to continue from: it runs again, and so does all that follows.'),
+                nodeId: z.string().optional().describe('Instead of seq: the node to continue from, when the run visited it once.'),
+            },
+        },
+        async ({runId, seq, nodeId}) => {
+            const run = traceStore.getRun(runId);
+            if (!run) throw new Error(`There is no run "${runId}". list_runs gives the ids.`);
+            let at = seq;
+            if (nodeId !== undefined) {
+                const visits = run.passes.filter((pass) => pass.nodeId === nodeId);
+                const [visit] = visits;
+                if (!visit) throw new Error(`Run ${runId} never reached node "${nodeId}". get_run gives the path it took.`);
+                if (at === undefined && visits.length > 1) {
+                    throw new Error(
+                        `Run ${runId} visited ${visit.nodeName} ${visits.length} times, as passes ${visits.map((p) => p.seq).join(', ')}. Say which with seq.`,
+                    );
+                }
+                if (at !== undefined && !visits.some((pass) => pass.seq === at)) {
+                    throw new Error(`Pass ${at} of run ${runId} is not at node "${nodeId}"; its passes there are ${visits.map((p) => p.seq).join(', ')}.`);
+                }
+                at ??= visit.seq;
+            }
+            if (at === undefined) throw new Error('Say which pass to continue from: seq, or nodeId.');
+            const {runId: next, rewound} = await host.watcher().continueRun(runId, at);
+            return json({
+                runId: next,
+                continuesFrom: {runId, seq: at, node: rewound.nodeName},
+                carried: rewound.passes.map((pass) => `${pass.seq} ${pass.nodeName}`),
+                slots: Object.keys(rewound.data),
                 note: 'Queued. Poll get_run: it says "queued" and why until the run starts, then has the trace.',
             });
         },

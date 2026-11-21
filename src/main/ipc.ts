@@ -495,6 +495,7 @@ export function registerIpc(): void {
         }
         return getWatcher().enqueueManual(flow.id, trigger.id, await outlook.refind(run.email));
     });
+    handle(IPC.runsContinue, async (id: string, seq: number) => (await getWatcher().continueRun(id, seq)).runId);
     handle(IPC.runsReveal, () => shell.openPath(runsDir()));
 
     handle(IPC.logList, () => logEntries());

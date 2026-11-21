@@ -197,8 +197,10 @@ export const repliesFile = (): string => join(ensure('replies'), `${workspaceKey
  * beside the replies for the same reason: clearing the runs must not forget them.
  */
 export const sendsFile = (): string => join(ensure('sends'), `${workspaceKey()}.jsonl`);
+/** Where a run's scratch space is, without making it: for a run that may have saved nothing. */
+export const runFilesDir = (runId: string): string => join(runsDir(), safeSegment(runId) + '.files');
 /** Per-run scratch space — saved attachments, files a skill writes. */
-export const runScratchDir = (runId: string): string => ensureAt(join(runsDir(), safeSegment(runId) + '.files'));
+export const runScratchDir = (runId: string): string => ensureAt(runFilesDir(runId));
 export const settingsFile = (): string => join(dataRoot(), 'settings.json');
 /**
  * Which servers found in each workspace's files have been allowed here. Kept in

@@ -196,14 +196,29 @@ function LiveRow({live}: { live: LiveText }): JSX.Element {
 /**
  * One node's pass, finished or under way. The one under way starts open, and
  * keeps its card when it finishes, so what was being watched stays in view.
+ * `onMenu`, when given, is what right-clicking it offers.
  */
-function PassCard({pass}: { pass: Pass | PassUnderWay }): JSX.Element {
+function PassCard({pass, onMenu}: {
+    pass: Pass | PassUnderWay;
+    onMenu?: (x: number, y: number) => void
+}): JSX.Element {
     const done = 'status' in pass;
     const live = done ? undefined : pass.live;
+    const carried = done && pass.carried === true;
     const [open, setOpen] = useState(!done);
     return (
-        <div className={`pass${done ? '' : ' under-way'}`}>
-            <div className="pass-head" onClick={() => setOpen(!open)}>
+        <div className={`pass${done ? '' : ' under-way'}${carried ? ' carried' : ''}`}>
+            <div
+                className="pass-head"
+                onClick={() => setOpen(!open)}
+                onContextMenu={
+                    onMenu &&
+                    ((e) => {
+                        e.preventDefault();
+                        onMenu(e.clientX, e.clientY);
+                    })
+                }
+            >
                 <span className="idx">{pass.seq}</span>
                 <span className="name">{pass.nodeName}</span>
                 {done && pass.outPort && (
@@ -213,6 +228,12 @@ function PassCard({pass}: { pass: Pass | PassUnderWay }): JSX.Element {
                     </>
                 )}
                 <span className="spacer"/>
+                {carried && (
+                    <span className="badge"
+                          title="Carried over from the run this one continues, as it ran there: not run again">
+                        carried
+                    </span>
+                )}
                 {done ? (
                     <>
                         <span className="took">
@@ -262,6 +283,9 @@ interface Props {
     onRemove(runId: string): void;
 
     onRerun(runId: string): void;
+
+    /** Wind a finished run back to just before its pass `seq`, and run on from that pass's node. */
+    onContinue(runId: string, seq: number): void;
 }
 
 export function RunsPanel({
@@ -273,9 +297,12 @@ export function RunsPanel({
                               onReveal,
                               onCancel,
                               onRemove,
-                              onRerun
+                              onRerun,
+                              onContinue,
                           }: Props): JSX.Element {
     const [menu, setMenu] = useState<{ run: RunSummary; x: number; y: number } | null>(null);
+    /** A pass of the selected run, right-clicked, and where. */
+    const [passMenu, setPassMenu] = useState<{ runId: string; pass: Pass; x: number; y: number } | null>(null);
 
     /** Whether the detail is scrolled to its end, and so stays there as a run under way grows. */
     const detail = useRef<HTMLDivElement>(null);
@@ -338,6 +365,11 @@ export function RunsPanel({
                             {statusBadge(run.status)}
                             {run.disposition && <span className="badge">{run.disposition}</span>}
                             {run.trigger === 'manual' && <span className="badge">test</span>}
+                            {run.continuedFrom && (
+                                <span className="badge" title={`Continued from ${run.continuedFrom.nodeName}`}>
+                                    continued
+                                </span>
+                            )}
                             <span className="badge">{run.passCount} passes</span>
                             {run.monitor &&
                                 monitorBadge(
@@ -391,6 +423,20 @@ export function RunsPanel({
                             <b>Flow</b>
                             <span>{selected.flowName}</span>
                         </div>
+                        {selected.continuedFrom && (
+                            <div className="kv">
+                                <b>Continued</b>
+                                <span>
+                                    from {selected.continuedFrom.nodeName}, pass {selected.continuedFrom.seq} of{' '}
+                                    <button
+                                        className="link"
+                                        onClick={() => selected.continuedFrom && onSelect(selected.continuedFrom.runId)}
+                                    >
+                                        an earlier run
+                                    </button>
+                                </span>
+                            </div>
+                        )}
                         {selected.email.attachmentNames.length > 0 && (
                             <div className="kv">
                                 <b>Files</b>
@@ -402,7 +448,15 @@ export function RunsPanel({
                         <div className="section-title">Path</div>
                         {/* Keyed by seq, so the pass under way keeps its card once it finishes. */}
                         {[...selected.passes, ...(selected.current ? [selected.current] : [])].map((pass) => (
-                            <PassCard key={pass.seq} pass={pass}/>
+                            <PassCard
+                                key={pass.seq}
+                                pass={pass}
+                                onMenu={
+                                    selected.status === 'running' || !('status' in pass)
+                                        ? undefined
+                                        : (x, y) => setPassMenu({runId: selected.id, pass, x, y})
+                                }
+                            />
                         ))}
 
                         <MonitorCard
@@ -422,6 +476,20 @@ export function RunsPanel({
                     label={menu.run.subject || '(no subject)'}
                     items={actions(menu.run)}
                     onClose={() => setMenu(null)}
+                />
+            )}
+            {passMenu && (
+                <ContextMenu
+                    x={passMenu.x}
+                    y={passMenu.y}
+                    label={`${passMenu.pass.seq} · ${passMenu.pass.nodeName}`}
+                    items={[
+                        {
+                            label: 'Continue the run from here',
+                            onSelect: () => onContinue(passMenu.runId, passMenu.pass.seq),
+                        },
+                    ]}
+                    onClose={() => setPassMenu(null)}
                 />
             )}
         </div>

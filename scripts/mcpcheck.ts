@@ -627,6 +627,117 @@ async function main(): Promise<void> {
         (await call('cancel_run', {runId: second})).includes('Nothing to cancel'),
     );
 
+    // Continuing a run: wound back to one of its passes, the passes before it are
+    // carried over with their slots and files, and the flow runs on from there.
+    // A trigger, a Switch that fills a slot, and an end: no Outlook, no Claude.
+    // windBack and enqueueContinuation are what continue_run calls either side of
+    // finding the email again in Outlook, which this check leaves out.
+    const {getRun, saveRun} = await import('../src/main/store/traceStore');
+    const {runFilesDir} = await import('../src/main/paths');
+    const relay = (JSON.parse(await call('create_flow', {name: 'Continue check'})) as { id: string }).id;
+    const relayNode = async (kind: string): Promise<string> =>
+        (JSON.parse(await call('add_node', {flowId: relay, kind})) as { id: string }).id;
+    const relayIn = await relayNode('trigger.outlook');
+    const relaySwitch = await relayNode('switch');
+    const relayEnd = await relayNode('terminal');
+    await call('update_node', {flowId: relay, nodeId: relaySwitch, config: {output: 'ack'}});
+    await call('connect', {flowId: relay, from: relayIn, port: 'out', to: relaySwitch});
+    await call('connect', {flowId: relay, from: relaySwitch, port: 'otherwise', to: relayEnd});
+    const settle = async (): Promise<void> => {
+        for (let i = 0; i < 100; i++) {
+            const now = watcher.status();
+            if (now.activeRunIds.length + now.queuedRunIds.length === 0) return;
+            await new Promise((r) => setTimeout(r, 50));
+        }
+    };
+    const wound = watcher.enqueueManual(relay, relayIn, email);
+    await settle();
+    const ran = getRun(wound);
+    check('the run to continue went trigger, Switch, end', ran?.passes.map((p) => p.nodeId).join() === [relayIn, relaySwitch, relayEnd].join());
+    // As a step that saved an attachment would leave it: a file in the run's
+    // folder, and a slot naming it.
+    const savedFile = join(runFilesDir(wound), 'saved.txt');
+    mkdirSync(runFilesDir(wound), {recursive: true});
+    writeFileSync(savedFile, 'kept');
+    const switchPass = ran?.passes[1];
+    if (ran && switchPass) {
+        switchPass.provided = {...switchPass.provided, doc: {path: savedFile}};
+        saveRun(ran);
+    }
+    const continued = watcher.enqueueContinuation(watcher.windBack(wound, 3), email);
+    await settle();
+    const after = getRun(continued);
+    const copiedFile = join(runFilesDir(continued), 'saved.txt');
+    check(
+        'a continued run carries the passes before the one it continues from, and runs that one again',
+        after?.status === 'completed' &&
+        after.passes.map((p) => `${p.seq}${p.carried ? 'c' : ''}`).join() === '1c,2c,3' &&
+        after.path.join() === ran?.path.join() &&
+        after.edgePath.join() === ran.edgePath.join(),
+        JSON.stringify(after?.passes.map((p) => [p.seq, p.carried])),
+    );
+    check(
+        'it says which run and pass it continues',
+        after?.continuedFrom?.runId === wound && after.continuedFrom.seq === 3 && after.continuedFrom.nodeId === relayEnd,
+    );
+    check(
+        'the slots the carried passes filled come with them',
+        typeof (after?.data.ack as { route?: unknown } | undefined)?.route === 'string',
+        JSON.stringify(after?.data),
+    );
+    check(
+        'the files the run saved are copied, and its slots name the copies',
+        existsSync(copiedFile) &&
+        readFileSync(copiedFile, 'utf8') === 'kept' &&
+        (after?.data.doc as { path?: string } | undefined)?.path === copiedFile &&
+        existsSync(savedFile),
+        JSON.stringify(after?.data.doc),
+    );
+    check('the run it continues is left as it was', getRun(wound)?.passes.length === 3 && getRun(wound)?.continuedFrom === undefined);
+    check(
+        'the run list marks a continued run',
+        (JSON.parse(await call('list_runs', {flowId: relay})) as { id: string; continuedFrom?: { runId: string } }[])
+            .find((r) => r.id === continued)?.continuedFrom?.runId === wound,
+    );
+    const {reviewPrompt: promptFor} = await import('../src/main/engine/monitor');
+    const continuedPrompt = after ? promptFor(after, getFlow(relay)!) : '';
+    check(
+        'the monitor is told which passes were carried over',
+        continuedPrompt.includes(`Continued: run ${wound}`) && continuedPrompt.includes('carried over from the earlier run'),
+    );
+    const continueRefusal = async (args: Record<string, unknown>): Promise<string> => {
+        const result = await client.callTool({name: 'continue_run', arguments: args});
+        return result.isError === true ? JSON.stringify(result.content) : '';
+    };
+    check('continue_run refuses a pass the run does not have', (await continueRefusal({
+        runId: wound,
+        seq: 9
+    })).includes('no pass 9'));
+    check('… and a node it never reached', (await continueRefusal({
+        runId: wound,
+        nodeId: 'elsewhere'
+    })).includes('never reached'));
+    check('… and a pass at another node than the one named', (await continueRefusal({
+        runId: wound,
+        seq: 1,
+        nodeId: relayEnd
+    })).includes('is not at node'));
+    check('… and being told neither', (await continueRefusal({runId: wound})).includes('Say which pass'));
+    check('… and a run there is not', (await continueRefusal({
+        runId: 'no-such-run',
+        seq: 1
+    })).includes('There is no run'));
+    await call('update_node', {flowId: relay, nodeId: relayEnd, config: {}});
+    await call('remove_node', {flowId: relay, nodeId: relaySwitch});
+    let goneRefusal = '';
+    try {
+        watcher.windBack(wound, 2);
+    } catch (e) {
+        goneRefusal = (e as Error).message;
+    }
+    check('continuing from a node since deleted is refused, naming it', goneRefusal.includes('is no longer in “Continue check”'), goneRefusal);
+    await call('delete_flow', {flowId: relay});
+
     // The AI monitor: a trigger with it on brings it into each run it starts, and
     // reviews the run once it ends. With every agent switched off the review fails
     // at once, no model asked, which is enough to follow it from end to end.
@@ -2054,7 +2165,11 @@ async function main(): Promise<void> {
     check('a settings file with no window sizes opens every window at its own',
         JSON.stringify(windowSizesOf(undefined)) === JSON.stringify(windowSizesOf({})) &&
         windowSizesOf(null).canvas.width === WINDOW_SIZES.canvas.initial.width);
-    saveSettings({...before, windowSizes: {...before.windowSizes, canvas: {width: 1, height: 1}}, canvasMaximized: true});
+    saveSettings({
+        ...before,
+        windowSizes: {...before.windowSizes, canvas: {width: 1, height: 1}},
+        canvasMaximized: true
+    });
     check('Settings saves a window size as windowSizesOf reads it, and the canvas switch as it is',
         JSON.stringify(getSettings().windowSizes.canvas) === JSON.stringify(WINDOW_SIZES.canvas.initial) &&
         getSettings().canvasMaximized);

@@ -3275,6 +3275,17 @@ button.add-field:hover:not(:disabled) {
     color: var(--warn);
 }
 
+/* Copied from the run this one continues: its history, not run here. */
+.pass.carried {
+    border-style: dashed;
+    background: transparent;
+}
+
+.pass.carried .pass-head .name,
+.pass.carried .pass-summary {
+    color: var(--dim);
+}
+
 .pass-summary {
     padding: 0 10px 8px 38px;
     color: var(--muted);

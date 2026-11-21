@@ -102,6 +102,11 @@ export interface Pass {
     /** Slots this pass filled, by name. */
     provided?: Record<string, unknown>;
     error?: string;
+    /**
+     * Copied from the run this one continues, as it ran there: not run again here.
+     * Only the passes before the one a continued run picks up at.
+     */
+    carried?: boolean;
 }
 
 /** The pass a run is in the middle of: the node it is at, and what it has done there so far. */
@@ -110,6 +115,19 @@ export type PassUnderWay = Pick<Pass, 'seq' | 'nodeId' | 'nodeKind' | 'nodeName'
 };
 
 export type RunStatus = 'running' | 'completed' | 'failed';
+
+/**
+ * Where a continued run picked up: an earlier run, wound back to just before one
+ * of its passes. The passes before that one are carried over with the slots they
+ * filled; that pass's node, and the flow from it on, run again as the flow now is.
+ */
+export interface ContinuedFrom {
+    runId: string;
+    /** The earlier run's pass it was wound back to, which this run's first pass of its own redoes. */
+    seq: number;
+    nodeId: string;
+    nodeName: string;
+}
 
 /** How much a finding of the AI monitor asks of a person. */
 export type MonitorSeverity = 'note' | 'suggestion' | 'problem';
@@ -218,6 +236,8 @@ export interface Run {
     error?: string;
     /** Set when the trigger it started at has its AI monitor on. */
     monitor?: RunMonitor;
+    /** Set when this run continues an earlier one rather than starting at a trigger. */
+    continuedFrom?: ContinuedFrom;
 }
 
 /** The one-line form kept in the run index, so the list loads without every pass. */
@@ -236,6 +256,8 @@ export interface RunSummary {
     /** The node a run under way is at. */
     at?: string;
     monitor?: MonitorSummary;
+    /** The run this one continues, and the node it picked up at. */
+    continuedFrom?: ContinuedFrom;
 }
 
 export function toSummary(run: Run): RunSummary {
@@ -253,5 +275,6 @@ export function toSummary(run: Run): RunSummary {
         passCount: run.passes.length,
         at: run.current?.nodeName,
         monitor: run.monitor && monitorSummary(run.monitor),
+        continuedFrom: run.continuedFrom,
     };
 }

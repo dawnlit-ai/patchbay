@@ -6,10 +6,12 @@ import { workspaceSchemas } from '../store/schemaStore';
 import { getSettings } from '../store/settingsStore';
 import {
     checkSlots,
+    EMAIL_SLOT,
     findTriggers,
     type Flow,
     type FlowNode,
     folderLabel,
+    requires,
     soleFolder,
     triggerConfig,
     type TriggerConfig,
@@ -18,8 +20,10 @@ import type { EmailEnvelope, Run } from '@shared/trace';
 import { CONCURRENT_RUNS_RANGE, type EngineStatus } from '@shared/settings';
 import { errorMessage } from '@shared/util';
 import * as outlook from '../outlook/bridge';
+import { getRun } from '../store/traceStore';
 import { executeRun } from './engine';
 import { DROPPED, reviewRun } from './monitor';
+import { rewind, type Rewound } from './rewind';
 import { log } from '../log';
 
 /**
@@ -90,10 +94,19 @@ interface QueueItem {
     /** Minted at queue time, so the caller can cancel or look up the run before it starts. */
     runId: string;
     flow: Flow;
-    /** The trigger the email arrived at, and where its run starts. */
+    /** The trigger the email arrived at, and where its run starts — unless it continues an earlier run. */
     startNodeId: string;
     email: EmailEnvelope;
     trigger: 'poll' | 'manual';
+    /** The earlier run this one continues, wound back to the pass it picks up at. */
+    continuing?: Rewound;
+}
+
+/** An earlier run wound back to one of its passes, checked against the flow as it now is. */
+export interface Continuation {
+    run: Run;
+    flow: Flow;
+    rewound: Rewound;
 }
 
 /** A queued email, as the console names one that leaves the queue without running. */
@@ -325,6 +338,62 @@ export class Watcher {
         return runId;
     }
 
+    /**
+     * Queue a run that continues an earlier one from its pass `seq`: the passes
+     * before it are carried over with the slots they filled, and that pass's node,
+     * and the flow from it on, run again as the flow now is. A new run, like a test
+     * run: the earlier one is left as it was, and a Send in it never sends.
+     *
+     * Everything that can be told from the trace and the flow is checked before
+     * Outlook is asked for the email, which it may have to find again: the run
+     * filed it, most likely, on its way to its end.
+     */
+    async continueRun(runId: string, seq: number): Promise<{ runId: string; rewound: Rewound }> {
+        const continuation = this.windBack(runId, seq);
+        const email = await outlook.refind(continuation.run.email);
+        return {runId: this.enqueueContinuation(continuation, email), rewound: continuation.rewound};
+    }
+
+    /** The checks `continueRun` makes before it asks Outlook anything, and the run wound back. */
+    windBack(runId: string, seq: number): Continuation {
+        if (this.isRunPending(runId)) {
+            throw new Error('That run is still in progress. Let it finish, or cancel it, before continuing it.');
+        }
+        const run = getRun(runId);
+        if (!run) throw new Error(`There is no run "${runId}".`);
+        const flow = getFlow(run.flowId);
+        if (!flow) throw new Error(`“${run.flowName}”, the flow it ran in, has been deleted.`);
+        const rewound = rewind(run, seq);
+        const node = flow.nodes.find((n) => n.id === rewound.nodeId);
+        if (!node) {
+            throw new Error(`${rewound.nodeName}, the node pass ${seq} ran, is no longer in “${flow.name}”.`);
+        }
+        const unfilled = requires(node).filter((name) => name !== EMAIL_SLOT.name && !(name in rewound.data));
+        if (unfilled.length > 0) {
+            throw new Error(
+                `${node.name} reads ${unfilled.map((n) => `"${n}"`).join(', ')}, which the passes before pass ${seq} did not fill.`,
+            );
+        }
+        return {run, flow, rewound};
+    }
+
+    /** Queue a run wound back by `windBack`, with its email as Outlook now has it. Returns the new run's id. */
+    enqueueContinuation({run, flow, rewound}: Continuation, email: EmailEnvelope): string {
+        // The trigger it came in by, for whether the AI monitor reviews it, if that trigger is still there.
+        const trigger = flow.nodes.find((n) => n.id === run.path[0] && triggerConfig(n));
+        const runId = randomUUID();
+        this.queue.push({
+            runId,
+            flow,
+            startNodeId: trigger?.id ?? rewound.nodeId,
+            email,
+            trigger: 'manual',
+            continuing: rewound,
+        });
+        this.pump();
+        return runId;
+    }
+
     private stopTimerIfIdle(): void {
         if (this.flowIds.size > 0 || !this.timer) return;
         clearInterval(this.timer);
@@ -512,7 +581,14 @@ export class Watcher {
         const runId = item.runId;
         const subject = `"${item.email.subject || '(no subject)'}"`;
         const test = item.trigger === 'manual' ? ' (test)' : '';
-        log.info('run', `Started ${subject} in ${item.flow.name}${test}`, {runId});
+        const from = item.continuing;
+        log.info(
+            'run',
+            from
+                ? `Continued ${subject} in ${item.flow.name} from ${from.nodeName}, pass ${from.seq} of run ${from.runId}${test}`
+                : `Started ${subject} in ${item.flow.name}${test}`,
+            {runId},
+        );
         // Read from the flow the run reads, so the run and its review agree on what the trigger said.
         const monitor = triggerConfig(item.flow.nodes.find((n) => n.id === item.startNodeId))?.monitor === true;
         if (monitor) log.info('monitor', `Watching ${subject}, to review it once it ends`, {runId});
@@ -524,6 +600,7 @@ export class Watcher {
                 email: item.email,
                 trigger: item.trigger,
                 monitor,
+                continuing: item.continuing,
                 signal: controller.signal,
                 onUpdate: (update) => this.onRun(update),
             });

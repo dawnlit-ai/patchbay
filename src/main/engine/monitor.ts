@@ -213,7 +213,7 @@ function passLines(pass: Pass, flow: Flow): string[] {
             ];
     return [
         '',
-        `Pass ${pass.seq} · "${pass.nodeName}" (${pass.nodeKind}, id ${pass.nodeId}) · ${pass.status} · ${left} · took ${seconds(pass.startedAt, pass.endedAt)}`,
+        `Pass ${pass.seq} · "${pass.nodeName}" (${pass.nodeKind}, id ${pass.nodeId}) · ${pass.status} · ${left} · took ${seconds(pass.startedAt, pass.endedAt)}${pass.carried ? ' · carried over from the earlier run, not run again' : ''}`,
         `Summary: ${pass.summary}`,
         ...(pass.error ? [`Error: ${pass.error}`] : []),
         ...Object.entries(pass.provided ?? {}).map(
@@ -247,6 +247,12 @@ export function reviewPrompt(run: Run, flow: Flow): string {
         '',
         '--- Run ---',
         `Started by: ${run.trigger === 'poll' ? 'new mail in a watched folder' : 'a test run'}`,
+        ...(run.continuedFrom
+            ? [
+                `Continued: run ${run.continuedFrom.runId} wound back to its pass ${run.continuedFrom.seq} ("${run.continuedFrom.nodeName}"). ` +
+                'The passes before it are that run’s, carried over as they ran under the flow as it was then; from it on, this run ran the flow below.',
+            ]
+            : []),
         `Ended: ${ended}`,
         `Path: ${run.path.map((id) => names.get(id) ?? id).join(' → ')}`,
         ...run.passes.flatMap((pass) => passLines(pass, flow)),
