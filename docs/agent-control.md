@@ -28,7 +28,7 @@ it.
 | Graph     | `add_node`, `update_node`, `remove_node`, `connect`, `disconnect`             |
 | Schemas   | `list_schemas`, `set_schema`, `rename_schema`, `delete_schema`                |
 | Skills    | `list_skills`, `get_skill`, `write_skill`, `import_skills`, `delete_skill`    |
-| Mailbox   | `list_accounts`, `list_folders`, `list_recent_emails`                         |
+| Mailbox   | `list_accounts`, `list_signatures`, `list_folders`, `list_recent_emails`      |
 | Running   | `get_status`, `start_watching`, `stop_watching`, `test_run`, `cancel_run`     |
 | Runs      | `list_runs`, `get_run`, `list_monitor_notes`, `get_console`                   |
 | Settings  | `get_settings`, `list_server_tools`                                           |

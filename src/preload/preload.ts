@@ -80,6 +80,7 @@ const api: Api = {
     },
     outlook: {
         accounts: () => call(IPC.outlookAccounts),
+        signatures: () => call(IPC.outlookSignatures),
         folders: (account) => call(IPC.outlookFolders, account),
         recent: (scope, days, limit) => call(IPC.outlookRecent, scope, days, limit),
         dragged: (account, drag) => call(IPC.outlookDragged, account, drag),

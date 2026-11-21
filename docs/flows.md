@@ -95,13 +95,18 @@ or `,`, copied to any under *Cc*, with its own *Subject*; any of the three can n
 braces, which the run writes in — `{{shipment.agent_email}}`, `Pre-alert received: B/L {{shipment.bl_no}}`. *Reply
 to everyone* widens a reply from the sender to everyone on the email.
 
-Its **template** is the subject of an email saved in the mailbox's `Templates` folder. One template can hold several
+Under *From*, its **account** is the Outlook account it drafts from — the one the email came to, unless you pick
+another. That account's `Templates` folder holds the template, the draft waits in its Drafts, and a Send after it sends
+it from there. Its **signature** is picked from the ones Outlook keeps; Outlook keeps one set for all its accounts, so
+every one is offered whichever account is chosen. The signature goes in the template's `{{SIGNATURE}}`, or below its
+text when it has none — so a template with `{{SIGNATURE}}` needs one picked.
+
+Its **template** is the subject of an email saved in the From account's `Templates` folder. One template can hold several
 emails around a shared greeting and signature, each between `[[SECTION]]` and `[[/SECTION]]` markers, such as
 `[[QUOTE]]…[[/QUOTE]]` and `[[NOQUOTE]]…[[/NOQUOTE]]`; its **section** is the one it drafts, and a template without
 them is drafted whole. A new email keeps the template's whole document, its styles included; a reply takes its body,
 above the quoted original. Its **placeholders** fill the template's `{{NAME}}`s, each from a field an earlier node
-filled — `{{TOTAL}}` from `quote.total` — written in as text. A *Signature* names an Outlook signature, which goes in
-the template's `{{SIGNATURE}}`, or below its text when it has none.
+filled — `{{TOTAL}}` from `quote.total` — written in as text.
 
 Each field it names is checked against the schema of the slot it reads, as a Switch's rules are, so the canvas flags
 one that schema lacks, a group or a list where one value is written in, and a slot not every path fills. A field that
@@ -111,13 +116,13 @@ Whether an email gets a reply, and which, is the path's to decide: a [Switch](#s
 reply. The rate-replies flow's Switch above sends *Quote* to a Create email drafting `QUOTE`, *No quote* to one
 drafting `NOQUOTE`, and *Skip* and *Otherwise* past both, to the step that logs the quote, where all four meet again.
 
-A template it cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a signature Outlook doesn't
-have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
+A template it cannot fill whole — a section it lacks, a `{{PLACEHOLDER}}` it doesn't fill, a `{{SIGNATURE}}` with no
+signature picked, a signature Outlook doesn't have — leaves by *Error*, drafting nothing, and every email fails the same way until it is fixed in Outlook.
 
-It fills its **output slot** with what happened — `drafted`, the `section`, who it went `to`, the draft's Outlook id
-and `why` — so the steps after it can say so.
+It fills its **output slot** with what happened — `drafted`, the `section`, who it went `to`, the `account` it is in,
+the draft's Outlook id and `why` — so the steps after it can say so.
 
-**It only drafts, and never twice.** The email waits in the mailbox's Drafts folder for a person, or a [Send](#sending)
+**It only drafts, and never twice.** The email waits in the From account's Drafts folder for a person, or a [Send](#sending)
 node after it, to send. Patchbay
 records each draft, by the id Outlook gave it, in the app's data rather than the workspace. An email gets one reply
 from a flow: a second run over it — a re-run, or one after a later step failed — finds the reply already drafted, by
@@ -135,7 +140,7 @@ and a new email to the office. Only slots every path into the node fills with a 
 that holds anything else, or none at all, is flagged on the canvas.
 
 **It sends only what this run drafted.** Each draft is sent by the id Outlook gave it when the Create email earlier in
-this run made it. A Create email that left by *Already drafted* puts no id in its slot, so an earlier run's draft is
+this run made it, from the account that Create email drafted it in. A Create email that left by *Already drafted* puts no id in its slot, so an earlier run's draft is
 passed over and never sent by a later run. Patchbay records each send in the app's data as well, so the same draft is
 never sent twice. A draft Outlook can no longer find in Drafts — sent or deleted by hand since — or one Outlook could
 not give an id to, leaves by *Error* rather than going unnoticed; if other drafts in the same step did go out, the

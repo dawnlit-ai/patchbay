@@ -139,23 +139,28 @@ rather than a fan-out. The nine node kinds:
 - create-email    — drafts an email from a template email in the mailbox's
                     Templates folder, \`template\` being its subject and
                     \`section\` the [[SECTION]] it drafts ("" for a
-                    template with none), and runs no model. \`mode\` is
+                    template with none), and runs no model. \`account\`
+                    is the Outlook account it drafts from, one
+                    list_accounts gives: its Templates folder holds the
+                    template, and a send sends from it. "" is the
+                    account the email came to. \`mode\` is
                     "reply" (to the email; \`replyAll\` widens it) or "new"
                     (to \`to\`, copied to \`cc\`, with \`subject\`: each may
                     name fields in braces, "{{shipment.agent_email}}", that
                     the run writes in). \`placeholders\` ([{name, field}])
                     fill the template's {{NAME}}s from fields earlier nodes
-                    filled; \`signature\` names an Outlook signature.
+                    filled; \`signature\` names an Outlook signature, one
+                    list_signatures gives, or "" for none.
                     Whether an email gets one, and which, is the path's to
                     decide: put a switch before one create-email per email.
                     Ports: "drafted", "skipped" (already drafted by an
                     earlier run: a reply by any of the flow's create-email
                     nodes, a new email by this one) and "error"; the first
                     two fill \`output\` with {drafted, section, to,
-                    draftEntryId, why}. It only drafts.
+                    account, draftEntryId, why}. It only drafts.
 - send            — sends drafts a create-email made earlier in the same
                     run, picked by the draft slots its \`drafts\` lists,
-                    with no model. \`sending\` is false by default: while
+                    each from the account it was drafted in, with no model. \`sending\` is false by default: while
                     off, and on every test run, it sends nothing and leaves
                     by "held", saying who each draft would have gone to, so
                     the drafts wait in Outlook for a person. A slot whose
@@ -830,6 +835,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
             annotations: {readOnlyHint: true},
         },
         async () => json(await outlook.getAccounts()),
+    );
+
+    server.registerTool(
+        'list_signatures',
+        {
+            title: 'List Outlook signatures',
+            description:
+                'The signatures the desktop Outlook client on this machine keeps, by name: what a create-email’s `signature` names. Outlook keeps one set for all its accounts, so any of them can sign mail from any account.',
+            inputSchema: {},
+            annotations: {readOnlyHint: true},
+        },
+        async () => json(await outlook.getSignatures()),
     );
 
     server.registerTool(

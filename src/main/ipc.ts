@@ -351,6 +351,7 @@ export function registerIpc(): void {
     handle(IPC.updatesRestart, () => getUpdates().restart());
 
     handle(IPC.outlookAccounts, () => outlook.getAccounts());
+    handle(IPC.outlookSignatures, () => outlook.getSignatures());
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>
         outlook.listFolders(account),
     );

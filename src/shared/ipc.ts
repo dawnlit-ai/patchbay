@@ -256,6 +256,8 @@ export interface Api {
     };
     outlook: {
         accounts(): Promise<string[]>;
+        /** The signatures Outlook keeps on this machine, by name; one set for all its accounts. */
+        signatures(): Promise<string[]>;
         folders(account: string): Promise<InboxFolderOption[]>;
         /** Recent mail where a trigger looks, newest first, for picking a message to test a flow against. */
         recent(scope: MailScope, days: number, limit: number): Promise<EmailEnvelope[]>;
@@ -450,6 +452,7 @@ export const IPC = {
     updatesRestart: 'updates:restart',
 
     outlookAccounts: 'outlook:accounts',
+    outlookSignatures: 'outlook:signatures',
     outlookFolders: 'outlook:folders',
     outlookRecent: 'outlook:recent',
     outlookDragged: 'outlook:dragged',

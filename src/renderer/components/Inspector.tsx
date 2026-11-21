@@ -1862,6 +1862,63 @@ function PlaceholderTable({nodeId, placeholders, onChange, available, schemas}: 
     );
 }
 
+/** A list Outlook gives, asked for once while the node is open: it drives Outlook and takes a moment. */
+interface OutlookList {
+    /** Null until Outlook answers. */
+    list: string[] | null;
+    error: string | null;
+}
+
+function useOutlookList(ask: () => Promise<string[]>): OutlookList {
+    const [state, setState] = useState<OutlookList>({list: null, error: null});
+    useEffect(() => {
+        let cancelled = false;
+        ask().then(
+            (list) => {
+                if (!cancelled) setState({list, error: null});
+            },
+            (e: Error) => {
+                if (!cancelled) setState({list: null, error: e.message});
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+        // Asked once: what Outlook lists does not change with the node.
+    }, []);
+    return state;
+}
+
+/** What a field over an Outlook list says under it while the list is not in. */
+const outlookHint = ({list, error}: OutlookList, what: string): string | undefined =>
+    error ? `Could not list the ${what}: ${error}` : list ? undefined : 'Asking Outlook…';
+
+/**
+ * A choice among what Outlook lists, `none` being the empty one. A value saved
+ * before, which Outlook no longer lists, stays chosen and says so, rather than
+ * quietly turning into none.
+ */
+function OutlookSelect({value, outlook, none, onChange}: {
+    value: string;
+    outlook: OutlookList;
+    none: string;
+    onChange: (value: string) => void;
+}): JSX.Element {
+    const listed = outlook.list ?? [];
+    const kept = value !== '' && !listed.includes(value);
+    return (
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+            <option value="">{none}</option>
+            {kept && <option value={value}>{outlook.list ? `${value} (not in Outlook)` : value}</option>}
+            {listed.map((v) => (
+                <option key={v} value={v}>
+                    {v}
+                </option>
+            ))}
+        </select>
+    );
+}
+
 function CreateEmailFields({
                                nodeId,
                                config,
@@ -1872,6 +1929,8 @@ function CreateEmailFields({
     nodeId: string;
     available: Available | undefined;
 }): JSX.Element {
+    const accounts = useOutlookList(() => window.api.outlook.accounts());
+    const signatures = useOutlookList(() => window.api.outlook.signatures());
     const fresh = config.mode === 'new';
     const fieldsInfo = 'A field an earlier node filled, in braces, is written in by the run: {{shipment.agent_email}}.';
     const template = config.template.trim();
@@ -1938,11 +1997,40 @@ function CreateEmailFields({
             </Section>
 
             <Section
+                title="From"
+                summary={`${config.account || 'the account the email came to'} · ${
+                    config.signature ? `signed ${config.signature}` : 'no signature'
+                }`}
+                info="The Outlook account it drafts from: its Templates folder holds the template, the draft waits in its Drafts, and a Send after this node sends it from there. Outlook keeps one set of signatures for all its accounts, so every one is offered whichever account is chosen."
+            >
+                <Field label="Account" hint={outlookHint(accounts, 'accounts')}>
+                    <OutlookSelect
+                        value={config.account}
+                        outlook={accounts}
+                        none="The account the email came to"
+                        onChange={(account) => patch({account})}
+                    />
+                </Field>
+                <Field
+                    label="Signature"
+                    hint={outlookHint(signatures, 'signatures')}
+                    info="An Outlook signature, put in the template’s {{SIGNATURE}}, or below its text when it has none. A template with {{SIGNATURE}} needs one."
+                >
+                    <OutlookSelect
+                        value={config.signature}
+                        outlook={signatures}
+                        none="(none)"
+                        onChange={(signature) => patch({signature})}
+                    />
+                </Field>
+            </Section>
+
+            <Section
                 title="Template"
                 summary={template === '' ? 'none chosen' : config.section.trim() ? `${template} › ${config.section.trim()}` : template}
-                info="The text comes from a template email in this mailbox’s Templates folder, with its placeholders filled from what earlier nodes found."
+                info="The text comes from a template email in the From account’s Templates folder, with its placeholders filled from what earlier nodes found."
             >
-                <Field label="Template" info="The subject of a template email in this mailbox’s Templates folder.">
+                <Field label="Template" info="The subject of a template email in the From account’s Templates folder.">
                     <input
                         value={config.template}
                         placeholder="RateReply"
@@ -1974,18 +2062,6 @@ function CreateEmailFields({
                     available={available}
                     schemas={shelf.schemas}
                 />
-
-                <div className="gap"/>
-                <Field
-                    label="Signature"
-                    info="An Outlook signature by its name, put in the template’s {{SIGNATURE}}, or below its text. Blank for none."
-                >
-                    <input
-                        value={config.signature}
-                        placeholder="(none)"
-                        onChange={(e) => patch({signature: e.target.value})}
-                    />
-                </Field>
             </Section>
 
             <SlotSection

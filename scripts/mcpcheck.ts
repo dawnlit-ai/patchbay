@@ -1390,6 +1390,8 @@ async function main(): Promise<void> {
         createAdded.text.includes('"port": "drafted"') && createAdded.text.includes('"port": "skipped"') &&
         createAdded.text.includes('"output": "draft"'),
     );
+    check('and drafts from the account the email came to until one is chosen',
+        createAdded.text.includes('"account": ""'));
     const noQuoter = (await addNode('create-email')).id;
     const judge = (await addNode('switch')).id;
     await wire(switcher, 'route:quote', quoter);
@@ -1679,6 +1681,7 @@ async function main(): Promise<void> {
             drafted: true,
             section: '',
             to: 'ops@example.com',
+            account: '',
             draftEntryId: 'N1',
             why: 'drafted from template Notice',
         };
@@ -1686,6 +1689,7 @@ async function main(): Promise<void> {
             drafted: false,
             section: '',
             to: '',
+            account: '',
             draftEntryId: '',
             why: 'already drafted by an earlier run',
         };
@@ -1757,6 +1761,29 @@ async function main(): Promise<void> {
             alreadySent.outPort === 'error' &&
             alreadySentSlot?.failed[0]?.why.includes('was already sent') === true &&
             alreadySentSlot.failed[0].why.includes('earlier-send-run'),
+        );
+
+        // A draft made in another account is that account's to send, and is
+        // looked up there: the same id in the email's own account is another draft.
+        recordSend({
+            at: '2026-11-14T15:34:00.000Z',
+            runId: 'other-account-send-run',
+            flowId: thanks,
+            nodeId: sender,
+            account: 'billing@example.invalid',
+            draftEntryId: 'B1',
+            slot: 'notice',
+            to: 'ops@example.com',
+            email: sameEmail,
+        });
+        const elsewhere = await runNode(liveSender, {
+            notice: {...freshDraft, account: 'billing@example.invalid', draftEntryId: 'B1'},
+        }, 'poll');
+        const elsewhereSlot = elsewhere.provided?.sent as SendOutcome | undefined;
+        check(
+            'a draft made in another account is looked up in that account',
+            elsewhere.outPort === 'error' &&
+            elsewhereSlot?.failed[0]?.why.includes('other-account-send-run') === true,
         );
     } else {
         check('with sending off, a polled run leaves by held and lists who it would have sent to', false,

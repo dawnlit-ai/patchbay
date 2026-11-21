@@ -744,8 +744,16 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     const section = config.section.trim();
     const from = `template ${template}${section ? ` [${section}]` : ''}`;
     const handOn = (outcome: Pick<DraftOutcome, 'why'> & Partial<DraftOutcome>): Record<string, unknown> => ({
-        [config.output]: {drafted: false, section: '', to: '', draftEntryId: '', ...outcome} satisfies DraftOutcome,
+        [config.output]: {
+            drafted: false,
+            section: '',
+            to: '',
+            account: '',
+            draftEntryId: '', ...outcome
+        } satisfies DraftOutcome,
     });
+    // The account it drafts from: its own, or the one the email came to.
+    const account = config.account.trim() || ctx.email.ref.account;
 
     // A second run over this email finds what the first one drafted, and drafts
     // none of its own. A reply is the flow's — one per email, whichever of its
@@ -778,7 +786,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     let result: { to: string; subject: string; draftEntryId: string; detail: string };
     try {
         if (fresh) {
-            const {draftEntryId} = await outlook.draftEmail(ctx.email.ref.account, {
+            const {draftEntryId} = await outlook.draftEmail(account, {
                 ...content,
                 to: drafting.to,
                 ...(drafting.cc ? {cc: drafting.cc} : {}),
@@ -791,7 +799,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
                 detail: `Cc: ${drafting.cc || '(none)'}`
             };
         } else {
-            const reply = await outlook.draftReply(ctx.email.ref, {...content, replyAll: config.replyAll});
+            const reply = await outlook.draftReply(ctx.email.ref, account, {...content, replyAll: config.replyAll});
             result = {
                 ...reply,
                 detail: [`Original sender: ${reply.repliedToSender}`, `Reply all: ${config.replyAll ? 'yes' : 'no'}`].join('\n'),
@@ -810,6 +818,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
         type: 'outlook',
         label: `${fresh ? 'draft_email' : 'draft_reply'} → ${result.to} from ${from}`,
         detail: [
+            `From: ${account}`,
             `Subject: ${result.subject}`,
             result.detail,
             `Signature: ${signature || '(none)'}`,
@@ -825,7 +834,7 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
             runId: ctx.runId,
             flowId: ctx.flowId,
             nodeId: ctx.node.id,
-            account: ctx.email.ref.account,
+            account,
             draftEntryId: result.draftEntryId,
             to: result.to,
             subject: result.subject,
@@ -847,13 +856,15 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
     const signed = signature ? ` · signed ${signature}` : '';
     const everyone = !fresh && config.replyAll ? ' · reply all' : '';
     const kind = fresh ? ' · new email' : '';
+    const elsewhere = account.toLowerCase() === ctx.email.ref.account.toLowerCase() ? '' : ` · from ${account}`;
     return {
         outPort: DRAFTED_PORT,
-        summary: `${section || template} drafted to ${result.to}${kind}${signed}${everyone}`,
+        summary: `${section || template} drafted to ${result.to}${kind}${elsewhere}${signed}${everyone}`,
         provided: handOn({
             drafted: true,
             section,
             to: result.to,
+            account,
             draftEntryId: result.draftEntryId,
             why: `drafted from ${from}`,
         }),
@@ -870,6 +881,8 @@ async function runCreateEmail(ctx: NodeContext, config: CreateEmailConfig): Prom
 interface ReadyDraft {
     slot: string;
     to: string;
+    /** The account the draft is in, and is sent from. */
+    account: string;
     id: string;
 }
 
@@ -892,7 +905,8 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
     if (problem) return {outPort: 'error', summary: problem, error: problem, provided: handOn({why: problem})};
 
     // What this run drafted, slot by slot, and what of it cannot be sent whatever the setting.
-    const account = ctx.email.ref.account;
+    // Each draft is sent from the account it was drafted in, which its Create
+    // email may have chosen; a slot that does not say is the email's own.
     const ready: ReadyDraft[] = [];
     const failed: SendFailure[] = [];
     const passed: string[] = [];
@@ -910,6 +924,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
         } else if (ready.some((r) => r.id === draft.draftEntryId)) {
             passed.push(`${slot}: the same draft as one named before it`);
         } else {
+            const account = (typeof draft.account === 'string' && draft.account.trim()) || ctx.email.ref.account;
             const earlier = findSend(account, draft.draftEntryId);
             if (earlier) {
                 failed.push({
@@ -917,7 +932,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
                     why: `the draft in ${slot} was already sent, ${earlier.at} (run ${earlier.runId}), and is not sent twice`,
                 });
             } else {
-                ready.push({slot, to: draft.to, id: draft.draftEntryId});
+                ready.push({slot, to: draft.to, account, id: draft.draftEntryId});
             }
         }
     }
@@ -947,21 +962,28 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
         return {outPort: HELD_PORT, summary: why, provided: handOn({why})};
     }
 
-    let result: { sent: number; failed: { entryId: string; error: string }[] };
-    try {
-        result = await outlook.sendDrafts(account, ready.map((r) => r.id));
-    } catch (e) {
-        // Outlook may have sent some before it stopped: the Sent Items folder says which.
-        const message = `Outlook stopped while sending: ${errorMessage(e)}. Check Sent Items before sending the rest by hand.`;
-        const all = [...failed, ...ready.map((r) => ({to: r.to, why: message}))];
-        return {outPort: 'error', summary: message, error: message, provided: handOn({failed: all, why: message})};
+    // One call per account the drafts are in. Outlook stopping on one account
+    // leaves that account's drafts unsent as far as this run can tell, and
+    // still records what the accounts before it sent.
+    let outlookSent = 0;
+    const refused = new Map<string, string>();
+    for (const account of new Set(ready.map((r) => r.account))) {
+        const ids = ready.filter((r) => r.account === account).map((r) => r.id);
+        try {
+            const result = await outlook.sendDrafts(account, ids);
+            outlookSent += result.sent;
+            for (const f of result.failed) refused.set(f.entryId, `Outlook did not send it: ${f.error}`);
+        } catch (e) {
+            // Outlook may have sent some before it stopped: the Sent Items folder says which.
+            const message = `Outlook stopped while sending from ${account}: ${errorMessage(e)}. Check Sent Items before sending the rest by hand.`;
+            for (const id of ids) refused.set(id, message);
+        }
     }
 
-    const refused = new Map(result.failed.map((f) => [f.entryId, f.error]));
     const sent = ready.filter((r) => !refused.has(r.id));
     for (const r of ready) {
-        const error = refused.get(r.id);
-        if (error !== undefined) failed.push({to: r.to, why: `Outlook did not send it: ${error}`});
+        const why = refused.get(r.id);
+        if (why !== undefined) failed.push({to: r.to, why});
     }
     ctx.onEvent({
         at: now(),
@@ -971,7 +993,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
             ...sent.map((r) => `Sent to ${r.to} (${r.slot}, draft ${r.id})`),
             ...notes,
             ...ready.filter((r) => refused.has(r.id)).map((r) => `Not sent to ${r.to}: ${refused.get(r.id)}`),
-            ...(result.sent === sent.length ? [] : [`Outlook counted ${result.sent} sent`]),
+            ...(outlookSent === sent.length ? [] : [`Outlook counted ${outlookSent} sent`]),
         ].join('\n'),
     });
 
@@ -982,7 +1004,7 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
                 runId: ctx.runId,
                 flowId: ctx.flowId,
                 nodeId: ctx.node.id,
-                account,
+                account: r.account,
                 draftEntryId: r.id,
                 slot: r.slot,
                 to: r.to,

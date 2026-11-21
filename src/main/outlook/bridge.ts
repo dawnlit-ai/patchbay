@@ -76,6 +76,14 @@ export function getAccounts(): Promise<string[]> {
 }
 
 /**
+ * The signatures Outlook on this machine keeps, by name, sorted. Outlook keeps
+ * one set for all its accounts, so any of them can sign mail from any account.
+ */
+export function getSignatures(): Promise<string[]> {
+    return call('List signatures', (b) => b.listOutlookSignatures());
+}
+
+/**
  * The Inbox and every folder below it, depth-first. As deep as the bridge goes,
  * since a trigger can watch a folder at any depth.
  */
@@ -337,12 +345,15 @@ export type DraftContent = Omit<
  * Always a draft: `sendImmediately` is hard-wired false, and no code path sets it
  * true. A flow proposes a reply; it is sent by a person, or by a Send node later
  * in the same run, through `sendDrafts` below, by the id this gives back.
+ *
+ * It is drafted in `account`, which may be another than the one the email came
+ * to: that account's Templates folder gives the template, and it sends the reply.
  */
-export async function draftReply(ref: EmailRef, content: DraftContent): Promise<ReplyEmailResult> {
-    return call(`Draft a reply in ${ref.account}`, (b) =>
+export async function draftReply(ref: EmailRef, account: string, content: DraftContent): Promise<ReplyEmailResult> {
+    return call(`Draft a reply in ${account}`, (b) =>
         b.replyOutlookEmail({
             ...content,
-            emailAccount: ref.account,
+            emailAccount: account,
             entryId: ref.entryId,
             storeId: ref.storeId,
             sendImmediately: false,

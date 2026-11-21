@@ -283,7 +283,13 @@ export interface Placeholder {
  */
 export interface CreateEmailConfig {
     mode: EmailMode;
-    /** The subject of a template email in the mailbox's Templates folder. */
+    /**
+     * The Outlook account it drafts from, whose Templates folder holds the
+     * template and whose Drafts the draft waits in. Empty for the account the
+     * email came to.
+     */
+    account: string;
+    /** The subject of a template email in the drafting account's Templates folder. */
     template: string;
     /** The template's [[SECTION]] to draft. Empty for a template with none. */
     section: string;
@@ -761,6 +767,8 @@ export interface DraftOutcome {
     drafted: boolean;
     section: string;
     to: string;
+    /** The account the draft is in, which a Send sends it from. Empty when it drafted none. */
+    account: string;
     draftEntryId: string;
     why: string;
 }
@@ -782,13 +790,17 @@ export const DRAFT_SCHEMA: JsonSchema = {
             type: 'string',
             description: 'Who this run’s draft is addressed to, as Outlook gave it. Empty when it drafted none.'
         },
+        account: {
+            type: 'string',
+            description: 'The Outlook account the draft is in and is sent from. Empty when it drafted none.',
+        },
         draftEntryId: {
             type: 'string',
             description: 'This run’s draft’s Outlook id. Empty when it drafted none, or when Outlook could not tell the draft apart.',
         },
         why: {type: 'string', description: 'What it drafted, or why it drafted nothing.'},
     },
-    required: ['drafted', 'section', 'to', 'draftEntryId', 'why'],
+    required: ['drafted', 'section', 'to', 'account', 'draftEntryId', 'why'],
 };
 
 /** Whether a slot holds a Create email's draft, as a Send reads one. */
@@ -1106,7 +1118,7 @@ function createEmailFields(config: CreateEmailConfig): string[] {
 export function createEmailProblems(node: FlowNode, config: CreateEmailConfig): string[] {
     const problems: string[] = [];
     if (!config.template.trim()) {
-        problems.push(`${node.name} has no template yet: give the subject of a template email in the mailbox’s Templates folder.`);
+        problems.push(`${node.name} has no template yet: give the subject of a template email in its mailbox’s Templates folder.`);
     }
     if (config.mode === 'new') {
         if (!config.to.trim()) problems.push(`${node.name} writes a new email to no one: give it a To.`);
@@ -1543,6 +1555,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
             return {
                 kind,
                 mode: 'reply',
+                account: '',
                 template: '',
                 section: '',
                 signature: '',
@@ -1871,6 +1884,7 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
             return {
                 ...base,
                 mode: oneOf(from.mode, EMAIL_MODES, base.mode),
+                account: str(from.account, base.account).trim(),
                 template: str(from.template, base.template),
                 section: str(from.section, base.section),
                 signature: str(from.signature, base.signature),
