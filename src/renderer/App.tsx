@@ -20,6 +20,7 @@ import { ConfirmDialog, type Question } from './components/ConfirmDialog';
 import { ConsolePanel, type ConsoleView, DEFAULT_CONSOLE_VIEW } from './components/ConsolePanel';
 import { type CanvasHighlight, FlowCanvas, NODE_DRAG_TYPE } from './components/FlowCanvas';
 import { Inspector, type SchemaShelf } from './components/Inspector';
+import { Pane } from './components/Pane';
 import { RenameFlowDialog } from './components/RenameFlowDialog';
 import { RunsPanel } from './components/RunsPanel';
 import { SettingsButton } from './components/SettingsButton';
@@ -539,7 +540,7 @@ export function App({initialFlowId}: Props): JSX.Element {
             {error && <div className="err-banner inset">{error}</div>}
 
             <div className="body">
-                <div className="side">
+                <Pane className="side" name="palette" edge="right" label="Resize the node list">
                     <div className="section-title">Drag onto the canvas</div>
                     {NODE_KINDS.map((kind) => {
                         const meta = NODE_KIND_META[kind];
@@ -558,7 +559,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                             </div>
                         );
                     })}
-                </div>
+                </Pane>
 
                 <div className="center">
                     <FlowCanvas
@@ -574,7 +575,13 @@ export function App({initialFlowId}: Props): JSX.Element {
                         }
                         onRunOutlookSelected={(nodeId) => runFromOutlook(nodeId, window.api.outlook.selected)}
                     />
-                    <div className={`dock${dockCollapsed ? ' collapsed' : ''}`}>
+                    <Pane
+                        className={`dock${dockCollapsed ? ' collapsed' : ''}`}
+                        name="dock"
+                        edge="top"
+                        label="Resize the runs and console"
+                        resizable={!dockCollapsed}
+                    >
                         <div className="dock-tabs">
                             <button
                                 className={dockTab === 'runs' && !dockCollapsed ? 'active' : ''}
@@ -624,10 +631,10 @@ export function App({initialFlowId}: Props): JSX.Element {
                                 onOpenRun={(runId) => void openRunFromLog(runId)}
                             />
                         )}
-                    </div>
+                    </Pane>
                 </div>
 
-                <div className="side right">
+                <Pane className="side right" name="inspector" edge="left" label="Resize the inspector">
                     <div className="side-body">
                         <Inspector
                             node={selectedNode}
@@ -641,7 +648,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                             onDelete={deleteNode}
                         />
                     </div>
-                </div>
+                </Pane>
             </div>
 
             {renaming && (

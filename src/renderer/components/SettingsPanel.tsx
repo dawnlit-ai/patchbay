@@ -32,6 +32,7 @@ import { errorMessage } from '@shared/util';
 import { ahead, time } from '../format';
 import { TEXT_SIZES, useTextSize } from '../textSize';
 import { FallbackList, MonitorModelPicker } from './ModelPickers';
+import { Pane } from './Pane';
 import { SecretPrompt } from './SecretDialog';
 
 interface Props {
@@ -627,7 +628,14 @@ export function SettingsPanel({
 
     return (
         <div className="settings">
-            <nav className="set-rail" aria-label="Settings pages">
+            <Pane
+                as="nav"
+                className="set-rail"
+                aria-label="Settings pages"
+                name="settings-rail"
+                edge="right"
+                label="Resize the list of pages"
+            >
                 {PAGES.map(({id, label}) => (
                     <button
                         key={id}
@@ -652,7 +660,7 @@ export function SettingsPanel({
                         </button>
                     </div>
                 )}
-            </nav>
+            </Pane>
 
             <div className="set-main">
                 <div className="set-scroll">
@@ -981,8 +989,6 @@ export function SettingsPanel({
                                                 className="port"
                                                 type="number"
                                                 aria-label="Port"
-                                                min={1024}
-                                                max={65535}
                                                 value={draft.agentControl.port}
                                                 onChange={(e) => patchAgent({port: Number(e.target.value)})}
                                             />

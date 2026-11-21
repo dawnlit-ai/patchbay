@@ -30,6 +30,7 @@ import { Modal } from './components/Modal';
 import { NameDialog } from './components/NameDialog';
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog';
 import { OpenWhereDialog } from './components/OpenWhereDialog';
+import { Pane } from './components/Pane';
 import { fileStem, RenameFlowDialog, type RenameResult } from './components/RenameFlowDialog';
 import { SettingsButton } from './components/SettingsButton';
 import { SchemaDialog } from './components/SchemaDialog';
@@ -996,7 +997,7 @@ export function Welcome(): JSX.Element {
             {error && <div className="err-banner inset">{error}</div>}
 
             <div className="welcome">
-                <div className="welcome-rail">
+                <Pane className="welcome-rail" name="welcome-rail" edge="right" label="Resize the side panel">
                     {workspace ? (
                         <>
                             <div className="lede">
@@ -1125,7 +1126,7 @@ export function Welcome(): JSX.Element {
                         <span className="spacer"/>
                         {about && <span className="dim">v{about.version}</span>}
                     </div>
-                </div>
+                </Pane>
 
                 {workspace === null ? (
                     <div className="welcome-main">

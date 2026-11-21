@@ -17,6 +17,7 @@ import { duration, time } from '../format';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Elapsed } from './Elapsed';
 import { Expandable } from './Expandable';
+import { Pane } from './Pane';
 
 /**
  * The run log. The list is the audit trail; the detail is the "why" — each pass
@@ -302,7 +303,7 @@ export function RunsPanel({
 
     return (
         <div className="runs">
-            <div className="runs-list">
+            <Pane className="runs-list" name="runs-list" edge="right" label="Resize the list of runs">
                 <div className="panel-head">
                     <span className="spacer"/>
                     <button className="ghost" onClick={onReveal} title="Open the runs folder">
@@ -347,7 +348,7 @@ export function RunsPanel({
                         </div>
                     </div>
                 ))}
-            </div>
+            </Pane>
 
             <div
                 className="runs-detail"
