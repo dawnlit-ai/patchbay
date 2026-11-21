@@ -1,7 +1,7 @@
 import { BrowserWindow, type Input, type Rectangle, screen } from 'electron';
 import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
-import { WINDOW_SIZES, type WindowKind } from '@shared/settings';
+import { type DisplayArea, WINDOW_KINDS, WINDOW_SIZES, type WindowKind, type WindowSize } from '@shared/settings';
 import { getSettings } from './store/settingsStore';
 
 /**
@@ -114,6 +114,43 @@ function isDevToolsKey(input: Input): boolean {
         : input.control && input.shift && !input.alt && !input.meta;
 }
 
+/** Every open window of a kind. */
+function windowsOf(kind: WindowKind): BrowserWindow[] {
+    const open = kind === 'canvas' ? projects.map((p) => p.win) : [kind === 'welcome' ? welcome : settings];
+    return open.filter((win): win is BrowserWindow => win !== null && !win.isDestroyed());
+}
+
+/**
+ * Give the open windows of each kind whose size Settings just changed the new
+ * one: each keeps its top-left corner where its screen has room, and is shrunk
+ * to fit where it has not. One maximised, full screen or minimised stays as it is.
+ */
+export function resizeOpen(before: Record<WindowKind, WindowSize>, after: Record<WindowKind, WindowSize>): void {
+    for (const kind of WINDOW_KINDS) {
+        const {width, height} = after[kind];
+        if (width === before[kind].width && height === before[kind].height) continue;
+        for (const win of windowsOf(kind)) {
+            if (win.isMaximized() || win.isFullScreen() || win.isMinimized()) continue;
+            const bounds = win.getBounds();
+            const area = screen.getDisplayMatching(bounds).workArea;
+            const w = Math.min(width, area.width);
+            const h = Math.min(height, area.height);
+            win.setBounds({
+                x: Math.max(area.x, Math.min(bounds.x, area.x + area.width - w)),
+                y: Math.max(area.y, Math.min(bounds.y, area.y + area.height - h)),
+                width: w,
+                height: h,
+            });
+        }
+    }
+}
+
+/** How much of the screen `win` is mostly on windows may use. */
+export function displayArea(win: BrowserWindow): DisplayArea {
+    const display = screen.getDisplayMatching(win.getBounds());
+    return {width: display.workArea.width, height: display.workArea.height, label: display.label ?? ''};
+}
+
 /** Close the developer tools on every window: they were just switched off in Settings. */
 export function closeDevTools(): void {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -223,6 +260,8 @@ export function showSettings(): void {
     settings.on('closed', () => {
         settings = null;
     });
+    // Settings → Appearance suggests sizes from the screen it is on, which a move may change.
+    settings.on('moved', () => settings?.webContents.send(IPC.evtWindowMoved));
     load(settings, 'settings');
 }
 

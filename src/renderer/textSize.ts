@@ -6,17 +6,20 @@ import { useCallback, useState } from 'react';
  * it before React renders rather than a frame late.
  */
 
-export const TEXT_SIZES = [90, 100, 110, 120, 130] as const;
+/** In steps of 20: one below 100, where smaller text starts to be hard to read, and three above. */
+export const TEXT_SIZES = [80, 100, 120, 140, 160] as const;
 
 export type TextSize = (typeof TEXT_SIZES)[number];
 
 const KEY = 'patchbay.textSize';
 
-/** 100% unless the user has chosen otherwise, or a size this build no longer offers. */
+/** 100% unless the user has chosen otherwise. A size no longer offered, such as 110, reads as the nearest one that is. */
 export function readTextSize(): TextSize {
     try {
-        const stored = Number(localStorage.getItem(KEY));
-        return TEXT_SIZES.find((size) => size === stored) ?? 100;
+        const stored = localStorage.getItem(KEY);
+        const wanted = stored === null ? NaN : Number(stored);
+        if (!Number.isFinite(wanted)) return 100;
+        return TEXT_SIZES.reduce((best, size) => (Math.abs(size - wanted) < Math.abs(best - wanted) ? size : best));
     } catch {
         return 100;
     }

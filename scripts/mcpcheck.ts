@@ -2026,7 +2026,21 @@ async function main(): Promise<void> {
         JSON.stringify(getSettings().fallbacks) === JSON.stringify([on('agy:sonnet', 'high')]));
     saveSettings(before);
 
-    const {WINDOW_SIZES, windowSizesOf} = await import('../src/shared/settings');
+    const {suggestedWindowSizes, usableWindowSize, WINDOW_KINDS, WINDOW_SIZES, windowSizesOf} =
+        await import('../src/shared/settings');
+    const wide = {width: 2560, height: 1414, label: ''};
+    const laptop = {width: 1512, height: 944, label: ''};
+    const named = (kind: Parameters<typeof suggestedWindowSizes>[0], area: typeof wide): string =>
+        suggestedWindowSizes(kind, area).map((s) => `${s.label} ${s.size.width}x${s.size.height}`).join(', ');
+    check('a wide screen suggests a canvas all of it, most of it, two thirds and half its width — ' + named('canvas', wide),
+        named('canvas', wide) === 'Whole screen 2560x1414, Large 2170x1200, Medium 1790x980, Half width 1280x1414');
+    check('a laptop screen suggests a canvas only the sizes it can open at — ' + named('canvas', laptop),
+        named('canvas', laptop) === 'Whole screen 1512x944, Large 1280x800');
+    check('every size suggested is one its window can open at, on a screen of any size',
+        [wide, laptop, {width: 800, height: 600, label: ''}, {width: 7680, height: 4280, label: ''}].every((area) =>
+            WINDOW_KINDS.every((kind) => suggestedWindowSizes(kind, area).every((s) => usableWindowSize(kind, s.size)))));
+    check('a screen smaller than a window can be suggests nothing for it',
+        suggestedWindowSizes('canvas', {width: 1024, height: 640, label: ''}).length === 0);
     const sizes = windowSizesOf({
         canvas: {width: 1800, height: 1100},
         welcome: {width: 400, height: 800},

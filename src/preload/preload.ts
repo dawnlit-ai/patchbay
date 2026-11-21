@@ -126,6 +126,7 @@ const api: Api = {
         openFlows: () => call(IPC.windowOpenFlows),
         showWelcome: () => call(IPC.windowShowWelcome),
         showSettings: () => call(IPC.windowShowSettings),
+        display: () => call(IPC.windowDisplay),
     },
     runs: {
         list: (limit) => call(IPC.runsList, limit),
@@ -144,6 +145,7 @@ const api: Api = {
         runUpdated: (cb) => subscribe(IPC.evtRunUpdated, cb),
         engineStatus: (cb) => subscribe(IPC.evtEngineStatus, cb),
         windowMaximized: (cb) => subscribe(IPC.evtWindowMaximized, cb),
+        windowMoved: (cb) => subscribe(IPC.evtWindowMoved, cb),
         openFlow: (cb) => subscribe(IPC.evtOpenFlow, cb),
         agentControl: (cb) => subscribe(IPC.evtAgentControl, cb),
         updateStatus: (cb) => subscribe(IPC.evtUpdateStatus, cb),

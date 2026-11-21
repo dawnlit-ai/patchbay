@@ -29,7 +29,16 @@ import { listServerTools } from './tools/serverTools';
 import { Watcher } from './engine/watcher';
 import { AgentControl } from './mcp/server';
 import { logsDir, runsDir, workspaceRoot } from './paths';
-import { closeCanvases, closeDevTools, openFlow, openFlows, showSettings, showWelcome } from './windows';
+import {
+    closeCanvases,
+    closeDevTools,
+    displayArea,
+    openFlow,
+    openFlows,
+    resizeOpen,
+    showSettings,
+    showWelcome,
+} from './windows';
 import { clearLog, logEntries, onLogged } from './log';
 import { Updates } from './updates';
 
@@ -295,7 +304,7 @@ export function registerIpc(): void {
     handle(IPC.settingsGet, () => getSettings());
     handle(IPC.settingsSave, (settings: Settings) => {
         // Keep the stored token: a panel opened before a regeneration would send the old one back.
-        const {agentControl, updateChannel} = getSettings();
+        const {agentControl, updateChannel, windowSizes} = getSettings();
         const saved = saveSettings({
             ...settings,
             agentControl: {...settings.agentControl, token: agentControl.token},
@@ -304,6 +313,7 @@ export function registerIpc(): void {
         getAgentControl().apply();
         if (saved.updateChannel !== updateChannel) getUpdates().channelChanged();
         if (!saved.devToolsEnabled) closeDevTools();
+        resizeOpen(windowSizes, saved.windowSizes);
         // An inspector open on a Processor ticks from Settings → Folders.
         broadcast(IPC.evtSettings, saved);
         return saved;
@@ -449,6 +459,10 @@ export function registerIpc(): void {
         IPC.windowIsMaximized,
         (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,
     );
+    ipcMain.handle(IPC.windowDisplay, (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        return win && !win.isDestroyed() ? displayArea(win) : null;
+    });
 
     handle(IPC.runsList, (limit: number) => (workspaceStore.currentWorkspaceInfo() ? traceStore.listRuns(limit) : []));
     handle(IPC.runsGet, (id: string) => traceStore.getRun(id));

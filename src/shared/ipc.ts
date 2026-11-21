@@ -8,6 +8,7 @@ import type {
     AgentControlStatus,
     AgentId,
     AgentKeySource,
+    DisplayArea,
     EngineStatus,
     McpListing,
     McpServerTool,
@@ -352,6 +353,8 @@ export interface Api {
         openFlows(): Promise<string[]>;
         showWelcome(): Promise<void>;
         showSettings(): Promise<void>;
+        /** How much of the screen this window is on windows may use, for Settings to suggest sizes from. */
+        display(): Promise<DisplayArea | null>;
     };
     /** The open workspace's runs. */
     runs: {
@@ -381,6 +384,8 @@ export interface Api {
         engineStatus(cb: (status: EngineStatus) => void): () => void;
         /** Whether the window is maximised, so the button can offer the opposite. */
         windowMaximized(cb: (maximized: boolean) => void): () => void;
+        /** The settings window was moved, maybe onto another screen. */
+        windowMoved(cb: () => void): () => void;
         /** The welcome window chose a flow, and this window is the one to show it. */
         openFlow(cb: (flowId: string) => void): () => void;
         agentControl(cb: (status: AgentControlStatus) => void): () => void;
@@ -493,6 +498,7 @@ export const IPC = {
     windowOpenFlows: 'window:openFlows',
     windowShowWelcome: 'window:showWelcome',
     windowShowSettings: 'window:showSettings',
+    windowDisplay: 'window:display',
 
     runsList: 'runs:list',
     runsGet: 'runs:get',
@@ -509,6 +515,7 @@ export const IPC = {
     evtRunUpdated: 'evt:runUpdated',
     evtEngineStatus: 'evt:engineStatus',
     evtWindowMaximized: 'evt:windowMaximized',
+    evtWindowMoved: 'evt:windowMoved',
     evtOpenFlow: 'evt:openFlow',
     evtAgentControl: 'evt:agentControl',
     evtUpdateStatus: 'evt:updateStatus',

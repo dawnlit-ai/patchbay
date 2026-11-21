@@ -238,6 +238,43 @@ export function usableWindowSize(kind: WindowKind, size: WindowSize): boolean {
     return fits(size.width, min.width) && fits(size.height, min.height);
 }
 
+/** The screen a window is on, as much of it as windows may use: short of the taskbar, or the menu bar and Dock. */
+export interface DisplayArea {
+    width: number;
+    height: number;
+    /** What the system calls the screen, such as "Built-in Retina Display". Empty where it names none. */
+    label: string;
+}
+
+/** A size worth offering a kind of window on a screen, and what to call it. */
+export interface SuggestedSize {
+    label: string;
+    size: WindowSize;
+}
+
+/**
+ * Sizes that suit a kind of window on `area`: all of it, most of it, about two
+ * thirds of it, and half its width for working beside another app. Each but the
+ * whole is rounded down to ten, and only those the window can open at are offered,
+ * each size once.
+ */
+export function suggestedWindowSizes(kind: WindowKind, area: DisplayArea): SuggestedSize[] {
+    const tens = (n: number): number => Math.floor(n / 10) * 10;
+    const out: SuggestedSize[] = [];
+    for (const suggestion of [
+        {label: 'Whole screen', size: {width: area.width, height: area.height}},
+        {label: 'Large', size: {width: tens(area.width * 0.85), height: tens(area.height * 0.85)}},
+        {label: 'Medium', size: {width: tens(area.width * 0.7), height: tens(area.height * 0.7)}},
+        {label: 'Half width', size: {width: Math.floor(area.width / 2), height: area.height}},
+    ]) {
+        const {width, height} = suggestion.size;
+        if (!usableWindowSize(kind, suggestion.size)) continue;
+        if (out.some(({size}) => size.width === width && size.height === height)) continue;
+        out.push(suggestion);
+    }
+    return out;
+}
+
 /** The window sizes a settings file gives, each kind's own where its is missing or one it cannot open at. */
 export function windowSizesOf(stored: unknown): Record<WindowKind, WindowSize> {
     const given = (stored ?? {}) as Partial<Record<WindowKind, Partial<WindowSize>>>;
@@ -296,8 +333,9 @@ export interface Settings {
      */
     monitorModel: Pick<ModelChoice, 'model' | 'effort'>;
     /**
-     * The size each kind of window opens at. A screen too small for one shrinks
-     * it to fit; a window already open keeps the size it has.
+     * The size of each kind of window: one opened takes it, and those open take a
+     * new one at once, unless maximised, full screen or minimised. A screen too
+     * small for one shrinks it to fit.
      */
     windowSizes: Record<WindowKind, WindowSize>;
     /** Opens each new canvas maximised. Restored, it takes the canvas size above. */

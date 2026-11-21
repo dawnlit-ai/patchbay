@@ -10,11 +10,13 @@ import {
     type AgentId,
     type AgentKeySource,
     CONCURRENT_RUNS_RANGE,
+    type DisplayArea,
     findFolder,
     FOLDER_ACCESS,
     type FolderAccess,
     type FolderSetting,
     type Settings,
+    suggestedWindowSizes,
     UPDATE_CHANNELS,
     type UpdateChannel,
     type UpdateStatus,
@@ -63,16 +65,28 @@ const PAGES: { id: Page; label: string }[] = [
     {id: 'developer', label: 'Developer'},
 ];
 
+const ON_MAC = window.navigator.userAgent.includes('Mac');
+
 /** The keys that open the developer tools, as this computer's keyboard names them. */
-const DEV_TOOLS_KEYS = window.navigator.userAgent.includes('Mac') ? 'F12 or ⌘⌥I' : 'F12 or Ctrl+Shift+I';
+const DEV_TOOLS_KEYS = ON_MAC ? 'F12 or ⌘⌥I' : 'F12 or Ctrl+Shift+I';
+
+/** What a window may not cover on this computer's screens. */
+const SCREEN_CHROME = ON_MAC ? 'the menu bar and Dock' : 'the taskbar';
 
 const ACCESS_LABELS: Record<FolderAccess, string> = {read: 'Read only', write: 'Read and write'};
 
-/** Each kind of window as Settings → Appearance names it, and what it is for. */
-const WINDOW_LABELS: Record<WindowKind, { label: string; plural: string; description: string }> = {
-    canvas: {label: 'Canvas', plural: 'canvases', description: 'Where a flow is drawn, tested and watched.'},
-    welcome: {label: 'Start page', plural: 'start pages', description: 'The list of flows, shown when Patchbay starts.'},
-    settings: {label: 'Settings', plural: 'settings windows', description: 'This window, the next time it opens.'},
+/**
+ * Each kind of window as Settings → Appearance names it, what it is for, and how
+ * to name those open of it at the start of a sentence.
+ */
+const WINDOW_LABELS: Record<WindowKind, { label: string; subject: string; description: string }> = {
+    canvas: {label: 'Canvas', subject: 'Canvases', description: 'Where a flow is drawn, tested and watched.'},
+    welcome: {
+        label: 'Start page',
+        subject: 'The start page',
+        description: 'The list of flows, shown when Patchbay starts.'
+    },
+    settings: {label: 'Settings', subject: 'This window', description: 'This window.'},
 };
 
 /** The window sizes as they are saved: one that cannot be opened at, as one is while it is retyped, stays as saved. */
@@ -533,6 +547,24 @@ export function SettingsPanel({
         setDraft((d) => ({...d, windowSizes: {...d.windowSizes, [kind]: {...d.windowSizes[kind], ...partial}}}));
 
     const [textSize, setTextSize] = useTextSize();
+
+    /**
+     * The screen this window is on, for the window sizes to suggest from. Asked
+     * again when Appearance is opened, when the window comes back to the front,
+     * and once it has been moved, as any of those may find it on another screen.
+     */
+    const [display, setDisplay] = useState<DisplayArea | null>(null);
+    useEffect(() => {
+        if (page !== 'appearance') return;
+        const ask = (): void => void window.api.window.display().then(setDisplay);
+        ask();
+        window.addEventListener('focus', ask);
+        const stopMoved = window.api.on.windowMoved(ask);
+        return () => {
+            window.removeEventListener('focus', ask);
+            stopMoved();
+        };
+    }, [page]);
 
     const patchFolder = (index: number, partial: Partial<FolderSetting>): void =>
         setDraft((d) => ({...d, folders: d.folders.map((f, j) => (j === index ? {...f, ...partial} : f))}));
@@ -1142,8 +1174,8 @@ export function SettingsPanel({
                         {page === 'appearance' && (
                             <>
                                 <PageHead title="Appearance">
-                                    How large the text is, and the size each kind of window opens at. These are for
-                                    this computer only; nothing here changes what a flow does.
+                                    How large the text is, and how large each kind of window is. These are for this
+                                    computer only; nothing here changes what a flow does.
                                 </PageHead>
                                 <div className="set-group">
                                     <Row
@@ -1169,17 +1201,27 @@ export function SettingsPanel({
                                 <header className="set-head set-subhead">
                                     <h2>Window size</h2>
                                     <p>
-                                        The width and height each kind of window opens at. A window already open
-                                        keeps its size, and a screen too small for one shrinks it to fit. Sizes are
-                                        before display scaling: at 150%, 1000 is 1,500 pixels on the screen.
+                                        The width and height of each kind of window. Those open change size as
+                                        soon as you change it, unless maximised or minimised, and a screen too small
+                                        for one shrinks it to fit. Sizes are before display scaling: at 150%, 1000
+                                        is 1,500 pixels on the screen.
                                     </p>
+                                    {display && (
+                                        <p>
+                                            The sizes under each are suggested for the screen this window is on
+                                            {display.label ? `, ${display.label}` : ''}:{' '}
+                                            {`${display.width}\u00a0×\u00a0${display.height}`} once {SCREEN_CHROME} {ON_MAC ? 'are' : 'is'} left
+                                            out.
+                                        </p>
+                                    )}
                                 </header>
                                 <div className="set-group">
                                     {WINDOW_KINDS.map((kind) => {
-                                        const {label, plural, description} = WINDOW_LABELS[kind];
+                                        const {label, subject, description} = WINDOW_LABELS[kind];
                                         const size = draft.windowSizes[kind];
                                         const {initial, min} = WINDOW_SIZES[kind];
                                         const saved = settings.windowSizes[kind];
+                                        const suggestions = display ? suggestedWindowSizes(kind, display) : [];
                                         return (
                                             <Row
                                                 key={kind}
@@ -1187,7 +1229,7 @@ export function SettingsPanel({
                                                 description={
                                                     usableWindowSize(kind, size)
                                                         ? description
-                                                        : `Pick a width of ${min.width} or more and a height of ${min.height} or more, up to ${WINDOW_SIZE_MAX}. New ${plural} open at ${saved.width} × ${saved.height} until then.`
+                                                        : `Pick a width of ${min.width} or more and a height of ${min.height} or more, up to ${WINDOW_SIZE_MAX}. ${subject} ${kind === 'canvas' ? 'stay' : 'stays'} at ${saved.width} × ${saved.height} until then.`
                                                 }
                                                 control={
                                                     <>
@@ -1222,6 +1264,29 @@ export function SettingsPanel({
                                                             Reset
                                                         </button>
                                                     </>
+                                                }
+                                                below={
+                                                    suggestions.length > 0 && (
+                                                        <div
+                                                            className="segmented set-sizes"
+                                                            role="radiogroup"
+                                                            aria-label={`Suggested sizes for ${label.toLowerCase()} windows`}
+                                                        >
+                                                            {suggestions.map((s) => (
+                                                                <button
+                                                                    key={s.label}
+                                                                    role="radio"
+                                                                    aria-checked={same(size, s.size)}
+                                                                    onClick={() => patchSize(kind, s.size)}
+                                                                >
+                                                                    {s.label}
+                                                                    <span className="dims">
+                                                                        {s.size.width} × {s.size.height}
+                                                                    </span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )
                                                 }
                                             />
                                         );
