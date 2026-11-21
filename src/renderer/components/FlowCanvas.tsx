@@ -7,13 +7,13 @@ import {
     type Connection,
     Controls,
     type Edge,
-    type EdgeChange,
+    type EdgeChangeset,
     type EdgeProps,
     getBezierPath,
     Handle,
     MiniMap,
     type Node,
-    type NodeChange,
+    type NodeChangeset,
     type NodeProps,
     Position,
     ReactFlow,
@@ -454,7 +454,7 @@ export function FlowCanvas({
     }, [flow.nodes, flow.edges, highlight, removeEdge, slots, tokens]);
 
     const onNodesChange = useCallback(
-        (changes: NodeChange[]) => {
+        (changes: NodeChangeset) => {
             let nodes = flow.nodes;
             let edges = flow.edges;
             let touched = false;
@@ -488,9 +488,9 @@ export function FlowCanvas({
     );
 
     const onEdgesChange = useCallback(
-        (changes: EdgeChange[]) => {
+        (changes: EdgeChangeset) => {
             const removed = new Set(
-                changes.filter((c): c is EdgeChange & { id: string } => c.type === 'remove').map((c) => c.id),
+                changes.getByType('remove').map((c) => c.id),
             );
             if (removed.size === 0) return;
             onChange({...flow, edges: flow.edges.filter((e) => !removed.has(e.id))});
