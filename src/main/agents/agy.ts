@@ -75,8 +75,11 @@ const AGY_SETTINGS = '~/.gemini/antigravity-cli/settings.json';
 const PLUGIN = 'patchbay';
 const agyServer = (server: string): string => `${PLUGIN}_${server}`;
 
-/** agy's own tools a step may use, within its folders; `finish` is what carries the result. */
-const READ_TOOLS = ['view_file', 'list_dir', 'grep_search', 'find_by_name'];
+/**
+ * agy's own tools a step may use, within its folders; `finish` is what carries the result.
+ * Gemini 4 is handed a smaller set, whose one reading tool is `read_file`, and it reads a PDF too.
+ */
+const READ_TOOLS = ['view_file', 'read_file', 'list_dir', 'grep_search', 'find_by_name'];
 
 /** What would need a shell or file-write rule in agy's settings, which a run is never given. */
 const FILE_SYSTEM_TOOLS = ['Write', 'Edit', 'Bash'];
@@ -443,7 +446,7 @@ function environmentNotes(servers: string[], skills: string[], follow: string[],
                     ? `Before anything else, read the skill${one ? '' : 's'} this step is given — ${listed(follow)} — and follow ${one ? 'it' : 'them'}; ` +
                     'read another where the task or a skill calls for it. '
                     : 'Read one where its name fits the task. ') +
-                'Where a skill says to load another with the Skill tool, read its SKILL.md; where it says Read, use view_file.',
+                'Where a skill says to load another with the Skill tool, read its SKILL.md; where it says Read, use your file-reading tool (view_file or read_file, whichever you have).',
             ]
             : []),
         'You cannot run commands or browse the web here, nor write a file but through these MCP tools. If the task needs more, say so in your result.',
@@ -658,8 +661,9 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
                     const tool = tools.get(step.step_index);
                     const failed = step.state === 'ERROR';
                     const output = failed ? step.tool_info.error?.message : step.tool_info.output;
-                    // A call agy's settings refused ends done, but with nothing to show for it.
-                    const outcome = failed ? 'error' : output ? 'ok' : 'no result';
+                    // An MCP call agy's settings refused ends done, but with nothing to show for it.
+                    // A file read ends done with none too, when the file went to the model as a PDF or an image.
+                    const outcome = failed ? 'error' : output || !tool?.mcp ? 'ok' : 'no result';
                     request.onEvent({
                         at: now(),
                         type: 'tool-result',
