@@ -29,7 +29,7 @@ import {
     makeNode,
     mintNodeId,
     modelsInTurn,
-    moveFolderLabel,
+    movePath,
     NODE_KIND_META,
     type NodeKind,
     type OfferedModel,
@@ -230,8 +230,8 @@ function describe(node: FlowNode): string {
         case 'send':
             return `Sending: ${c.sending ? 'on' : 'off'} · ${c.drafts.length > 0 ? c.drafts.join(', ') : 'no drafts ticked'}`;
         case 'move-email':
-            return c.folder.trim()
-                ? `To ${moveFolderLabel(c.under, c.folder.trim())} · no model${c.output ? ` · → ${c.output}` : ''}`
+            return movePath(c.path)
+                ? `To ${movePath(c.path)} · no model${c.output ? ` · → ${c.output}` : ''}`
                 : 'No folder yet';
         case 'terminal':
             return c.disposition;

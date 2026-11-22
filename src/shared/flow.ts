@@ -329,28 +329,18 @@ export interface SendConfig {
 }
 
 /**
- * Where a Move email's folder starts: inside the Inbox, or at the top of the
- * mailbox, beside the Inbox, where Outlook puts a folder made on the mailbox
- * itself.
- */
-export type MoveUnder = 'inbox' | 'mailbox';
-export const MOVE_UNDERS: MoveUnder[] = ['inbox', 'mailbox'];
-
-/**
  * Files the email into a folder in its mailbox, creating the folder if it does
- * not exist, with no model. The folder path can name a field an earlier node
- * filled, in braces, such as `Processed/{{order.client}}`.
+ * not exist, with no model. The folder's path can name a field an earlier node
+ * filled, in braces, such as `Inbox\Processed\{{order.client}}`.
  */
 export interface MoveEmailConfig {
     /**
-     * Where to file the email: a path (`Processed`, `Processed/Invoices`) from
-     * where `under` says, or a well-known folder (`Deleted Items`), which is
-     * found by its role from either. May name a field in braces,
-     * `{{order.client}}`, which the run writes in.
+     * The folder to file the email into, as a path from the top of the email's
+     * mailbox: `Inbox\Processed` for a folder in the Inbox, `Processed` for one
+     * beside it, `Deleted Items\2026` under a well-known folder. May name a field
+     * in braces, `{{order.client}}`, which the run writes in.
      */
-    folder: string;
-    /** Whether `folder` is inside the Inbox or beside it, at the top of the mailbox. */
-    under: MoveUnder;
+    path: string;
     /**
      * The slot later nodes read where the email went by, filled on Moved and
      * Error. Empty fills nothing.
@@ -1208,22 +1198,52 @@ export const MOVE_EMAIL_SCHEMA: JsonSchema = {
 
 /** Every field a Move email's folder names in braces. */
 function moveEmailFields(config: MoveEmailConfig): string[] {
-    return fieldRefs(config.folder).filter(namesField);
+    return fieldRefs(config.path).filter(namesField);
 }
 
-/** Where a Move email files the email, in words: “Processed in the Inbox”, “Processed beside the Inbox”. */
-export function moveFolderLabel(under: MoveUnder, folder: string): string {
-    return `${folder} ${under === 'mailbox' ? 'beside' : 'in'} the Inbox`;
+/** The mailbox a full Outlook path starts with: `\\beop@example.com\`. */
+const MAILBOX_PREFIX = /^\s*\\\\[^\\/]+[\\/]/;
+
+/**
+ * A Move email's path as the folder it names from the top of the mailbox:
+ * trimmed, with any leading separators and a full Outlook path's mailbox taken
+ * off, so `\\beop@example.com\Inbox\Processed` and `\Inbox\Processed` are both
+ * `Inbox\Processed`. The mailbox is always the email's own.
+ */
+export function movePath(path: string): string {
+    return path.replace(MAILBOX_PREFIX, '').replace(/^[\\/\s]+/, '').trim();
 }
 
 /**
- * The folder Outlook is asked for, once any braces are filled. In the Inbox it
- * is the path as written; beside it, the full path Outlook writes for a folder
- * at the top of the mailbox, `\\beop@example.com\Processed`, which is how the
- * bridge tells the two apart.
+ * The full Outlook path the bridge is asked for, once any braces are filled:
+ * `\\beop@example.com\Inbox\Processed`. A full path is read from the top of the
+ * mailbox, so `Processed` is the folder beside the Inbox, and a well-known
+ * folder, `Deleted Items`, is found by its role whatever Outlook calls it.
  */
-export function moveFolderPath(under: MoveUnder, account: string, folder: string): string {
-    return under === 'mailbox' ? `\\\\${account}\\${folder.replace(/^[\\/\s]+/, '')}` : folder;
+export function moveFolderPath(account: string, path: string): string {
+    return `\\\\${account}\\${movePath(path)}`;
+}
+
+/** The folders the bridge finds by their role, so a path once read from the Inbox reached them by name alone. */
+const WELL_KNOWN_FOLDERS = new Set([
+    'inbox', 'sent items', 'sent', 'sent mail', 'drafts', 'deleted items', 'deleted', 'trash', 'junk email', 'junk', 'outbox',
+]);
+
+/**
+ * A Move email's folder from before its path was whole, `{folder, under}`, as a
+ * path from the top of the mailbox. Unless `under` said `mailbox`, the folder
+ * was read from inside the Inbox and becomes `Inbox\<folder>`; but a well-known
+ * folder was found by its role either way, and a full Outlook path was read
+ * from the top, so those stay as they are.
+ */
+function legacyMovePath(folder: string, under: unknown): string {
+    const path = movePath(folder);
+    // Nothing, or separators alone: kept, for the canvas to flag as it always has.
+    if (!path) return folder.trim();
+    if (under === 'mailbox' || MAILBOX_PREFIX.test(folder)) return path;
+    if (WELL_KNOWN_FOLDERS.has((path.split(/[\\/]/)[0] ?? '').trim().toLowerCase())) return path;
+    // In the separator the folder was written with, so `Processed/{{x}}` reads `Inbox/Processed/{{x}}`.
+    return `Inbox${path.includes('/') && !path.includes('\\') ? '/' : '\\'}${path}`;
 }
 
 /**
@@ -1232,13 +1252,13 @@ export function moveFolderPath(under: MoveUnder, account: string, folder: string
  */
 export function moveEmailProblems(node: FlowNode, config: MoveEmailConfig): string[] {
     const problems: string[] = [];
-    const folder = config.folder.trim();
+    const folder = config.path.trim();
     if (!folder) {
-        problems.push(`${node.name} has no folder yet: give the folder to move the email to, such as Processed.`);
-    } else if (!/[^\\/\s]/.test(folder)) {
-        problems.push(`${node.name}’s folder, “${folder}”, names no folder: give one, such as Processed.`);
+        problems.push(`${node.name} has no folder yet: give the folder to move the email to, such as Inbox\\Processed.`);
+    } else if (!/[^\\/\s]/.test(movePath(folder))) {
+        problems.push(`${node.name}’s folder, “${folder}”, names no folder: give one, such as Inbox\\Processed.`);
     }
-    for (const field of fieldRefs(config.folder)) {
+    for (const field of fieldRefs(config.path)) {
         if (namesField(field)) continue;
         problems.push(
             `${node.name}’s folder has {{${field}}}, which names no field: write a slot and a field in it, as {{order.client}}.`,
@@ -1595,7 +1615,7 @@ export function defaultConfig(kind: NodeKind, offered?: readonly OfferedModel[] 
         case 'send':
             return {kind, drafts: [], sending: false, output: 'sent'};
         case 'move-email':
-            return {kind, folder: '', under: 'inbox', output: ''};
+            return {kind, path: '', output: ''};
         case 'terminal':
             return {kind, disposition: 'done'};
     }
@@ -1936,9 +1956,9 @@ function parseConfig(kind: NodeKind, raw: unknown): NodeConfig {
         case 'move-email':
             return {
                 ...base,
-                folder: str(from.folder, base.folder),
-                // A flow from before there was a choice files into the Inbox, as it did.
-                under: oneOf(from.under, MOVE_UNDERS, base.under),
+                // Before the path was whole, a flow kept `folder`, read from where `under` said:
+                // the Inbox, unless it said beside it. An agent's update_node may still send it.
+                path: typeof from.folder === 'string' ? legacyMovePath(from.folder, from.under) : str(from.path, base.path),
                 output: outputName(from.output, ''),
             };
         case 'terminal':

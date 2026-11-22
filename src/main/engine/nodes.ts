@@ -18,8 +18,8 @@ import {
     type MoveEmailConfig,
     type MoveEmailOutcome,
     moveEmailProblems,
-    moveFolderLabel,
     moveFolderPath,
+    movePath,
     needsField,
     nodeSchemaIssue,
     outputPorts,
@@ -1041,13 +1041,14 @@ async function runSend(ctx: NodeContext, config: SendConfig): Promise<NodeOutcom
 // ── Move email ───────────────────────────────────────────────────────────
 // No model: Outlook files the email into the folder, creating it if it is not
 // there yet. A field in braces is filled from the run's slots first; an empty
-// field stops before Outlook so `Processed/{{order.client}}` never files into
-// `Processed` when `order.client` is blank.
+// field stops before Outlook so `Inbox\Processed\{{order.client}}` never files
+// into `Inbox\Processed` when `order.client` is blank.
 
-function filledFolder(folder: string, data: Readonly<Record<string, unknown>>): string {
-    const written = fillFields(folder, data, true).trim();
+/** The node's path with its fields written in, from the top of the mailbox: `Inbox\Processed\Acme`. */
+function filledFolder(path: string, data: Readonly<Record<string, unknown>>): string {
+    const written = movePath(fillFields(path, data, true));
     if (!/[^\\/\s]/.test(written)) {
-        throw new Error(`folder came to nothing once ${folder.trim()} was filled in`);
+        throw new Error(`folder came to nothing once ${path.trim()} was filled in`);
     }
     return written;
 }
@@ -1063,23 +1064,22 @@ async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<
 
     let folder: string;
     try {
-        folder = filledFolder(config.folder, ctx.data);
+        folder = filledFolder(config.path, ctx.data);
     } catch (e) {
         const message = `${ctx.node.name} moved nothing: ${errorMessage(e)}.`;
         return {outPort: 'error', summary: message, error: message, provided: handOn({why: message})};
     }
 
-    const named = moveFolderLabel(config.under, folder);
     let result: { folderPath: string; folderCreated: boolean; moved: number; failed: { error: string }[] };
     try {
-        result = await outlook.moveEmail(ctx.email.ref, moveFolderPath(config.under, ctx.email.ref.account, folder));
+        result = await outlook.moveEmail(ctx.email.ref, moveFolderPath(ctx.email.ref.account, folder));
     } catch (e) {
-        const message = `Could not move the email to ${named}: ${errorMessage(e)}`;
+        const message = `Could not move the email to ${folder}: ${errorMessage(e)}`;
         return {outPort: 'error', summary: message, error: message, provided: handOn({folder, why: message})};
     }
     if (result.moved === 0) {
         const reason = result.failed.map((f) => f.error).join('; ') || 'Outlook did not move the email';
-        const message = `Could not move the email to ${named}: ${reason}`;
+        const message = `Could not move the email to ${folder}: ${reason}`;
         return {
             outPort: 'error',
             summary: message,

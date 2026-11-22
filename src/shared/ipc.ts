@@ -96,6 +96,16 @@ export interface InboxFolderOption {
     itemCount: number;
 }
 
+/** A mail folder anywhere in a mailbox, as a Move email names it. */
+export interface MailboxFolderOption {
+    /** From the top of the mailbox, as a Move email stores it: `Inbox\Processed`, or `Processed` beside the Inbox. */
+    path: string;
+    name: string;
+    /** 1 at the top of the mailbox, where the Inbox is. */
+    depth: number;
+    itemCount: number;
+}
+
 /** A model Claude Code, agy or Jev offers, as its own model list names it. */
 export interface ModelOption {
     /** What a node stores and the run is started with — often an alias, such as `opus`. */
@@ -260,6 +270,8 @@ export interface Api {
         /** The signatures Outlook keeps on this machine, by name; one set for all its accounts. */
         signatures(): Promise<string[]>;
         folders(account: string): Promise<InboxFolderOption[]>;
+        /** Every mail folder in the mailbox, from its top: what a Move email picks from. */
+        mailboxFolders(account: string): Promise<MailboxFolderOption[]>;
         /** Recent mail where a trigger looks, newest first, for picking a message to test a flow against. */
         recent(scope: MailScope, days: number, limit: number): Promise<EmailEnvelope[]>;
         /**
@@ -465,6 +477,7 @@ export const IPC = {
     outlookAccounts: 'outlook:accounts',
     outlookSignatures: 'outlook:signatures',
     outlookFolders: 'outlook:folders',
+    outlookMailboxFolders: 'outlook:mailboxFolders',
     outlookRecent: 'outlook:recent',
     outlookDragged: 'outlook:dragged',
     outlookSelected: 'outlook:selected',

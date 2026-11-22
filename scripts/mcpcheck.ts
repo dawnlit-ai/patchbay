@@ -1379,7 +1379,7 @@ async function main(): Promise<void> {
 
     // A Switch decides with no model: each rule is checked on the canvas against
     // the schema of the slot it reads, and the first that matches picks the route.
-    const {decideSwitch, moveFolderPath, parseFlow, stepModels} = await import('../src/shared/flow');
+    const {decideSwitch, moveEmailProblems, moveFolderPath, parseFlow, stepModels} = await import('../src/shared/flow');
     await call('set_schema', {
         name: 'Verdict',
         schema: {
@@ -1908,7 +1908,7 @@ async function main(): Promise<void> {
     check(
         'a new move email has moved and error ports, and starts with no folder and no output slot',
         moveAdded.text.includes('"port": "moved"') && moveAdded.text.includes('"port": "error"') &&
-        moveAdded.text.includes('"folder": ""') && moveAdded.text.includes('"output": ""'),
+        moveAdded.text.includes('"path": ""') && moveAdded.text.includes('"output": ""'),
     );
     await wire(sender, 'sent', mover);
     await wire(sender, 'held', mover);
@@ -1917,14 +1917,14 @@ async function main(): Promise<void> {
     await call('update_node', {
         flowId: thanks,
         nodeId: mover,
-        config: {folder: '///'},
+        config: {path: '///'},
     });
     check('a folder of only slashes is flagged',
         flaggedWith(await issuesOf(mover), 'error', 'names no folder'));
     await call('update_node', {
         flowId: thanks,
         nodeId: mover,
-        config: {folder: 'Processed/{{verdict}}/{{verdict.answering}}/{{verdict.nope}}/{{order.id}}'},
+        config: {path: 'Inbox/Processed/{{verdict}}/{{verdict.answering}}/{{verdict.nope}}/{{order.id}}'},
     });
     const moveFlagged = await issuesOf(mover);
     check('braces in folder that name no field are flagged',
@@ -1938,7 +1938,7 @@ async function main(): Promise<void> {
     await call('update_node', {
         flowId: thanks,
         nodeId: mover,
-        config: {folder: 'Processed/{{verdict.reply}}', output: 'filing'},
+        config: {path: 'Inbox\\Processed\\{{verdict.reply}}', output: 'filing'},
     });
     check('a move email whose folder and fields fit is not flagged', (await issuesOf(mover)).length === 0);
 
@@ -1946,7 +1946,7 @@ async function main(): Promise<void> {
     if (moverNode?.config.kind === 'move-email') {
         const noFolder = await runNode({
             ...moverNode,
-            config: {...moverNode.config, folder: ''}
+            config: {...moverNode.config, path: ''}
         }, verdict('quote', false));
         const noFolderSlot = noFolder.provided?.filing as MoveEmailOutcome | undefined;
         check(
@@ -1955,7 +1955,7 @@ async function main(): Promise<void> {
             noFolderSlot.why.includes('has no folder yet'),
         );
         const missingField = await runNode(
-            {...moverNode, config: {...moverNode.config, folder: 'Processed/{{verdict.answering.kind}}'}},
+            {...moverNode, config: {...moverNode.config, path: 'Inbox\\Processed\\{{verdict.answering.kind}}'}},
             {verdict: {reply: 'quote', seen: false}},
         );
         check(
@@ -1974,36 +1974,57 @@ async function main(): Promise<void> {
             'the move email node was not saved');
     }
 
-    // Where the folder is: in the Inbox, as a flow from before the choice files, or beside it.
-    const inInbox = saved(mover);
-    check('a move email files in the Inbox unless told otherwise',
-        inInbox?.config.kind === 'move-email' && inInbox.config.under === 'inbox');
-    await call('update_node', {flowId: thanks, nodeId: mover, config: {under: 'mailbox'}});
-    const beside = saved(mover);
+    // The folder is a path from the top of the mailbox. An agent that still sends the
+    // old `folder`, read from where `under` said, gets the path it meant.
+    const movedPath = async (config: Record<string, unknown>): Promise<string | null> => {
+        await call('update_node', {flowId: thanks, nodeId: mover, config});
+        const node = saved(mover);
+        return node?.config.kind === 'move-email' ? node.config.path : null;
+    };
+    check('an old folder sent with no choice is a folder in the Inbox',
+        (await movedPath({folder: 'Processed'})) === 'Inbox\\Processed');
+    check('an old folder sent beside the Inbox is a folder at the top of the mailbox',
+        (await movedPath({folder: 'Processed', under: 'mailbox'})) === 'Processed');
+    check('a path is kept as given, and the old choice alone changes nothing',
+        (await movedPath({path: 'Inbox\\Processed\\{{verdict.reply}}'})) === 'Inbox\\Processed\\{{verdict.reply}}' &&
+        (await movedPath({under: 'mailbox'})) === 'Inbox\\Processed\\{{verdict.reply}}');
+    check('a move email whose path and fields fit is still not flagged', (await issuesOf(mover)).length === 0);
+    check('a mailbox and nothing else names no folder', moveEmailProblems(
+        {id: 'x', kind: 'move-email', name: 'Move', position: {x: 0, y: 0}, config: {kind: 'move-email', path: '\\\\beop@example.com\\', output: ''}},
+        {path: '\\\\beop@example.com\\', output: ''},
+    ).some((p) => p.includes('names no folder')));
     check(
-        'a move email can file beside the Inbox, keeping its folder',
-        beside?.config.kind === 'move-email' && beside.config.under === 'mailbox' &&
-        beside.config.folder === 'Processed/{{verdict.reply}}',
+        'Outlook is asked for the full path, in the email’s own mailbox, whatever mailbox the path names',
+        moveFolderPath('beop@example.com', 'Inbox\\Processed') === '\\\\beop@example.com\\Inbox\\Processed' &&
+        moveFolderPath('beop@example.com', 'Processed') === '\\\\beop@example.com\\Processed' &&
+        moveFolderPath('beop@example.com', '/Processed/2026') === '\\\\beop@example.com\\Processed/2026' &&
+        moveFolderPath('beop@example.com', '\\\\other@example.com\\Inbox\\Done') === '\\\\beop@example.com\\Inbox\\Done',
     );
-    check(
-        'beside the Inbox, Outlook is asked for the full path of a folder at the top of the mailbox',
-        moveFolderPath('mailbox', 'beop@example.com', 'Processed') === '\\\\beop@example.com\\Processed' &&
-        moveFolderPath('mailbox', 'beop@example.com', '/Processed/2026') === '\\\\beop@example.com\\Processed/2026' &&
-        moveFolderPath('inbox', 'beop@example.com', 'Processed') === 'Processed',
-    );
-    const oldMover = parseFlow(
-        {
-            nodes: [{id: 'm1', kind: 'move-email', config: {folder: 'Processed'}}, {
-                id: 'm2',
-                kind: 'move-email',
-                config: {folder: 'Processed', under: 'attic'}
-            }]
-        },
+    const oldFolders: [Record<string, unknown>, string][] = [
+        [{folder: 'Processed'}, 'Inbox\\Processed'],
+        [{folder: 'Processed', under: 'inbox'}, 'Inbox\\Processed'],
+        [{folder: 'Processed', under: 'attic'}, 'Inbox\\Processed'],
+        [{folder: 'Clients\\Acme', under: 'inbox'}, 'Inbox\\Clients\\Acme'],
+        [{folder: 'Processed/{{order.client}}'}, 'Inbox/Processed/{{order.client}}'],
+        [{folder: 'Processed', under: 'mailbox'}, 'Processed'],
+        [{folder: '\\Processed', under: 'mailbox'}, 'Processed'],
+        [{folder: 'Deleted Items\\2026'}, 'Deleted Items\\2026'],
+        [{folder: 'inbox\\Done'}, 'inbox\\Done'],
+        [{folder: '\\\\beop@example.com\\Archive'}, 'Archive'],
+        [{folder: ''}, ''],
+        [{folder: '///'}, '///'],
+        [{path: 'Inbox\\Done'}, 'Inbox\\Done'],
+    ];
+    const parsedFolders = parseFlow(
+        {nodes: oldFolders.map(([config], i) => ({id: `m${i}`, kind: 'move-email', config}))},
         'old',
         'Old',
-    ).nodes.map((n) => (n.config.kind === 'move-email' ? n.config.under : null));
-    check('a flow file with no choice, or one it does not know, files in the Inbox', oldMover.every((u) => u === 'inbox'),
-        JSON.stringify(oldMover));
+    ).nodes.map((n) => (n.config.kind === 'move-email' ? n.config.path : null));
+    check(
+        'a flow file from before reads as the path it filed into: in the Inbox unless beside it, a well-known or full path as it was',
+        parsedFolders.every((path, i) => path === oldFolders[i]![1]),
+        JSON.stringify(parsedFolders),
+    );
 
     // A flow file written by hand: routes keep their ids, a repeat gets a new one,
     // and a list left empty stays empty.

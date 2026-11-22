@@ -11,9 +11,9 @@ import type {
     SendEmailParams,
     SendEmailResult,
 } from '@dawnlit/outlook-bridge';
-import { folderLabel, type MailScope, readsFolder, soleFolder } from '@shared/flow';
+import { folderLabel, type MailScope, movePath, readsFolder, soleFolder } from '@shared/flow';
 import type { EmailEnvelope, EmailRef } from '@shared/trace';
-import type { InboxFolderOption, OutlookDrag } from '@shared/ipc';
+import type { InboxFolderOption, MailboxFolderOption, OutlookDrag } from '@shared/ipc';
 import { errorMessage } from '@shared/util';
 import { log } from '../log';
 
@@ -102,6 +102,18 @@ export async function listFolders(account: string): Promise<InboxFolderOption[]>
         });
     }
     return options;
+}
+
+/**
+ * Every mail folder in a mailbox from its top, depth-first, each with its path
+ * from there as a Move email stores it: `Inbox\Processed`, or `Processed` for a
+ * folder beside the Inbox. As deep as the bridge goes.
+ */
+export async function listMailboxFolders(account: string): Promise<MailboxFolderOption[]> {
+    const folders: InboxFolderInfo[] = await call(`List every folder in ${account}`, (b) =>
+        b.listInboxFolders(account, {from: 'mailbox', maxDepth: 10}),
+    );
+    return folders.map((f) => ({path: movePath(f.folderPath), name: f.name, depth: f.depth, itemCount: f.itemCount}));
 }
 
 /**

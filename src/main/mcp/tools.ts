@@ -172,15 +172,16 @@ rather than a fan-out. The nine node kinds:
                     {sent, held, failed, why}, where \`sent\` and \`held\`
                     list recipients and \`failed\` is [{to, why}].
 - move-email      — files the email into a folder in its mailbox, creating
-                    the folder if it does not exist, with no model. \`folder\`
-                    is a path ("Processed", "Clients\\Acme") from where
-                    \`under\` says: "inbox" (the default) inside the Inbox,
-                    "mailbox" at the top of the mailbox, beside the Inbox,
-                    where a folder made on the mailbox itself sits. A
-                    well-known folder ("Deleted Items") is found by its role
-                    from either. \`folder\` may name fields in braces
-                    ("Processed/{{order.client}}") that the run writes in.
-                    Ports: "moved" and "error". With \`output\`
+                    the folder if it does not exist, with no model. \`path\`
+                    is the folder's path from the top of the mailbox:
+                    "Inbox\\Processed" in the Inbox, "Processed" beside it,
+                    "Deleted Items\\2026" under a well-known folder, which
+                    is found by its role whatever Outlook calls it.
+                    list_folders with from "mailbox" gives each folder's
+                    \`path\`. The mailbox is always the email's own. \`path\`
+                    may name fields in braces
+                    ("Inbox\\Processed\\{{order.client}}") that the run
+                    writes in. Ports: "moved" and "error". With \`output\`
                     set, both ports fill that slot with {moved, folder,
                     folderCreated, why}.
 - terminal        — ends the path and records how the email came out, as
@@ -192,7 +193,7 @@ A later node reads a slot by listing it in \`inputs\` (a processor or an
 extractor) or in \`drafts\` (a send, where each slot must be a create-email's
 draft), or by naming one of its fields: in a rule's \`field\` (a switch),
 in a placeholder or in braces in To, Cc or Subject (a create-email), or in
-braces in \`folder\` (a move-email);
+braces in \`path\` (a move-email);
 get_flow's slotsOnArrival says which slots are sure to reach a node, and its
 slotIssues flag a field the slot's schema lacks, a rule's value it never holds,
 a slot in \`drafts\` that is not a draft, a switch's rule that leads to no
@@ -864,11 +865,18 @@ export function registerAgentTools(server: McpServer, host: AgentHost): void {
         {
             title: 'List mailbox folders',
             description:
-                'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders`, and the Inbox itself is the empty string.',
-            inputSchema: {account: z.string()},
+                'The Inbox and every folder below it, for one account. `relativePath` is what a trigger lists in its `folders`, and the Inbox itself is the empty string. With `from` "mailbox", every mail folder from the top of the mailbox instead, the Inbox and the folders beside it included, each with the `path` a move-email files into.',
+            inputSchema: {
+                account: z.string(),
+                from: z
+                    .enum(['inbox', 'mailbox'])
+                    .optional()
+                    .describe('"inbox" (the default) for a trigger\'s folders; "mailbox" for a move-email\'s.'),
+            },
             annotations: {readOnlyHint: true},
         },
-        async ({account}) => json(await outlook.listFolders(account)),
+        async ({account, from}) =>
+            json(await (from === 'mailbox' ? outlook.listMailboxFolders(account) : outlook.listFolders(account))),
     );
 
     server.registerTool(

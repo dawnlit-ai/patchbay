@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import {
     type InboxFolderOption,
     IPC,
+    type MailboxFolderOption,
     type OpenWhere,
     type OutlookDrag,
     type WorkspaceChange,
@@ -376,6 +377,9 @@ export function registerIpc(): void {
     handle(IPC.outlookSignatures, () => outlook.getSignatures());
     handle(IPC.outlookFolders, (account: string): Promise<InboxFolderOption[]> =>
         outlook.listFolders(account),
+    );
+    handle(IPC.outlookMailboxFolders, (account: string): Promise<MailboxFolderOption[]> =>
+        outlook.listMailboxFolders(account),
     );
     handle(IPC.outlookRecent, (scope: MailScope, days: number, limit: number) =>
         outlook.readScope(scope, days, limit),
