@@ -71,6 +71,11 @@ mcp(patchbay_<server>/<tool>)
 A run that is refused one says which rules to add. agy reads the folders a Processor ticks, but writes in none, so a
 Processor that runs commands, writes in a folder, or still reads and writes files anywhere cannot run on agy.
 
+Gemini 4 sometimes writes a key with a space or a stop in it with quotes kept inside the name — `"B/L NO."` or
+`'B/L NO.'` for `B/L NO.` — in an object whose keys a schema leaves open. Patchbay takes those quotes off in the node's result, and in
+every MCP tool call: it runs the node's servers itself and serves each to agy through a proxy that unquotes the keys
+before the tool reads them. The trace notes each time it did.
+
 ## Jev
 
 [Jev](https://typesafe.ai) is TypeSafe AI's model. It writes no text: asked a question with named answers, it gives

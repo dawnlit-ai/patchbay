@@ -11,6 +11,8 @@ import { now, truncate } from '@shared/trace';
 import { errorMessage } from '@shared/util';
 import { listCache } from './listCache';
 import { serveOnLoopback } from './loopback';
+import { proxyServer } from './mcpProxy';
+import { unquoteKeys } from './quotedKeys';
 import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 import { clock } from './usageGate';
@@ -19,7 +21,8 @@ import { clock } from './usageGate';
  * The models the Antigravity CLI (`agy`) offers — Gemini, and the Claude and GPT
  * models beside it, each group on a quota of its own — for a node whose model is
  * stored as `agy:<id>`. Each run gets a workspace of its own, and a plugin in it
- * that hands agy the run's MCP servers and the workspace's skills, with a hook that
+ * that hands agy the workspace's skills and the run's MCP servers — each one run by
+ * this app and served to agy through a proxy on loopback — with a hook that
  * refuses every tool the node was not given: agy has no switch to leave its own
  * shell, browser or web search out. The hook can refuse but not grant. Headless,
  * agy calls an MCP tool only when the user's own agy settings allow it, so each
@@ -351,40 +354,40 @@ async function agyStatus(exe: string): Promise<AgentStatus> {
     }
 }
 
-/** The run's MCP servers as agy's plugin config: the in-process ones served on loopback. */
+/**
+ * The run's MCP servers as agy's plugin config. agy reaches none of them itself:
+ * this app starts or reaches each one, and serves agy a server on loopback that
+ * passes its requests through, so a tool call's arguments lose the quotes Gemini 4
+ * writes inside keys before the tool reads them. The servers' commands, env and
+ * headers stay in this app rather than in the plugin's config.
+ */
 async function pluginServers(
     servers: Record<string, AgentMcpServer>,
     defaultCwd: string,
+    onUnquoted: (server: string, tool: string, keys: string[]) => void,
 ): Promise<{ config: Record<string, unknown>; close(): Promise<void> }> {
+    // Before any is started, so a step that cannot run starts nothing.
+    for (const [name, server] of Object.entries(servers)) {
+        if (server.type === 'sse') {
+            throw new Error(
+                `MCP server "${name}" uses the older SSE transport, which agy does not support. ` +
+                'Point it at a Streamable HTTP endpoint (type "http"), or pick a Claude model for this node.',
+            );
+        }
+    }
     const config: Record<string, unknown> = {};
     const closers: (() => Promise<void>)[] = [];
     const close = async (): Promise<void> => {
-        await Promise.all(closers.map((c) => c()));
+        await Promise.all(closers.map((c) => c().catch(() => undefined)));
     };
     try {
         for (const [name, server] of Object.entries(servers)) {
-            if (server.type === 'sdk') {
-                const hosted = await serveOnLoopback(server.instance);
-                closers.push(hosted.close);
-                config[name] = {serverUrl: hosted.url};
-            } else if (server.type === 'http') {
-                config[name] = {
-                    url: server.url,
-                    ...(server.headers ? {headers: server.headers} : {}),
-                };
-            } else if (server.type === 'sse') {
-                throw new Error(
-                    `MCP server "${name}" uses the older SSE transport, which agy does not support. ` +
-                    'Point it at a Streamable HTTP endpoint (type "http"), or pick a Claude model for this node.',
-                );
-            } else {
-                config[name] = {
-                    command: server.command,
-                    args: server.args ?? [],
-                    cwd: server.cwd ?? defaultCwd,
-                    ...(server.env ? {env: server.env} : {}),
-                };
-            }
+            if (server.type === 'sse') continue;
+            const proxied = await proxyServer(name, server, defaultCwd, (tool, keys) => onUnquoted(name, tool, keys));
+            closers.push(proxied.close);
+            const hosted = await serveOnLoopback(proxied.server);
+            closers.push(hosted.close);
+            config[name] = {serverUrl: hosted.url};
         }
     } catch (e) {
         await close();
@@ -497,33 +500,6 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
     return {label: info.name ?? 'tool', input: params};
 }
 
-/** A key written with its JSON quotes kept inside it, as `"B/L NO."`. */
-const QUOTED_KEY = /^"(.+)"$/s;
-
-/**
- * The structured output with each key the model wrapped in a pair of quotes out of
- * them, and the keys it did that to. Gemini 4 Neon does it to every key with a space
- * or a stop in it where the schema leaves an object's keys open, as a Shipment's
- * `hbl_data` does, and the steps after it look the field up by its name. A key
- * already there without quotes keeps its place, and the quoted one stays beside it.
- */
-function unquoteKeys(output: unknown): { value: unknown; unquoted: string[] } {
-    const unquoted: string[] = [];
-    const walk = (value: unknown): unknown => {
-        if (Array.isArray(value)) return value.map(walk);
-        if (!value || typeof value !== 'object') return value;
-        return Object.fromEntries(
-            Object.entries(value).map(([key, inner]) => {
-                const bare = QUOTED_KEY.exec(key)?.[1];
-                if (bare === undefined || Object.hasOwn(value, bare)) return [key, walk(inner)];
-                unquoted.push(bare);
-                return [bare, walk(inner)];
-            }),
-        );
-    };
-    return {value: walk(output), unquoted};
-}
-
 async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunResult> {
     const model = request.model.slice(AGY_MODEL_PREFIX.length);
     // The id `agy models` lists this model at this level by.
@@ -550,7 +526,14 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
     const plugin = join(workspace, '.agents', 'plugins', PLUGIN);
     let servers: Awaited<ReturnType<typeof pluginServers>> | undefined;
     try {
-        servers = await pluginServers(request.mcpServers ?? {}, request.cwd);
+        servers = await pluginServers(request.mcpServers ?? {}, request.cwd, (server, tool, keys) =>
+            request.onEvent({
+                at: now(),
+                type: 'note',
+                label: `Took the quotes off ${keys.length} key(s) ${shown} wrote inside them, in what it gave mcp__${server}__${tool}`,
+                detail: keys.join('\n'),
+            }),
+        );
         const serverNames = Object.keys(request.mcpServers ?? {});
         const skills = await copySkills(request, workspace);
         const follow = (request.followSkills ?? []).map((ref) => skillRef(ref).name).filter((name) => skills.includes(name));

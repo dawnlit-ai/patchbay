@@ -72,8 +72,9 @@ in your editor or by a `git pull` shows as it happens.
 A node that ticks a server no run can be handed — not allowed yet, blocked, missing a value, or defined nowhere —
 leaves by its error port saying which, rather than running without the tools it was built to use. So does one on a
 Claude model whose server's definition sets a `cwd` other than the workspace folder: Claude starts every server there.
-agy starts each where its definition says, but cannot reach a server over the older SSE transport. agy is handed a
-run's servers in a file in that run's own folder, which the run is refused from reading or searching.
+On agy, Patchbay starts each server itself, where its definition says, and serves it to agy through a proxy on
+loopback, so agy is handed only an address for each, in a file in that run's own folder that the run is refused from
+reading or searching. A server over the older SSE transport cannot run on agy.
 
 An app opened from the Finder or the Dock does not have a terminal's PATH, so a server's command — `npx`, `uvx`,
 `node` — is also looked for in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, both to list its tools and in

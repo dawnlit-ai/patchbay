@@ -1992,7 +1992,13 @@ async function main(): Promise<void> {
         moveFolderPath('inbox', 'beop@example.com', 'Processed') === 'Processed',
     );
     const oldMover = parseFlow(
-        {nodes: [{id: 'm1', kind: 'move-email', config: {folder: 'Processed'}}, {id: 'm2', kind: 'move-email', config: {folder: 'Processed', under: 'attic'}}]},
+        {
+            nodes: [{id: 'm1', kind: 'move-email', config: {folder: 'Processed'}}, {
+                id: 'm2',
+                kind: 'move-email',
+                config: {folder: 'Processed', under: 'attic'}
+            }]
+        },
         'old',
         'Old',
     ).nodes.map((n) => (n.config.kind === 'move-email' ? n.config.under : null));

@@ -1,8 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+/** An MCP server object, high-level or low: what a transport connects to. */
+interface Servable {
+    connect(transport: Transport): Promise<void>;
+
+    close(): Promise<void>;
+}
 
 /**
  * A run's in-process MCP servers, served over HTTP on loopback for an agent CLI
@@ -35,7 +42,7 @@ function listen(): Promise<number> {
     return listening;
 }
 
-export async function serveOnLoopback(server: McpServer): Promise<{ url: string; close(): Promise<void> }> {
+export async function serveOnLoopback(server: Servable): Promise<{ url: string; close(): Promise<void> }> {
     const port = await listen();
     const path = `/mcp/${randomBytes(24).toString('hex')}`;
     // One session: the server object is this run's, and the CLI holds one connection for the run.
