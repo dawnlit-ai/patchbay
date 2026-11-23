@@ -1,11 +1,12 @@
 import { crc32, deflateSync } from 'node:zlib';
 
 /**
- * The tray icon, drawn here rather than shipped as a file: two jacks and the
- * cable between them, leaving each level as a wire leaves a port on the canvas,
- * and a dot for what Patchbay is doing. Drawn afresh at each size a screen's
- * scaling asks for, so none is a blurred copy of another. Takes nothing from
- * Electron, so a script can draw it to look at.
+ * The tray icon, drawn here rather than shipped as a file: Patchbay's "Quiet
+ * Branch Fade" mark — one origin node splitting into an active upper branch and
+ * a softly fading quiet branch, with the bottom-right node turning into the
+ * status dot while flows are watched or running. Drawn afresh at each size a
+ * screen's scaling asks for, so none is a blurred copy of another. Takes
+ * nothing from Electron, so a script can draw it to look at.
  */
 
 /** What the dot says: nothing watched, flows watched, or runs under way, waiting or under review. */
@@ -19,58 +20,98 @@ interface Point {
 /** The icon is laid out on a square this many points across, and drawn at that times the screen's scaling. */
 export const ICON_POINTS = 16;
 
-const JACKS: Point[] = [{x: 4, y: 11}, {x: 12, y: 4}];
-const JACK_RADIUS = 2.6;
-const CABLE_WIDTH = 1.7;
-/** The corner the cable leaves clear, where the dot goes. */
-const DOT = {x: 12.5, y: 12.5, radius: 3};
+const ORIGIN: Point = {x: 3.1, y: 8.0};
+const TOP_END: Point = {x: 12.6, y: 3.7};
+const BOT_END: Point = {x: 12.6, y: 12.3};
 
-/** How far along the way to the other jack the cable runs level before it turns: more is a deeper S. */
-const BEND = 0.9;
+const DOT_RADIUS = 2.15;
+const ACTIVE_WIDTH = 1.85;
+const QUIET_WIDTH = 1.45;
+const QUIET_RING_OUTER = 2.05;
+const QUIET_RING_INNER = 0.95;
+/** When watching or busy, the bottom-right node lights up as a solid status dot. */
+const STATUS_DOT_RADIUS = 2.55;
 
-/** The cable as short straight pieces: a curve out of one jack and into the other, each level at its end. */
-const CABLE: Point[] = (() => {
-    const [a, b] = JACKS as [Point, Point];
-    const reach = BEND * (b.x - a.x);
-    const [p0, p1, p2, p3] = [a, {x: a.x + reach, y: a.y}, {x: b.x - reach, y: b.y}, b];
+/** Cubic Bezier sampled into short straight segments, leaving each node horizontally. */
+function curve(a: Point, b: Point): Point[] {
+    const mid = (a.x + b.x) / 2;
+    const p1: Point = {x: mid, y: a.y};
+    const p2: Point = {x: mid, y: b.y};
     return Array.from({length: 33}, (_, i) => {
         const t = i / 32;
         const u = 1 - t;
-        const at = (k: 'x' | 'y'): number => u * u * u * p0[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t * t * t * p3[k];
+        const at = (k: 'x' | 'y'): number =>
+            u * u * u * a[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t * t * t * b[k];
         return {x: at('x'), y: at('y')};
     });
-})();
-
-type Rgb = readonly [number, number, number];
-
-/** In colour on Windows: a blue that reads on a light taskbar and a dark one, and the app's own green and amber. */
-const GLYPH: Rgb = [0x3b, 0x82, 0xf6];
-const DOT_COLOURS: Record<Exclude<TrayState, 'idle'>, Rgb> = {
-    watching: [0x22, 0xc5, 0x5e],
-    busy: [0xf5, 0x9e, 0x0b],
-};
-/** A Mac's menu bar takes a template: black, and macOS colours it to suit the bar. */
-const TEMPLATE: Rgb = [0, 0, 0];
-
-function nearCable(p: Point): boolean {
-    const reach = (CABLE_WIDTH / 2) ** 2;
-    for (let i = 1; i < CABLE.length; i++) {
-        const a = CABLE[i - 1]!;
-        const b = CABLE[i]!;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
-        if ((p.x - a.x - t * dx) ** 2 + (p.y - a.y - t * dy) ** 2 <= reach) return true;
-    }
-    return false;
 }
 
-const within = (p: Point, c: Point, radius: number): boolean => (p.x - c.x) ** 2 + (p.y - c.y) ** 2 <= radius * radius;
+const ACTIVE_CABLE = curve(ORIGIN, TOP_END);
+const QUIET_CABLE = curve(ORIGIN, BOT_END);
 
-/** The colour at a point of the square, or null where the icon is clear. */
-function paint(p: Point, state: TrayState, template: boolean): Rgb | null {
-    if (state !== 'idle' && within(p, DOT, DOT.radius)) return template ? TEMPLATE : DOT_COLOURS[state];
-    if (JACKS.some((jack) => within(p, jack, JACK_RADIUS)) || nearCable(p)) return template ? TEMPLATE : GLYPH;
+type Rgba = readonly [number, number, number, number];
+
+/** In colour on Windows: Dawn Ember for the lit branch, neutral slate for the quiet branch, and green/amber for status. */
+const EMBER: Rgba = [0xf0, 0x7b, 0x32, 1];
+const QUIET_RGB: readonly [number, number, number] = [0x9c, 0x97, 0xb0];
+const DOT_COLOURS: Record<Exclude<TrayState, 'idle'>, Rgba> = {
+    watching: [0x22, 0xc5, 0x5e, 1],
+    busy: [0xf5, 0x9e, 0x0b, 1],
+};
+/** A Mac's menu bar takes a template: black with alpha, and macOS tints it to suit the bar. */
+const TEMPLATE_SOLID: Rgba = [0, 0, 0, 1];
+
+/** Shortest distance squared from `p` to a sampled curve, plus approximate progress `t` in [0, 1]. */
+function curveHit(p: Point, pts: Point[], halfWidth: number): number | null {
+    const reach = halfWidth * halfWidth;
+    let bestD2 = Infinity;
+    let bestT = 0;
+    const n = pts.length - 1;
+    for (let i = 1; i <= n; i++) {
+        const a = pts[i - 1]!;
+        const b = pts[i]!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const segT = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+        const d2 = (p.x - a.x - segT * dx) ** 2 + (p.y - a.y - segT * dy) ** 2;
+        if (d2 <= reach && d2 < bestD2) {
+            bestD2 = d2;
+            bestT = (i - 1 + segT) / n;
+        }
+    }
+    return bestD2 <= reach ? bestT : null;
+}
+
+const dist2 = (p: Point, c: Point): number => (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+const within = (p: Point, c: Point, radius: number): boolean => dist2(p, c) <= radius * radius;
+
+/** The colour (with alpha in [0, 1]) at a point of the square, or null where the icon is clear. */
+function paint(p: Point, state: TrayState, template: boolean): Rgba | null {
+    // 1. Active Dawn Ember path & endpoints sit cleanly on top.
+    if (within(p, ORIGIN, DOT_RADIUS) || within(p, TOP_END, DOT_RADIUS) || curveHit(p, ACTIVE_CABLE, ACTIVE_WIDTH / 2) !== null) {
+        return template ? TEMPLATE_SOLID : EMBER;
+    }
+
+    // 2. Bottom-right node: solid status dot while watching/busy, soft open ring while idle.
+    if (state !== 'idle') {
+        if (within(p, BOT_END, STATUS_DOT_RADIUS)) {
+            return template ? TEMPLATE_SOLID : DOT_COLOURS[state];
+        }
+    } else {
+        const d2 = dist2(p, BOT_END);
+        if (d2 <= QUIET_RING_OUTER * QUIET_RING_OUTER) {
+            if (d2 < QUIET_RING_INNER * QUIET_RING_INNER) return null;
+            return template ? [0, 0, 0, 0.45] : [QUIET_RGB[0], QUIET_RGB[1], QUIET_RGB[2], 0.6];
+        }
+    }
+
+    // 3. Quiet lower branch fading smoothly away from the origin toward the bottom-right node.
+    const quietT = curveHit(p, QUIET_CABLE, QUIET_WIDTH / 2);
+    if (quietT !== null) {
+        const alpha = template ? 0.52 - 0.28 * quietT : 0.78 - 0.4 * quietT;
+        return template ? [0, 0, 0, alpha] : [QUIET_RGB[0], QUIET_RGB[1], QUIET_RGB[2], alpha];
+    }
+
     return null;
 }
 
@@ -81,12 +122,13 @@ const SAMPLES = 4;
 function pixels(size: number, state: TrayState, template: boolean): Buffer {
     const out = Buffer.alloc(size * size * 4);
     const scale = ICON_POINTS / size;
+    const totalSamples = SAMPLES * SAMPLES;
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
             let r = 0;
             let g = 0;
             let b = 0;
-            let hits = 0;
+            let a = 0;
             for (let sy = 0; sy < SAMPLES; sy++) {
                 for (let sx = 0; sx < SAMPLES; sx++) {
                     const colour = paint(
@@ -95,18 +137,19 @@ function pixels(size: number, state: TrayState, template: boolean): Buffer {
                         template,
                     );
                     if (!colour) continue;
-                    r += colour[0];
-                    g += colour[1];
-                    b += colour[2];
-                    hits++;
+                    const sa = colour[3];
+                    r += colour[0] * sa;
+                    g += colour[1] * sa;
+                    b += colour[2] * sa;
+                    a += sa;
                 }
             }
-            if (hits === 0) continue;
+            if (a === 0) continue;
             const at = (y * size + x) * 4;
-            out[at] = Math.round(r / hits);
-            out[at + 1] = Math.round(g / hits);
-            out[at + 2] = Math.round(b / hits);
-            out[at + 3] = Math.round((255 * hits) / (SAMPLES * SAMPLES));
+            out[at] = Math.round(r / a);
+            out[at + 1] = Math.round(g / a);
+            out[at + 2] = Math.round(b / a);
+            out[at + 3] = Math.round((255 * a) / totalSamples);
         }
     }
     return out;

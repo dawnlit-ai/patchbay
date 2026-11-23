@@ -1,4 +1,6 @@
-import { app, Menu } from 'electron';
+import { app, Menu, nativeImage } from 'electron';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { VelopackApp } from 'velopack';
 import { getAgentControl, getTray, getUpdates, getWatcher, registerIpc } from './ipc';
 import { showAll, showWelcome } from './windows';
@@ -20,10 +22,32 @@ if (app.requestSingleInstanceLock()) {
     app.quit();
 }
 
+/** Reads a PNG frame (`ic09` 512px or `ic10` 1024px) out of `icon.icns` so dev Dock uses the same padded macOS art as packaged builds. */
+function icnsDockImage(path: string): Electron.NativeImage | null {
+    if (!existsSync(path)) return null;
+    const buf = readFileSync(path);
+    if (buf.length < 8 || buf.toString('ascii', 0, 4) !== 'icns') return null;
+    let fallback: Buffer | null = null;
+    for (let pos = 8; pos + 8 <= buf.length;) {
+        const tag = buf.toString('ascii', pos, pos + 4);
+        const len = buf.readUInt32BE(pos + 4);
+        if (len < 8 || pos + len > buf.length) break;
+        if (tag === 'ic10') return nativeImage.createFromBuffer(buf.subarray(pos + 8, pos + len));
+        if (tag === 'ic09') fallback = buf.subarray(pos + 8, pos + len);
+        pos += len;
+    }
+    return fallback ? nativeImage.createFromBuffer(fallback) : null;
+}
+
 function start(): void {
     app.on('second-instance', () => void app.whenReady().then(() => showAll()));
 
     void app.whenReady().then(() => {
+        // Packaged builds take their Dock icon from the bundle; running from source shows Electron's own without this.
+        if (!app.isPackaged && process.platform === 'darwin') {
+            const img = icnsDockImage(join(app.getAppPath(), 'assets', 'icon.icns'));
+            if (img && !img.isEmpty()) app.dock?.setIcon(img);
+        }
         // Nothing in the default menu applies to this app.
         Menu.setApplicationMenu(null);
         log.info('app', `Patchbay ${app.getVersion()} started`, {

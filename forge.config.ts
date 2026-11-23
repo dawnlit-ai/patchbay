@@ -34,6 +34,8 @@ const config: ForgeConfig = {
     // The packaged app takes its name from package.json's productName, which
     // packager infers when packagerConfig does not name one itself.
     packagerConfig: {
+        // Electron Packager adds `.icns` on a Mac and `.ico` on Windows.
+        icon: 'assets/icon',
         // Set here, the Vite plugin's own (`.vite` alone) gives way to it.
         ignore: (file) => !packaged(file),
         // velopack's native add-on is loaded from disk, so it stays beside

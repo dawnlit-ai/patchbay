@@ -1,0 +1,18 @@
+<!-- Patchbay's app icon ("Quiet Branch Fade"): Dawn Ember on Dawn Paper. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="quiet-fade" x1="158" y1="270" x2="350" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#CCC7DB"/>
+      <stop offset="100%" stop-color="#EAE7F2"/>
+    </linearGradient>
+  </defs>
+  <path d="M176.1 0H335.9C386.6 0 412 0 434.8 7.5C462.3 16.6 495.4 49.7 504.5 77.2C512 100 512 125.4 512 176.1V335.9C512 386.6 512 412 504.5 434.8C495.4 462.3 462.3 495.4 434.8 504.5C412 512 386.6 512 335.9 512H176.1C125.4 512 100 512 77.2 504.5C49.7 495.4 16.6 462.3 7.5 434.8C0 412 0 386.6 0 335.9V176.1C0 125.4 0 100 7.5 77.2C16.6 49.7 49.7 16.6 77.2 7.5C100 0 125.4 0 176.1 0Z" fill="#FAFAFD"/>
+  <path d="M176.7 2H335.3C385.6 2 410.8 2 433.4 9.5C460.7 18.5 493.5 51.3 502.5 78.6C510 101.2 510 126.4 510 176.7V335.3C510 385.6 510 410.8 502.5 433.4C493.5 460.7 460.7 493.5 433.4 502.5C410.8 510 385.6 510 335.3 510H176.7C126.4 510 101.2 510 78.6 502.5C51.3 493.5 18.5 460.7 9.5 433.4C2 410.8 2 385.6 2 335.3V176.7C2 126.4 2 101.2 9.5 78.6C18.5 51.3 51.3 18.5 78.6 9.5C101.2 2 126.4 2 176.7 2Z" stroke="#8C86A6" stroke-opacity="0.22" stroke-width="4"/>
+  <!-- Quiet branch -->
+  <path d="M124 256 C248 256 256 360 384 360" stroke="url(#quiet-fade)" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="384" cy="360" r="32" fill="#FAFAFD" stroke="#E0DCEB" stroke-width="18"/>
+  <!-- Active Dawn Ember path -->
+  <path d="M124 256 C248 256 256 152 384 152" stroke="#F07B32" stroke-width="38" stroke-linecap="round"/>
+  <circle cx="124" cy="256" r="42" fill="#F07B32"/>
+  <circle cx="384" cy="152" r="42" fill="#F07B32"/>
+</svg>

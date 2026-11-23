@@ -1,4 +1,5 @@
-import { BrowserWindow, type Input, type Rectangle, screen } from 'electron';
+import { app, BrowserWindow, type Input, type Rectangle, screen } from 'electron';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { IPC, type OpenWhere } from '@shared/ipc';
 import { type DisplayArea, WINDOW_KINDS, WINDOW_SIZES, type WindowKind, type WindowSize } from '@shared/settings';
@@ -50,9 +51,17 @@ interface Frame {
     maximizable?: boolean;
 }
 
+/** In development on Windows and Linux, give windows Patchbay's icon; packaged builds inherit it from the executable. */
+function devWindowIcon(): string | undefined {
+    if (app.isPackaged || process.platform === 'darwin') return undefined;
+    const icon = join(app.getAppPath(), 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+    return existsSync(icon) ? icon : undefined;
+}
+
 function make(frame: Frame): BrowserWindow {
     const win = new BrowserWindow({
         ...frame,
+        icon: devWindowIcon(),
         // Matches the light theme's --bg, so launching does not flash a dark frame
         // before the renderer paints.
         backgroundColor: '#f4f6f9',
