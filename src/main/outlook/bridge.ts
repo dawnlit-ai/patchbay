@@ -41,7 +41,24 @@ let chain: Promise<unknown> = Promise.resolve();
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
-/** Queues a call and times it into the console, reporting queue wait separately from the call itself. */
+/**
+ * The errors a call over several items reports in its result rather than
+ * throwing: a move or a send resolves with each item that failed in `failed`,
+ * however many there were.
+ */
+function itemErrors(result: unknown): string[] {
+    const failed = (result as { failed?: unknown } | null | undefined)?.failed;
+    if (!Array.isArray(failed)) return [];
+    return failed.map((f: unknown) =>
+        f !== null && typeof f === 'object' && 'error' in f ? String(f.error) : String(f),
+    );
+}
+
+/**
+ * Queues a call and times it into the console, reporting queue wait separately
+ * from the call itself. A call that resolves with items in `failed` is a
+ * failure the console shows, as one that throws is.
+ */
 function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
     const queuedAt = Date.now();
     const timed = async (): Promise<T> => {
@@ -51,7 +68,13 @@ function serialize<T>(label: string, work: () => Promise<T>): Promise<T> {
             `${seconds(Date.now() - startedAt)}${waited >= 1000 ? `, after ${seconds(waited)} queued` : ''}`;
         try {
             const result = await work();
-            log.debug('outlook', `${label} (${took()})`);
+            const errors = itemErrors(result);
+            if (errors.length > 0) {
+                const items = errors.length === 1 ? 'one item' : `${errors.length} items`;
+                log.warn('outlook', `${label}: ${items} failed (${took()}): ${errors.join('; ')}`);
+            } else {
+                log.debug('outlook', `${label} (${took()})`);
+            }
             return result;
         } catch (e) {
             log.warn('outlook', `${label} failed (${took()}): ${errorMessage(e)}`);

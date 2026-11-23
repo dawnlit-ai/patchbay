@@ -1990,7 +1990,13 @@ async function main(): Promise<void> {
         (await movedPath({under: 'mailbox'})) === 'Inbox\\Processed\\{{verdict.reply}}');
     check('a move email whose path and fields fit is still not flagged', (await issuesOf(mover)).length === 0);
     check('a mailbox and nothing else names no folder', moveEmailProblems(
-        {id: 'x', kind: 'move-email', name: 'Move', position: {x: 0, y: 0}, config: {kind: 'move-email', path: '\\\\beop@example.com\\', output: ''}},
+        {
+            id: 'x',
+            kind: 'move-email',
+            name: 'Move',
+            position: {x: 0, y: 0},
+            config: {kind: 'move-email', path: '\\\\beop@example.com\\', output: ''}
+        },
         {path: '\\\\beop@example.com\\', output: ''},
     ).some((p) => p.includes('names no folder')));
     check(
