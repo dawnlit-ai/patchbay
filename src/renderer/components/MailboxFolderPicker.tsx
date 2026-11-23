@@ -99,8 +99,23 @@ interface TreeNode {
     children: TreeNode[];
 }
 
-/** The folders Outlook keeps at the top of every mailbox, in the order its folder pane shows them. */
-const TOP_ORDER = ['inbox', 'drafts', 'sent items', 'deleted items', 'archive', 'junk email', 'outbox'];
+/**
+ * The folders Outlook keeps at the top of every mailbox, in the order its folder
+ * pane shows them. Outlook for Mac names three of them its own way: Sent Mail,
+ * Trash and Spam.
+ */
+const TOP_ORDER = [
+    'inbox',
+    'drafts',
+    'sent items',
+    'sent mail',
+    'deleted items',
+    'trash',
+    'archive',
+    'junk email',
+    'spam',
+    'outbox',
+];
 
 const byName = (a: TreeNode, b: TreeNode): number =>
     a.folder.name.localeCompare(b.folder.name, undefined, {sensitivity: 'base', numeric: true});
@@ -169,9 +184,12 @@ const WELL_KNOWN_GLYPHS: Record<string, Glyph> = {
     'inbox': 'inbox',
     'drafts': 'drafts',
     'sent items': 'sent',
+    'sent mail': 'sent',
     'deleted items': 'deleted',
+    'trash': 'deleted',
     'archive': 'archive',
     'junk email': 'junk',
+    'spam': 'junk',
 };
 
 /** Outlook's own folders by their look; any other, and anything below them, a plain folder. */
