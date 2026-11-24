@@ -213,6 +213,12 @@ async function openInEditor(file: string): Promise<void> {
     throw new Error(`Could not open ${file}: ${failure}`);
 }
 
+/** Show a folder in the file manager. openPath reports failure as a message rather than throwing: the folder may be gone. */
+async function openFolder(folder: string): Promise<void> {
+    const failure = await shell.openPath(folder);
+    if (failure) throw new Error(failure);
+}
+
 /** One canonical destination, so no renderer input reaches shell.openExternal. */
 const DEVELOPER_URL = 'https://github.com/dawnlit-ai';
 
@@ -266,11 +272,7 @@ export function registerIpc(): void {
         return picked.canceled ? null : (picked.filePaths[0] ?? null);
     });
     handle(IPC.workspaceForget, (path: string) => workspaceStore.forgetWorkspace(path));
-    handle(IPC.workspaceReveal, async () => {
-        // openPath reports failure as a message rather than throwing: the folder may be gone.
-        const failure = await shell.openPath(workspaceRoot());
-        if (failure) throw new Error(failure);
-    });
+    handle(IPC.workspaceReveal, () => openFolder(workspaceRoot()));
     handle(IPC.workspaceExport, async () => {
         const picked = await dialog.showSaveDialog({
             title: 'Export the workspace as a zip',
@@ -512,10 +514,10 @@ export function registerIpc(): void {
         return getWatcher().enqueueManual(flow.id, trigger.id, await outlook.refind(run.email));
     });
     handle(IPC.runsContinue, async (id: string, seq: number) => (await getWatcher().continueRun(id, seq)).runId);
-    handle(IPC.runsReveal, () => shell.openPath(runsDir()));
+    handle(IPC.runsReveal, () => openFolder(runsDir()));
 
     handle(IPC.logList, () => logEntries());
     handle(IPC.logClear, () => clearLog());
-    handle(IPC.logReveal, () => shell.openPath(logsDir()));
+    handle(IPC.logReveal, () => openFolder(logsDir()));
     onLogged((entry) => broadcast(IPC.evtLogged, entry));
 }

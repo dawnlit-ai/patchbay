@@ -643,7 +643,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                                 reviewing={status?.reviewingRunIds ?? []}
                                 onSelect={(id) => void window.api.runs.get(id).then(setSelectedRun)}
                                 onClear={() => void clearRuns()}
-                                onReveal={() => void window.api.runs.revealFolder()}
+                                onReveal={() => void attempt(() => window.api.runs.revealFolder())}
                                 onCancel={(runId) => void window.api.engine.cancel(runId)}
                                 onRemove={(runId) => void removeRun(runId)}
                                 onRerun={rerun}
@@ -656,7 +656,7 @@ export function App({initialFlowId}: Props): JSX.Element {
                                 view={consoleView}
                                 onView={setConsoleView}
                                 onClear={clearLog}
-                                onReveal={() => void window.api.log.revealFolder()}
+                                onReveal={() => void attempt(() => window.api.log.revealFolder())}
                                 onOpenRun={(runId) => void openRunFromLog(runId)}
                             />
                         )}
