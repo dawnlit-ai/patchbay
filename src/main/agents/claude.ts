@@ -1,193 +1,38 @@
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import type {
-    AccountInfo,
-    Options,
-    Query,
-    SDKControlGetUsageResponse,
-    SDKUserMessage,
-} from '@anthropic-ai/claude-agent-sdk';
-import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
+import { resolve } from 'node:path';
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import {
+    type AgentHarness,
+    type AgentModel,
+    CLAUDE_NOT_INSTALLED,
+    clock,
+    holdUsage,
+    sdkExecutable,
+    usageHeldUntil,
+    usageLimit,
+    waitForUsage,
+    withToolPath,
+} from '@dawnlit/agent-harness';
+import type { ModelOption } from '@shared/ipc';
 import { type LiveText, now, truncate } from '@shared/trace';
 import { errorMessage } from '@shared/util';
 import { folderHook, writeRules } from './folderPolicy';
-import { listCache } from './listCache';
-import { withToolPath } from './toolPath';
 import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
-import { clock, holdUsage, usageHeldUntil, usageLimit, waitForUsage } from './usageGate';
 
 /**
  * Claude through the Claude Agent SDK, and so the one mapping from the SDK's
- * message stream onto a pass's trace events.
+ * message stream onto a pass's trace events. Where Claude Code is installed, and
+ * its models, sign-in and usage, are asked through the agent harness.
  */
 
-/** Where to get Claude Code, which the app runs but does not ship. */
-const INSTALL_URL = 'https://code.claude.com/docs/en/setup';
-
-const NOT_INSTALLED = `Claude Code is not installed. Install it (${INSTALL_URL}), then run claude in a terminal and sign in.`;
-
-/**
- * The `claude` binary: the one the host names, else where Claude Code's installers
- * put it — an app opened from the Finder has no shell PATH to find it by — else the
- * first on the PATH. Null when there is none: the SDK has no copy of its own to fall
- * back on, as releases leave its platform package out.
- */
-function resolveClaudePath(configured: string | undefined): string | null {
-    if (configured) return configured;
-    const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
-    const installed =
-        process.platform === 'win32'
-            ? [join(homedir(), '.local', 'bin', name)]
-            : [join(homedir(), '.local', 'bin', name), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
-    const onPath = (process.env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, name));
-    return [...installed, ...onPath].find((p) => existsSync(p)) ?? null;
-}
-
-const modelList = listCache<ModelOption[]>();
-
-/** Asks the CLI something about itself, in a session that never runs a turn. */
-async function askIdle<T>(exe: string, ask: (q: Query) => Promise<T>): Promise<T> {
-    const {query} = await import('@anthropic-ai/claude-agent-sdk');
-
-    // A prompt stream that never yields: the CLI answers control requests and is
-    // closed before it runs anything, so asking costs nothing.
-    let release = (): void => {
-    };
-    const held = new Promise<void>((resolve) => (release = resolve));
-
-    async function* nothing(): AsyncGenerator<SDKUserMessage> {
-        await held;
-    }
-
-    const q = query({
-        prompt: nothing(),
-        options: {
-            // What a run is started with, so the answer is the one a run would get.
-            pathToClaudeCodeExecutable: exe,
-            settingSources: [],
-            strictMcpConfig: true,
-            mcpServers: {},
-            tools: [],
-            persistSession: false,
-        },
-    });
-    try {
-        return await ask(q);
-    } finally {
-        release();
-        q.close();
-    }
-}
-
-async function askForModels(exe: string): Promise<ModelOption[]> {
-    const models = await askIdle(exe, (q) => q.supportedModels());
-    return models.map((m) => ({
-        value: m.value,
-        resolvedModel: m.resolvedModel,
-        // Marked like agy's, as the two share one list.
-        displayName: `${m.displayName} · claude`,
-        description: m.description,
-        effortLevels: m.supportsEffort ? (m.supportedEffortLevels ?? []) : [],
-    }));
-}
-
-/** Long enough for Claude Code's first start after it has updated itself. */
-const STATUS_TIMEOUT_MS = 30_000;
-
-/**
- * The models the Claude login offers, asked of the CLI so the list never goes stale.
- * None while Claude Code is not installed, so the other agents' models still list;
- * a CLI that never answers fails in time rather than holding every list up.
- */
-function listModels(exe: string | null): Promise<ModelOption[]> {
-    if (!exe) return Promise.resolve([]);
-    return modelList.get(exe, () => within(askForModels(exe), 'Claude Code'));
-}
-
-function within<T>(promise: Promise<T>, what: string): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    const late = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what} did not answer within ${STATUS_TIMEOUT_MS / 1000} seconds`)), STATUS_TIMEOUT_MS);
-    });
-    return Promise.race([promise, late]).finally(() => clearTimeout(timer));
-}
-
-/** "2.1.288" from `claude --version`'s "2.1.288 (Claude Code)". */
-async function versionOf(exe: string): Promise<string | null> {
-    try {
-        const {stdout} = await promisify(execFile)(exe, ['--version'], {timeout: STATUS_TIMEOUT_MS});
-        return stdout.trim().split(/\s+/)[0] || null;
-    } catch {
-        return null;
-    }
-}
-
-/** Who a run would be billed to, or null when it has nothing to sign its requests with. */
-function signedInAs(account: AccountInfo): string | null {
-    if (account.email) return [`Signed in as ${account.email}`, account.subscriptionType].filter(Boolean).join(' · ');
-    if (account.apiKeySource && account.apiKeySource !== 'none') return `Using an API key from ${account.apiKeySource}`;
-    // Bedrock, Vertex and the rest sign requests with their own cloud credentials.
-    if (account.apiProvider && account.apiProvider !== 'firstParty') return `Through ${account.apiProvider}`;
-    return null;
-}
-
-/** The plan's limits that carry a figure, each as "<models> · <window>". None for an API key. */
-function planUsage(usage: SDKControlGetUsageResponse | null): UsageWindow[] {
-    const limits = usage?.rate_limits;
-    if (!limits) return [];
-    type Limit = { utilization: number | null; resets_at: string | null } | null | undefined;
-    const named: [string, Limit][] = [
-        ['All models · 5 hours', limits.five_hour],
-        ['All models · week', limits.seven_day],
-        ['Opus · week', limits.seven_day_opus],
-        ['Sonnet · week', limits.seven_day_sonnet],
-        ...(limits.model_scoped ?? []).map((m): [string, Limit] => [`${m.display_name} · week`, m]),
-    ];
-    return named.flatMap(([label, limit]) =>
-        limit && limit.utilization !== null ? [{
-            label,
-            percentUsed: limit.utilization,
-            resetsAt: limit.resets_at
-        }] : [],
-    );
-}
-
-/** The binary a run would start, its version, whether it is signed in, and its plan's usage — asked as a run would. */
-async function claudeStatus(exe: string | null): Promise<AgentStatus> {
-    const base = {id: 'claude', name: 'Claude Code', executable: exe ?? ''};
-    if (!exe) return {...base, version: null, ready: false, detail: NOT_INSTALLED, usage: []};
-    const asked = askIdle(exe, async (q) => {
-        const account = await q.accountInfo();
-        // Experimental in the SDK, so a CLI that cannot answer it just shows no usage.
-        const usage = signedInAs(account)
-            ? await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({skipBehaviors: true}).catch(() => null)
-            : null;
-        return {account, usage};
-    });
-    const [version, answer] = await Promise.all([
-        versionOf(exe),
-        within(asked, 'Claude Code').catch((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
-    ]);
-    if (answer instanceof Error) {
-        const missing = /ENOENT|not found/i.test(answer.message);
-        return {
-            ...base,
-            version,
-            ready: false,
-            detail: missing ? `Not found at ${exe}.` : `It did not start: ${answer.message}`,
-            usage: [],
-        };
-    }
-    const who = signedInAs(answer.account);
+/** A model the Claude login offers, as the model lists show it. */
+function claudeOption(model: AgentModel): ModelOption {
     return {
-        ...base,
-        version,
-        ready: who !== null,
-        detail: who ?? 'Not signed in. Run claude in a terminal and sign in with /login.',
-        usage: planUsage(answer.usage),
+        value: model.id,
+        resolvedModel: model.resolvedModel,
+        // Marked like agy's, as the two share one list.
+        displayName: `${model.label} · claude`,
+        description: model.description ?? '',
+        effortLevels: model.efforts,
     };
 }
 
@@ -287,10 +132,12 @@ function claudeServers(servers: Record<string, AgentMcpServer>, cwd: string): No
     return out;
 }
 
-async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
-    const exe = resolveClaudePath(host.claudeExecutable());
+async function runClaude(harness: AgentHarness, host: AgentHost, request: AgentRunRequest): Promise<AgentRunResult> {
+    const exe = harness.locate('claude');
     // Unavailable rather than failed: a fallback on another agent can still take the step.
-    if (!exe) return {...settle(request, {error: NOT_INSTALLED, acted: false}), unavailable: NOT_INSTALLED};
+    if (!exe) {
+        return {...settle(request, {error: CLAUDE_NOT_INSTALLED, acted: false}), unavailable: CLAUDE_NOT_INSTALLED};
+    }
 
     // Lazy: the SDK pulls in a large dependency graph, and a flow with no AI node
     // should not pay for it.
@@ -300,8 +147,11 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
     const toolNames = new Map<string, string>();
     const repeatable = new Set([...REPEATABLE_TOOLS, ...(request.repeatableTools ?? [])]);
 
+    let executable: string;
     let mcpServers: NonNullable<Options['mcpServers']>;
     try {
+        // The SDK starts the binary itself, so npm's claude.cmd is followed to what it starts.
+        executable = sdkExecutable(exe);
         mcpServers = claudeServers(request.mcpServers ?? {}, request.cwd);
     } catch (e) {
         return settle(request, {error: errorMessage(e), acted: false});
@@ -324,7 +174,7 @@ async function runClaude(host: AgentHost, request: AgentRunRequest): Promise<Age
         settingSources: [],
         persistSession: false,
         includePartialMessages: request.onLive !== undefined,
-        pathToClaudeCodeExecutable: exe,
+        pathToClaudeCodeExecutable: executable,
         stderr: (data) => {
             const line = data.trim();
             if (line) request.onEvent({at: now(), type: 'error', label: 'claude stderr', detail: line});
@@ -528,14 +378,15 @@ function settle(request: AgentRunRequest, {structured, error}: Attempt): AgentRu
 }
 
 /** Claude takes any model another backend does not claim: its aliases carry no prefix. */
-export function claudeBackend(host: AgentHost): AgentBackend {
+export function claudeBackend(host: AgentHost, harness: AgentHarness): AgentBackend {
     return {
         id: 'claude',
         owns: () => true,
-        listModels: () => listModels(resolveClaudePath(host.claudeExecutable())),
+        // None while Claude Code is not installed, so the other agents' models still list.
+        listModels: async () => (harness.locate('claude') ? (await harness.models('claude')).map(claudeOption) : []),
         // The limit belongs to the login, so it holds every model alike.
         heldUntil: usageHeldUntil,
-        status: () => claudeStatus(resolveClaudePath(host.claudeExecutable())),
-        run: (request) => runClaude(host, request),
+        status: () => harness.status('claude'),
+        run: (request) => runClaude(harness, host, request),
     };
 }

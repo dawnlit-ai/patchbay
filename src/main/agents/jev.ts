@@ -1,12 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { clock, listCache } from '@dawnlit/agent-harness';
 import { isJevModel } from '@shared/flow';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import { errorMessage } from '@shared/util';
 import { jevChoice } from './decision';
 import type { AgentBackend, AgentHost, ChoiceRequest, ChoiceResult } from './types';
-import { listCache } from './listCache';
-import { clock } from './usageGate';
 
 /**
  * Jev, TypeSafe AI's model, through its System One API: it answers a typed

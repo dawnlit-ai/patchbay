@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     const {listMcpServers, requireServer, setServerSecret, setServerTrust, usableServers} = await import(
         '../src/main/store/mcpStore'
         );
-    const {withToolPath} = await import('../src/main/agents/toolPath');
+    const {withToolPath} = await import('@dawnlit/agent-harness');
     const {createReadme, createWorkspace, openWorkspace, readReadme} = await import('../src/main/store/workspaceStore');
     const {exportWorkspace} = await import('../src/main/store/exportStore');
 

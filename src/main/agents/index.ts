@@ -1,3 +1,4 @@
+import { clock, createAgentHarness } from '@dawnlit/agent-harness';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
 import { AGENT_NAMES } from '@shared/settings';
 import { now } from '@shared/trace';
@@ -6,7 +7,6 @@ import { claudeBackend } from './claude';
 import { choicePrompt, choiceSchema, readChoice } from './decision';
 import { jevBackend } from './jev';
 import type { AgentBackend, AgentHost, AgentRunRequest, AgentRunResult, ChoiceRequest, ChoiceResult } from './types';
-import { clock } from './usageGate';
 
 /**
  * The agents a step can run on, behind one call. Nothing in this folder reaches
@@ -40,9 +40,13 @@ export interface Agents {
 }
 
 export function createAgents(host: AgentHost): Agents {
-    const claude = claudeBackend(host);
+    // Where each CLI is, and its models, sign-in and usage.
+    const harness = createAgentHarness({
+        executable: (id) => (id === 'claude' ? host.claudeExecutable() : host.agyExecutable()),
+    });
+    const claude = claudeBackend(host, harness);
     // Claude's models carry no prefix, so it takes whatever the others do not claim.
-    const others: AgentBackend[] = [agyBackend(host), jevBackend(host)];
+    const others: AgentBackend[] = [agyBackend(harness), jevBackend(host)];
     const backendFor = (model: string): AgentBackend => others.find((b) => b.owns(model)) ?? claude;
     const backends = [claude, ...others];
     const switchedOn = (backend: AgentBackend): boolean =>

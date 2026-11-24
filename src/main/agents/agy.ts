@@ -1,21 +1,26 @@
-import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { AGY_LEVEL_SUFFIX, AGY_LEVELS, AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
-import type { AgentStatus, ModelOption, UsageWindow } from '@shared/ipc';
+import {
+    type AgentHarness,
+    type AgentModel,
+    agyQuotaGroup,
+    clock,
+    type CommandOptions,
+    type Exited,
+    runCommand,
+    withToolPath,
+} from '@dawnlit/agent-harness';
+import { AGY_MODEL_PREFIX, isAgyModel } from '@shared/flow';
+import type { ModelOption } from '@shared/ipc';
 import { now, truncate } from '@shared/trace';
 import { errorMessage } from '@shared/util';
-import { listCache } from './listCache';
 import { serveOnLoopback } from './loopback';
 import { proxyServer } from './mcpProxy';
 import { unquoteKeys } from './quotedKeys';
-import { withToolPath } from './toolPath';
-import type { AgentBackend, AgentHost, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
-import { clock } from './usageGate';
+import type { AgentBackend, AgentMcpServer, AgentRunRequest, AgentRunResult } from './types';
 
 /**
  * The models the Antigravity CLI (`agy`) offers — Gemini, and the Claude and GPT
@@ -28,19 +33,6 @@ import { clock } from './usageGate';
  * agy calls an MCP tool only when the user's own agy settings allow it, so each
  * needs a rule there.
  */
-
-/**
- * The `agy` binary: the one the host names, else where agy installs itself, as
- * an app opened from the Finder has no shell PATH to find it by.
- */
-function resolveAgyPath(configured: string | undefined): string {
-    if (configured) return configured;
-    const candidates =
-        process.platform === 'win32'
-            ? [join(homedir(), '.local', 'bin', 'agy.exe')]
-            : [join(homedir(), '.local', 'bin', 'agy'), '/usr/local/bin/agy'];
-    return candidates.find((p) => existsSync(p)) ?? 'agy';
-}
 
 /** How long to wait before asking again after an outage, once per entry. */
 const RETRY_DELAYS_MS = [5_000, 30_000];
@@ -147,211 +139,23 @@ function hookCommand(): string {
         : `ELECTRON_RUN_AS_NODE=1 '${process.execPath.replace(/'/g, `'\\''`)}' hook.cjs`;
 }
 
-interface Exited {
-    code: number | null;
-    stderr: string;
+/** Runs agy so that its hook finds this app's binary: agy and everything it starts inherit it. */
+function runAgyCommand(exe: string, args: string[], options: Omit<CommandOptions, 'env'> = {}): Promise<Exited> {
+    // agy finds each MCP server's command on its own PATH, and the server inherits it.
+    return runCommand(exe, args, {...options, env: withToolPath({...process.env, [HOOK_EXE_ENV]: process.execPath})});
 }
 
-function runAgyCommand(
-    exe: string,
-    args: string[],
-    options: { cwd?: string; input?: string; signal?: AbortSignal; onLine?(line: string): void } = {},
-): Promise<Exited> {
-    return new Promise((resolve, reject) => {
-        const child = spawn(exe, args, {
-            cwd: options.cwd,
-            signal: options.signal,
-            // agy finds each MCP server's command on its own PATH, and the server inherits it.
-            env: withToolPath({...process.env, [HOOK_EXE_ENV]: process.execPath}),
-        });
-        let stderr = '';
-        createInterface({input: child.stdout}).on('line', (line) => options.onLine?.(line));
-        child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
-        child.on('error', reject);
-        child.on('close', (code) => resolve({code, stderr}));
-        // On stdin rather than in the arguments, which Windows caps near 32,000 characters.
-        child.stdin.end(options.input ?? '');
-    });
-}
-
-const modelList = listCache<ModelOption[]>();
-
-/** What agy said went wrong: its last line, without the "Error:" in front. */
-function complaint({code, stderr}: Exited): string {
-    return stderr.trim().split('\n').at(-1)?.replace(/^Error:\s*/, '').trim() || `agy exited with ${code}.`;
-}
-
-/** The models agy offers, or what agy says is in the way — not signed in, say. */
-async function askForModels(exe: string, signal?: AbortSignal): Promise<ModelOption[]> {
-    const lines: string[] = [];
-    const exited = await runAgyCommand(exe, ['models'], {signal, onLine: (line) => lines.push(line)});
-    if (exited.code !== 0) throw new Error(complaint(exited));
-    // One entry per model, with the levels agy lists it at as its effort levels.
-    const models = new Map<string, { name: string; levels: string[] }>();
-    for (const line of lines) {
-        const [id = '', name] = line.split('\t');
-        // A line with no name is agy talking, as "Fetching available models..." is.
-        if (!id || !name) continue;
-        const level = AGY_LEVEL_SUFFIX.exec(id)?.[1];
-        const model = level ? id.slice(0, -level.length - 1) : id;
-        // "Gemini 3.1 Pro (High)" and "Claude Sonnet 5.5 (High)" name the level too.
-        const entry = models.get(model) ?? {
-            name: (level ? name.replace(/\s*\([^)]*\)\s*$/, '') : name).trim(),
-            levels: [],
-        };
-        if (level) entry.levels.push(level);
-        models.set(model, entry);
-    }
-    return [...models].map(([id, {name, levels}]) => ({
-        value: `${AGY_MODEL_PREFIX}${id}`,
-        displayName: `${name} · agy`,
+/** A model agy offers, as the model lists show it: stored as `agy:<id>`. */
+function agyOption(model: AgentModel): ModelOption {
+    return {
+        value: `${AGY_MODEL_PREFIX}${model.id}`,
+        displayName: `${model.label} · agy`,
         description:
-            `${name} through the Antigravity CLI (agy), on its own Google login and quota. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a step that runs commands or writes files cannot run on it.`,
-        effortLevels: levels.sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b)),
+            `${model.label} through the Antigravity CLI (agy), on its own Google login and quota. Each MCP tool a step calls needs a rule in ${AGY_SETTINGS}, and a step that runs commands or writes files cannot run on it.`,
+        effortLevels: model.efforts,
         // agy refuses a model listed by level unless the run names one.
-        effortRequired: levels.length > 0,
-    }));
-}
-
-/** The models agy offers. Empty when agy is not installed or not signed in, never a failure. */
-function listAgyModels(exe: string): Promise<ModelOption[]> {
-    return modelList.get(exe, () => askForModels(exe).catch(() => []));
-}
-
-/** Long enough for `agy models` to ask Google over a slow connection. */
-const STATUS_TIMEOUT_MS = 30_000;
-
-/** Why agy could not be asked, from the error its spawn or `askForModels` ended in. */
-function unreachable(e: unknown, exe: string): string {
-    const error = e as NodeJS.ErrnoException;
-    if (error.name === 'AbortError') return `agy did not answer within ${STATUS_TIMEOUT_MS / 1000} seconds.`;
-    if (error.code !== 'ENOENT') return error.message;
-    // A bare name is what is left when it is in none of the places agy installs itself.
-    return exe === 'agy' ? 'Not installed: not in ~/.local/bin, nor on the PATH.' : `Not found at ${exe}.`;
-}
-
-/** One group of models sharing a quota, as `agy -p /usage --output-format json` answers it. */
-interface QuotaGroup {
-    /** "Gemini Models", "Claude and GPT models". */
-    name?: string;
-    /** "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS". */
-    description?: string;
-    /** `disabled` while another window is used up: "the 5-hour limit does not currently apply". */
-    buckets?: { window?: string; remaining_fraction?: number; reset_time?: string; disabled?: boolean }[];
-}
-
-interface UsageAnswer {
-    command?: { data?: { groups?: QuotaGroup[] } };
-}
-
-/** "Gemini Models" is "Gemini", as what is said of it says it is about models. */
-const groupName = (group: QuotaGroup): string => (group.name ?? 'Models').replace(/\s+models$/i, '');
-
-/** Under this much of a window left, as Settings shows it, the quota is used up. */
-const USED_UP = 0.005;
-
-/** Long enough for `/usage` to answer once agy is signed in; a signed-out agy waits a minute instead. */
-const QUOTA_TIMEOUT_MS = 15_000;
-
-/** The groups `/usage` last answered with, to tell which one a model draws on. */
-let quotaGroups: QuotaGroup[] = [];
-
-/** When each group's quota comes back, by its name, while it is used up. */
-const quotaHeld = new Map<string, number>();
-
-/** The group whose name or models name the model's family: `gemini`, `claude`, `gpt`. */
-function groupOf(groups: QuotaGroup[], model: string): QuotaGroup | undefined {
-    const family = model.slice(AGY_MODEL_PREFIX.length).split('-')[0]?.toLowerCase();
-    if (!family) return undefined;
-    return groups.find((g) => `${g.name ?? ''} ${g.description ?? ''}`.toLowerCase().includes(family));
-}
-
-/** When the quota the model draws on comes back, or 0 when it has some left, as far as agy last said. */
-function heldUntil(model: string): number {
-    const group = groupOf(quotaGroups, model)?.name;
-    const until = (group && quotaHeld.get(group)) || 0;
-    return until > Date.now() ? until : 0;
-}
-
-/** agy's quota as it stands, which also tells `heldUntil` which groups are used up and until when. */
-async function askForQuota(exe: string, signal: AbortSignal): Promise<QuotaGroup[]> {
-    const lines: string[] = [];
-    // Out of any folder of the user's, which agy would otherwise take for a project.
-    const exited = await runAgyCommand(exe, ['-p', '/usage', '--output-format', 'json'], {
-        cwd: tmpdir(),
-        signal,
-        onLine: (line) => lines.push(line),
-    });
-    if (exited.code !== 0) return [];
-    const groups = (JSON.parse(lines.join('\n')) as UsageAnswer).command?.data?.groups ?? [];
-    quotaGroups = groups;
-    for (const group of groups) {
-        if (!group.name) continue;
-        // The latest reset among the windows used up: the quota is back only once each is.
-        const back = (group.buckets ?? [])
-            .filter((b) => typeof b.remaining_fraction === 'number' && b.remaining_fraction < USED_UP)
-            .map((b) => Date.parse(b.reset_time ?? ''))
-            .filter((at) => !Number.isNaN(at));
-        if (back.length > 0) quotaHeld.set(group.name, Math.max(...back));
-        else quotaHeld.delete(group.name);
-    }
-    return groups;
-}
-
-/** agy's windows, the shorter first. */
-const USAGE_WINDOWS: [string, string][] = [['5h', '5 hours'], ['weekly', 'week']];
-
-/**
- * agy's quota for each group of models it offers, as used rather than remaining
- * so it reads like Claude's. Asked only of a signed-in agy: a signed-out one waits
- * a minute for a browser sign-in instead of answering.
- */
-async function askForUsage(exe: string, signal: AbortSignal): Promise<UsageWindow[]> {
-    return (await askForQuota(exe, signal)).flatMap((group) =>
-        USAGE_WINDOWS.flatMap(([window, named]) =>
-            (group.buckets ?? [])
-                .filter((b) => b.window === window && !b.disabled && typeof b.remaining_fraction === 'number')
-                .map((b) => ({
-                    label: `${groupName(group)} · ${named}`,
-                    percentUsed: Math.round((1 - (b.remaining_fraction ?? 1)) * 100),
-                    resetsAt: b.reset_time ?? null,
-                })),
-        ),
-    );
-}
-
-/** What `agy --version` says. */
-async function askForVersion(exe: string, signal: AbortSignal): Promise<string | null> {
-    const said: string[] = [];
-    await runAgyCommand(exe, ['--version'], {signal, onLine: (line) => said.push(line)});
-    return said[0]?.trim() || null;
-}
-
-/** The binary a run would start, its version, whether it is signed in, and its quota. */
-async function agyStatus(exe: string): Promise<AgentStatus> {
-    const base = {id: 'agy', name: 'Antigravity CLI', executable: exe};
-    const timeout = AbortSignal.timeout(STATUS_TIMEOUT_MS);
-    // All three at once, as each takes a second or two. Only a signed-in agy lists
-    // its models, and the quota is asked before that is known, so a model list that
-    // fails stops the quota too, rather than leaving agy waiting on a browser sign-in.
-    const signedOut = new AbortController();
-    const version = askForVersion(exe, timeout);
-    const models = askForModels(exe, timeout);
-    const usage = askForUsage(exe, AbortSignal.any([timeout, signedOut.signal])).catch((): UsageWindow[] => []);
-    try {
-        const [said, offered] = await Promise.all([version, models]);
-        const count = `${offered.length} model${offered.length === 1 ? '' : 's'} on offer`;
-        return {...base, version: said, ready: true, detail: `Signed in · ${count}`, usage: await usage};
-    } catch (e) {
-        signedOut.abort();
-        return {
-            ...base,
-            version: await version.catch(() => null),
-            ready: false,
-            detail: unreachable(e, exe),
-            usage: [],
-        };
-    }
+        effortRequired: model.effortRequired ?? false,
+    };
 }
 
 /**
@@ -500,7 +304,7 @@ function describeTool(info: NonNullable<NonNullable<StreamLine['step_update']>['
     return {label: info.name ?? 'tool', input: params};
 }
 
-async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunResult> {
+async function runAgy(harness: AgentHarness, request: AgentRunRequest): Promise<AgentRunResult> {
     const model = request.model.slice(AGY_MODEL_PREFIX.length);
     // The id `agy models` lists this model at this level by.
     const shown = request.effort ? `${model}-${request.effort}` : model;
@@ -521,6 +325,16 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
             'Make each of the node’s folders read only, or pick a Claude model for this node.',
         );
     }
+
+    const found = harness.locate('agy');
+    // Unavailable rather than failed: a fallback on another agent can still take the step.
+    if (!found) {
+        return {
+            ...fail('agy is not installed: it is neither where its installer puts it nor on the PATH. Set where it is under Settings → Agents.'),
+            unavailable: 'agy is not installed',
+        };
+    }
+    const exe: string = found;
 
     const workspace = await mkdtemp(join(tmpdir(), 'patchbay-agy-'));
     const plugin = join(workspace, '.agents', 'plugins', PLUGIN);
@@ -726,11 +540,10 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
 
         /** Whether the run failed because the model's quota is used up, asked of `/usage` whatever agy said. */
         async function usedUp({result, exited}: Attempt): Promise<string | null> {
-            const asking = [AbortSignal.timeout(QUOTA_TIMEOUT_MS), ...(request.signal ? [request.signal] : [])];
-            await askForQuota(exe, AbortSignal.any(asking)).catch(() => []);
-            const group = groupOf(quotaGroups, request.model);
-            const named = group ? `agy's ${groupName(group)} quota` : `agy's quota for ${model}`;
-            const until = heldUntil(request.model);
+            await harness.usage('agy', {signal: request.signal}).catch(() => []);
+            const group = agyQuotaGroup(model);
+            const named = group ? `agy's ${group} quota` : `agy's quota for ${model}`;
+            const until = harness.heldUntil('agy', model);
             if (until) return `${named} is used up until ${clock(until)}`;
             return QUOTA.test(`${result?.error ?? ''} ${exited?.stderr ?? ''}`) ? `${named} is used up` : null;
         }
@@ -785,14 +598,14 @@ async function runAgy(exe: string, request: AgentRunRequest): Promise<AgentRunRe
 }
 
 /** The models agy offers, for a model stored as `agy:<id>`. */
-export function agyBackend(host: AgentHost): AgentBackend {
-    const exe = (): string => resolveAgyPath(host.agyExecutable());
+export function agyBackend(harness: AgentHarness): AgentBackend {
     return {
         id: 'agy',
         owns: isAgyModel,
-        listModels: () => listAgyModels(exe()),
-        heldUntil,
-        status: () => agyStatus(exe()),
-        run: (request) => runAgy(exe(), request),
+        // None while agy is not installed or not signed in, never a failure.
+        listModels: () => harness.models('agy').then((models) => models.map(agyOption), () => []),
+        heldUntil: (model) => harness.heldUntil('agy', model.slice(AGY_MODEL_PREFIX.length)),
+        status: () => harness.status('agy'),
+        run: (request) => runAgy(harness, request),
     };
 }

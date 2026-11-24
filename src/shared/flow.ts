@@ -1497,11 +1497,6 @@ export function offeredTo<M extends { value: string }>(kind: NodeKind, offered: 
     return takesJev(kind) ? [...offered] : offered.filter((m) => !isJevModel(m.value));
 }
 
-/** The levels `agy --effort` takes, lowest first. */
-export const AGY_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
-/** `agy models` lists a model once per level, as `<id>-<level>`; a run names the two apart. */
-export const AGY_LEVEL_SUFFIX = new RegExp(`-(${AGY_LEVELS.join('|')})$`);
-
 /** Of a model the agents offer, what a new node needs to start on it. */
 export interface OfferedModel {
     value: string;

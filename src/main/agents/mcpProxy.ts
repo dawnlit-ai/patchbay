@@ -13,9 +13,9 @@ import {
     ListToolsRequestSchema,
     ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { withToolPath } from '@dawnlit/agent-harness';
 import { errorMessage } from '@shared/util';
 import { unquoteKeys } from './quotedKeys';
-import { withToolPath } from './toolPath';
 import type { AgentMcpServer } from './types';
 
 /**
