@@ -953,9 +953,16 @@ async function main(): Promise<void> {
     check('deleting flows leaves the skills', existsSync(join(root, 'skills', 'alpha', 'SKILL.md')));
     rmSync(elsewhere, {recursive: true, force: true});
 
-    // One workspace is open at a time, and each has its own flows, skills and runs.
+    // One workspace is open at a time, and each has its own flows, skills, runs and
+    // watermarks: a poll drops the marks of triggers no longer there, and must
+    // not take another workspace's triggers for those.
+    const {watermarkFile} = await import('../src/main/paths');
+    const mark = `${flowId}:${trigger}`;
+    writeFileSync(watermarkFile(), JSON.stringify({[mark]: {seen: ['seen-before'], primed: true, keyedBy: 'entryId'}}));
     const away = mkdtempSync(join(tmpdir(), 'patchbay-mcpcheck-away-'));
     openWorkspace(away);
+    // Nothing is switched on, so it reads no mailbox: it only tidies the marks.
+    await (watcher as unknown as { poll(): Promise<void> }).poll();
     check(
         'another workspace lists only its own flows, skills and schemas',
         (JSON.parse(await call('list_flows')) as unknown[]).length === 0 &&
@@ -969,6 +976,10 @@ async function main(): Promise<void> {
     check(
         'coming back finds them where they were',
         (await call('list_runs', {limit: 50})).includes(first) && (await call('list_flows')).includes(flowId),
+    );
+    check(
+        'and a poll in the other workspace left this one’s watermarks alone',
+        (JSON.parse(readFileSync(watermarkFile(), 'utf8')) as Record<string, { primed?: boolean }>)[mark]?.primed === true,
     );
     rmSync(away, {recursive: true, force: true});
 

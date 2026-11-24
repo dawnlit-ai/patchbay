@@ -214,7 +214,14 @@ export const mcpTrustFile = (): string => join(dataRoot(), 'mcp-trust.json');
 export const mcpSecretsFile = (): string => join(dataRoot(), 'mcp-secrets.json');
 /** The API keys of the agents reached with one, sealed: see keyStore. */
 export const agentKeysFile = (): string => join(dataRoot(), 'agent-keys.json');
-export const watermarkFile = (): string => join(dataRoot(), 'watermarks.json');
+/**
+ * Which emails each workspace's triggers have seen, a file a workspace. A poll
+ * drops the marks of triggers no longer in the open workspace, so one file shared
+ * by every workspace would lose the others' marks whenever one was polled.
+ */
+export const watermarkFile = (): string => join(ensure('watermarks'), `${workspaceKey()}.json`);
+/** The one file every workspace's marks were kept in before each had its own: read only to carry them over. */
+export const sharedWatermarkFile = (): string => join(dataRoot(), 'watermarks.json');
 export const runIndexFile = (): string => join(runsDir(), 'index.jsonl');
 /**
  * The AI monitor's reviews, one JSON line a run, among the runs: they quote the

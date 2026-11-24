@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { watermarkFile } from '../paths';
+import { currentWorkspace, sharedWatermarkFile, watermarkFile } from '../paths';
 import { readJson, writeJson } from '../store/jsonFile';
 import { getFlow, listFlows } from '../store/flowStore';
 import { workspaceSchemas } from '../store/schemaStore';
@@ -425,7 +425,14 @@ export class Watcher {
         if (this.polling) return;
         this.polling = true;
         try {
-            const marks = readJson<Watermarks>(watermarkFile(), {});
+            // Its folder gone, the workspace has no triggers to poll and no marks to drop.
+            if (!currentWorkspace()) return;
+            // Written back to the file read, though another workspace be open by the
+            // time Outlook has answered. A workspace with no file yet picks its marks
+            // up from the one all workspaces shared before each had its own.
+            const marksFile = watermarkFile();
+            const marks =
+                readJson<Watermarks | null>(marksFile, null) ?? readJson<Watermarks>(sharedWatermarkFile(), {});
             let changed = false;
 
             const triggers = this.triggers();
@@ -531,7 +538,7 @@ export class Watcher {
 
             // Persisted before the runs execute: a crash mid-run must not reprocess
             // the same email on the next launch.
-            if (changed) writeJson(watermarkFile(), marks);
+            if (changed) writeJson(marksFile, marks);
             this.lastPollAt = new Date().toISOString();
             this.onStatus();
             this.pump();
