@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { monitorLogFile, runIndexFile, runScratchDir, runsDir } from '../paths';
+import { monitorLogFile, runFilesDir, runIndexFile, runsDir } from '../paths';
 import { appendJsonLine, parseJsonLine, readJson, readJsonLines, writeJson } from './jsonFile';
 import { type MonitorNote, type Run, type RunSummary, toSummary } from '@shared/trace';
 
@@ -86,7 +86,7 @@ export function clearRuns(): void {
 export function removeRun(id: string): void {
     if (!isRunId(id)) throw new Error(`No run with id "${id}".`);
     rmSync(runFile(id), {force: true});
-    rmSync(runScratchDir(id), {recursive: true, force: true});
+    rmSync(runFilesDir(id), {recursive: true, force: true});
     editLines(runIndexFile(), (line) => (parseJsonLine<RunSummary>(line)?.id === id ? null : line));
     editLines(monitorLogFile(), (line) => (parseJsonLine<MonitorNote>(line)?.runId === id ? null : line));
 }
