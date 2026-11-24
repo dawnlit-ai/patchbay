@@ -288,8 +288,18 @@ export interface Api {
          * then the models agy offers.
          */
         models(): Promise<ModelOption[]>;
+        /**
+         * Where a CLI agent — `claude` or `agy` — is found on this computer when Settings names
+         * no path: where its installer puts it, else on the PATH. Null when it is nowhere, and for Jev.
+         */
+        detect(id: AgentId): Promise<string | null>;
         /** One agent's version, sign-in and usage, asked of it now: `claude`, `agy` or `jev`. */
         status(id: string): Promise<AgentStatus>;
+        /**
+         * The status a CLI agent would have at a path typed but not yet saved; empty is the one
+         * found. Not kept as its last status.
+         */
+        test(id: AgentId, path: string): Promise<AgentStatus>;
         /** What the last check of that agent found this session, shown while the next runs. */
         lastStatus(id: string): Promise<AgentStatus | null>;
         /** Where an agent that takes an API key — Jev — finds one now. Never the key itself. */
@@ -483,8 +493,10 @@ export const IPC = {
     outlookSelected: 'outlook:selected',
 
     agentsModels: 'agents:models',
+    agentsDetect: 'agents:detect',
     agentsStatus: 'agents:status',
     agentsLastStatus: 'agents:lastStatus',
+    agentsTest: 'agents:test',
     agentsKeySource: 'agents:keySource',
     agentsSetKey: 'agents:setKey',
 

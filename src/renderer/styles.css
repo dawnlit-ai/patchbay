@@ -1387,6 +1387,23 @@ button.wide {
     opacity: 0.55;
 }
 
+/* An agent's executable as set or found, and the button that unlocks it for editing. */
+.exe-field {
+    display: flex;
+    gap: 8px;
+}
+
+.exe-field button {
+    flex: none;
+    min-width: 64px;
+}
+
+/* Read-only until Edit: on the panel's own ground, so it does not read as a field to type in. */
+.set-page .exe-field input[readonly] {
+    background: var(--panel-2);
+    cursor: default;
+}
+
 /* An agent's state under its executable: a dot, then what it said about itself. */
 .agent-state {
     display: flex;

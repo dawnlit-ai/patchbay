@@ -1,4 +1,4 @@
-import { clock, createAgentHarness } from '@dawnlit/agent-harness';
+import { clock, createAgentHarness, locateAgent } from '@dawnlit/agent-harness';
 import type { AgentStatus, ModelOption } from '@shared/ipc';
 import { AGENT_NAMES } from '@shared/settings';
 import { now } from '@shared/trace';
@@ -28,6 +28,19 @@ export interface Agents {
 
     /** Each switched-on agent's models, in the order Settings lists them, none from one whose CLI is not installed. */
     listModels(): Promise<ModelOption[]>;
+
+    /**
+     * Where a CLI agent is found on this computer when Settings names no path: where
+     * its installer puts it, else on the PATH. Null when it is nowhere, and for an
+     * agent reached with an API key.
+     */
+    detect(id: string): string | null;
+
+    /**
+     * The status a CLI agent would have at `path` — typed but not yet saved; empty
+     * is the one found — without it being kept as the agent's last status.
+     */
+    test(id: string, path: string): Promise<AgentStatus>;
 
     /**
      * One agent's version, sign-in and usage, asked of it now. A check of it
@@ -141,5 +154,10 @@ export function createAgents(host: AgentHost): Agents {
             return check;
         },
         lastStatus: (id) => found.get(id) ?? null,
+        detect: (id) => (id === 'claude' || id === 'agy' ? locateAgent(id) : null),
+        test: (id, path) =>
+            id === 'claude' || id === 'agy'
+                ? harness.test(id, path)
+                : Promise.reject(new Error(`${id} is not an agent with an executable.`)),
     };
 }

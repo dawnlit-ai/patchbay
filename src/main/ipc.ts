@@ -391,8 +391,10 @@ export function registerIpc(): void {
 
     // Each switched-on agent's, in the order Settings lists them; none from one not installed.
     handle(IPC.agentsModels, () => agents.listModels());
+    handle(IPC.agentsDetect, (id: AgentId) => agents.detect(id));
     handle(IPC.agentsStatus, (id: string) => agents.status(id));
     handle(IPC.agentsLastStatus, (id: string) => agents.lastStatus(id));
+    handle(IPC.agentsTest, (id: AgentId, path: string) => agents.test(id, path));
     handle(IPC.agentsKeySource, (id: AgentId) => agentKeySource(id));
     handle(IPC.agentsSetKey, async (id: AgentId, key: string | null) => {
         await setAgentKey(id, key);

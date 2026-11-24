@@ -148,10 +148,11 @@ const edits = (s: Settings): unknown => [
     s.minimizeToTray,
 ];
 
-/** The fields typed into, saved once typing pauses rather than at each key. */
+/**
+ * The fields typed into, saved once typing pauses rather than at each key. An
+ * agent's path is not one: it is saved with its Save button, at once.
+ */
 const typed = (s: Settings): unknown => [
-    s.claudeExecutablePath,
-    s.agyExecutablePath,
     s.agentControl.port,
     s.folders.map((f) => f.name),
     s.windowSizes,
@@ -286,34 +287,218 @@ const AGENT_SCOPES: Partial<Record<AgentId, string>> = {
     jev: ' Only Categorizers are offered them, and each email a Categorizer sorts on one is sent to TypeSafe AI.',
 };
 
-/** The executable setting of each agent that is a CLI on this computer, and what to say about the path. */
-const AGENT_EXECUTABLES: Partial<Record<
-    AgentId,
-    { key: 'claudeExecutablePath' | 'agyExecutablePath'; label: string; description: string }
->> = {
-    claude: {
-        key: 'claudeExecutablePath',
-        label: 'Claude executable',
-        description: "Leave it blank to use the Claude Code installed on this computer. Set a path only if Patchbay can't find it.",
-    },
+/** The executable setting of one agent that is a CLI on this computer. */
+interface AgentExecutable {
+    key: 'claudeExecutablePath' | 'agyExecutablePath';
+    label: string;
+    /** What it is called where the help names it: "Claude Code". */
+    program: string;
+    /** Said after the rest of the help. */
+    more?: string;
+}
+
+/** The executable setting of each agent that is a CLI on this computer. */
+const AGENT_EXECUTABLES: Partial<Record<AgentId, AgentExecutable>> = {
+    claude: {key: 'claudeExecutablePath', label: 'Claude executable', program: 'Claude Code'},
     agy: {
         key: 'agyExecutablePath',
         label: 'Antigravity executable',
-        description:
-            'Leave it blank to use the Antigravity CLI where it installs itself, in ~/.local/bin. Set a path only if it is somewhere else. Its models join the model lists once it is found and signed in.',
+        program: 'the Antigravity CLI',
+        more: ' Its models join the model lists once it is found and signed in.',
     },
 };
+
+/**
+ * What to say about the path: set here, found, being looked for, or nowhere.
+ * `found` is undefined while it is looked for, and null when it is nowhere.
+ */
+function executableHelp({program, more = ''}: AgentExecutable, set: boolean, found: string | null | undefined): string {
+    if (set) return `Set here. Save it empty to go back to finding ${program} on this computer.${more}`;
+    if (found) return `Found on this computer. Edit it only if Patchbay should use another copy of ${program}.${more}`;
+    if (found === null) return `Not found where ${program} installs itself, nor on the PATH. Edit it to say where it is.${more}`;
+    return `Looking for ${program} on this computer…`;
+}
+
+/**
+ * Where an agent's CLI is: the path set here, else the one found on this
+ * computer, read-only until Edit. A path saved empty, or as the one found, is
+ * not kept, so the CLI goes on being found wherever it moves. Detect goes back
+ * to the one found; Test checks the path shown, or one typed before it is saved.
+ */
+function ExecutableRow({
+                           agent,
+                           executable,
+                           value,
+                           onSave,
+                           onCheck,
+                           status,
+                           checking,
+                           off,
+                       }: {
+    agent: AgentId;
+    executable: AgentExecutable;
+    /** The path set in Settings; empty while it is found. */
+    value: string;
+
+    onSave(path: string): void;
+
+    /** Check the agent again, at the path saved. */
+    onCheck(): void;
+
+    status: AgentStatus | undefined;
+    checking: boolean;
+    off: boolean;
+}): JSX.Element {
+    const [found, setFound] = useState<string | null | undefined>(undefined);
+    /** What is typed while editing; null while the path is only shown. */
+    const [editing, setEditing] = useState<string | null>(null);
+    /** What testing a typed path found, kept with the path it was for. */
+    const [tested, setTested] = useState<{ path: string; status: AgentStatus } | null>(null);
+    const [testing, setTesting] = useState(false);
+    /** Why Detect or Test could not do what was asked. */
+    const [note, setNote] = useState<string | null>(null);
+    const input = useRef<HTMLInputElement>(null);
+
+    // Looked for again with each check of the agent: it may have been installed, or moved, since.
+    useEffect(() => {
+        let current = true;
+        void window.api.agents.detect(agent).then((path) => {
+            if (current) setFound(path);
+        });
+        return () => {
+            current = false;
+        };
+    }, [agent, value, status]);
+
+    const shown = value || found || '';
+    const stopEditing = (): void => {
+        setEditing(null);
+        setTested(null);
+    };
+    const edit = (): void => {
+        setNote(null);
+        setEditing(shown);
+        input.current?.focus();
+    };
+    const save = (): void => {
+        const path = (editing ?? '').trim();
+        onSave(path === found ? '' : path);
+        stopEditing();
+    };
+
+    /** Looks again where the CLI installs itself and on the PATH, and goes back to what it finds. */
+    const detect = async (): Promise<void> => {
+        setNote(null);
+        const path = await window.api.agents.detect(agent);
+        setFound(path);
+        if (!path) setNote(`Not found where ${executable.program} installs itself, nor on the PATH.`);
+        else if (editing !== null) setEditing(path);
+        // Saved empty, so it goes on being found; the save checks it again.
+        else if (value) onSave('');
+        else onCheck();
+    };
+
+    /** Checks the path shown, or the one typed, before it is saved. */
+    const test = async (): Promise<void> => {
+        setNote(null);
+        if (editing === null) {
+            onCheck();
+            return;
+        }
+        const path = editing;
+        setTesting(true);
+        try {
+            setTested({path, status: await window.api.agents.test(agent, path)});
+        } catch (e) {
+            setNote(errorMessage(e));
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    // While a typed path is tested, what that found; otherwise the agent as saved.
+    const trying = editing !== null && (testing || tested?.path === editing);
+    const shownStatus = trying ? (tested?.path === editing ? tested.status : undefined) : status;
+
+    return (
+        <Row
+            label="Executable"
+            description={executableHelp(executable, value !== '', found)}
+            below={
+                <>
+                    <div className="exe-field">
+                        <input
+                            ref={input}
+                            className="mono"
+                            aria-label={executable.label}
+                            value={editing ?? shown}
+                            readOnly={editing === null}
+                            placeholder={
+                                editing !== null
+                                    ? 'Empty: found automatically'
+                                    : found === undefined
+                                        ? 'Looking…'
+                                        : 'Not found'
+                            }
+                            onChange={(e) => setEditing(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (editing === null) return;
+                                if (e.key === 'Enter') save();
+                                else if (e.key === 'Escape') stopEditing();
+                            }}
+                        />
+                        <button
+                            title={`Look again where ${executable.program} installs itself, and on the PATH`}
+                            onClick={() => void detect()}
+                        >
+                            Detect
+                        </button>
+                        <button
+                            title={editing === null ? 'Check it again' : 'Check the path typed, before saving it'}
+                            disabled={editing === null ? checking : testing}
+                            onClick={() => void test()}
+                        >
+                            {testing ? 'Testing…' : 'Test'}
+                        </button>
+                        {editing === null ? (
+                            <button onClick={edit}>Edit</button>
+                        ) : (
+                            <button className="primary" onClick={save}>
+                                Save
+                            </button>
+                        )}
+                    </div>
+                    {note && (
+                        <div className="agent-state bad">
+                            <span className="dot"/>
+                            <div>{note}</div>
+                        </div>
+                    )}
+                    <AgentState
+                        status={shownStatus}
+                        checking={trying ? testing : checking}
+                        off={off && !trying}
+                        showExecutable={false}
+                    />
+                </>
+            }
+        />
+    );
+}
 
 /** One agent's state under its executable: found, which version, signed in. */
 function AgentState({
                         status,
                         checking,
                         off,
+                        showExecutable = true,
                     }: {
     status: AgentStatus | undefined;
     checking: boolean;
     /** Switched off as saved, so it is not checked. */
     off: boolean;
+    /** Where it was found, which a field above may show already. */
+    showExecutable?: boolean;
 }): JSX.Element {
     if (!status) {
         return (
@@ -330,7 +515,7 @@ function AgentState({
                 {' — '}
                 {status.detail}
                 {checking && <span className="agent-checking"> · checking again…</span>}
-                {status.executable && <span className="set-from">{status.executable}</span>}
+                {showExecutable && status.executable && <span className="set-from">{status.executable}</span>}
                 <Usage usage={status.usage}/>
             </div>
         </div>
@@ -743,25 +928,15 @@ export function SettingsPanel({
                                                     }
                                                 />
                                                 {executable ? (
-                                                    <Row
-                                                        label="Executable"
-                                                        description={executable.description}
-                                                        below={
-                                                            <>
-                                                                <input
-                                                                    className="mono"
-                                                                    aria-label={executable.label}
-                                                                    value={draft[executable.key]}
-                                                                    placeholder="Found automatically"
-                                                                    onChange={(e) => patch({[executable.key]: e.target.value})}
-                                                                />
-                                                                <AgentState
-                                                                    status={agentStates[agent.id]}
-                                                                    checking={checking[agent.id] === true}
-                                                                    off={!switchedOn.includes(agent.id)}
-                                                                />
-                                                            </>
-                                                        }
+                                                    <ExecutableRow
+                                                        agent={agent.id}
+                                                        executable={executable}
+                                                        value={draft[executable.key]}
+                                                        onSave={(path) => patch({[executable.key]: path})}
+                                                        onCheck={() => void checkAgent(agent.id)}
+                                                        status={agentStates[agent.id]}
+                                                        checking={checking[agent.id] === true}
+                                                        off={!switchedOn.includes(agent.id)}
                                                     />
                                                 ) : (
                                                     <ApiKeyRow
@@ -784,9 +959,9 @@ export function SettingsPanel({
                                     </button>
                                 </div>
                                 <p className="set-note">
-                                    Saved as you change it: a switch or a move at once, a path once you stop
-                                    typing, an API key as soon as it is entered. Each agent is checked again once
-                                    its change is saved.
+                                    Saved as you change it: a switch or a move at once, a path when you save it,
+                                    an API key as soon as it is entered. Each agent is checked again once its
+                                    change is saved.
                                 </p>
 
                                 <header className="set-head set-subhead">

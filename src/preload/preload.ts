@@ -89,8 +89,10 @@ const api: Api = {
     },
     agents: {
         models: () => call(IPC.agentsModels),
+        detect: (id) => call(IPC.agentsDetect, id),
         status: (id) => call(IPC.agentsStatus, id),
         lastStatus: (id) => call(IPC.agentsLastStatus, id),
+        test: (id, path) => call(IPC.agentsTest, id, path),
         keySource: (id) => call(IPC.agentsKeySource, id),
         setKey: (id, key) => call(IPC.agentsSetKey, id, key),
     },

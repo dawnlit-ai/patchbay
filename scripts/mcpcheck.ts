@@ -979,7 +979,9 @@ async function main(): Promise<void> {
     );
     check(
         'and a poll in the other workspace left this one’s watermarks alone',
-        (JSON.parse(readFileSync(watermarkFile(), 'utf8')) as Record<string, { primed?: boolean }>)[mark]?.primed === true,
+        (JSON.parse(readFileSync(watermarkFile(), 'utf8')) as Record<string, {
+            primed?: boolean
+        }>)[mark]?.primed === true,
     );
     rmSync(away, {recursive: true, force: true});
 
