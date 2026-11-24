@@ -1070,7 +1070,14 @@ async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<
         return {outPort: 'error', summary: message, error: message, provided: handOn({why: message})};
     }
 
-    let result: { folderPath: string; folderCreated: boolean; moved: number; failed: { error: string }[] };
+    let result: {
+        folderPath: string;
+        folderCreated: boolean;
+        moved: number;
+        /** Optional: a bridge built before it said so gives none. */
+        movedEmails?: { entryId: string; newEntryId: string }[];
+        failed: { error: string }[];
+    };
     try {
         result = await outlook.moveEmail(ctx.email.ref, moveFolderPath(ctx.email.ref.account, folder));
     } catch (e) {
@@ -1090,11 +1097,18 @@ async function runMoveEmail(ctx: NodeContext, config: MoveEmailConfig): Promise<
 
     const where = result.folderPath || folder;
     const created = result.folderCreated ? ' (folder created)' : '';
+    // Filing rewrites the email's id, so the steps after this one, and a rerun of
+    // this run, reach it by the id it has now.
+    const newId = result.movedEmails?.find((m) => m.entryId === ctx.email.ref.entryId)?.newEntryId;
     ctx.email.ref.folderPath = where;
+    if (newId) ctx.email.ref.entryId = newId;
     ctx.onEvent({
         at: now(),
         type: 'outlook',
         label: `move_email → ${where}${created}`,
+        detail: newId
+            ? undefined
+            : 'Outlook did not say which message the email became in that folder, so a later step that reads, replies to or files it may not find it there.',
     });
     const why = `Moved to ${where}${created}`;
     return {

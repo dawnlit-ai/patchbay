@@ -178,6 +178,9 @@ that way the next time the flow is saved.
 Give it an **output slot** and both *Moved* and *Error* fill it with `moved`, the `folder` Outlook filed the email into,
 `folderCreated` and `why`.
 
+Outlook gives an email a new id when it files it, and the run follows the email to it, so a step after a Move email —
+a Create email replying to it, or a Processor reading it — finds it in the folder it was filed in, as does a rerun.
+
 On a Mac, Outlook ignores a scripted move for a Microsoft 365 mailbox it syncs through Microsoft's cloud. Patchbay then
 files the email through Outlook's own *Message → Move → Choose Folder…*: Outlook comes to the front for a moment, the
 email is opened, and so marked read, and whatever was in front is put back. For that, Patchbay needs **Accessibility**
