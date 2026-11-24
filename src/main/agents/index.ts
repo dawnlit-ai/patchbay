@@ -113,7 +113,13 @@ export function createAgents(host: AgentHost): Agents {
             const listing = backends
                 .filter(switchedOn)
                 .toSorted((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-            return (await Promise.all(listing.map((b) => b.listModels()))).flat();
+            // One agent that cannot answer leaves the others' models listed. Only
+            // when none come back at all is its failure what the window shows.
+            const lists = await Promise.allSettled(listing.map((b) => b.listModels()));
+            const models = lists.flatMap((list) => (list.status === 'fulfilled' ? list.value : []));
+            const failed = lists.find((list) => list.status === 'rejected');
+            if (models.length === 0 && failed) throw failed.reason;
+            return models;
         },
         status: (id) => {
             const under = checking.get(id);

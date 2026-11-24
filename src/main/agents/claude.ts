@@ -94,17 +94,18 @@ async function askForModels(exe: string): Promise<ModelOption[]> {
     }));
 }
 
+/** Long enough for Claude Code's first start after it has updated itself. */
+const STATUS_TIMEOUT_MS = 30_000;
+
 /**
  * The models the Claude login offers, asked of the CLI so the list never goes stale.
- * None while Claude Code is not installed, so the other agents' models still list.
+ * None while Claude Code is not installed, so the other agents' models still list;
+ * a CLI that never answers fails in time rather than holding every list up.
  */
 function listModels(exe: string | null): Promise<ModelOption[]> {
     if (!exe) return Promise.resolve([]);
-    return modelList.get(exe, () => askForModels(exe));
+    return modelList.get(exe, () => within(askForModels(exe), 'Claude Code'));
 }
-
-/** Long enough for Claude Code's first start after it has updated itself. */
-const STATUS_TIMEOUT_MS = 30_000;
 
 function within<T>(promise: Promise<T>, what: string): Promise<T> {
     let timer: NodeJS.Timeout | undefined;
